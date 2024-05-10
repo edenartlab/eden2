@@ -1,0 +1,83 @@
+name: Text to Video
+description: Generate a video from text
+llm_tip: Use this to make videos from text prompts. It's better to use this instead of lerp because it doesn't use AnimateDiff.
+comfyui_output_node_id: 9
+parameters:
+- name: prompt
+  label: Prompt
+  description: Text prompt
+  type: string
+  required: true
+  comfyui: 
+    node_id: 6
+    field: inputs
+    subfield: text
+- name: negative_prompt
+  label: Negative prompt
+  description: Negative text prompt, what you do *not* want to generate
+  type: string
+  default: ugly, watermark, low-quality, signature, padding, margins, jpeg artifacts, poorly drawn, low-resolution, bad
+  optional: true
+  comfyui: 
+    node_id: 7
+    field: inputs
+    subfield: text
+- name: width
+  label: Width
+  description: Width in pixels
+  type: int
+  default: 896
+  minimum: 256
+  maximum: 2048
+  step: 8
+  comfyui: 
+    node_id: 5
+    field: inputs
+    subfield: width
+- name: height
+  label: Height
+  description: Height in pixels
+  type: int
+  default: 512
+  minimum: 256
+  maximum: 2048
+  step: 8
+  comfyui: 
+    node_id: 5
+    field: inputs
+    subfield: height
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set randomly.
+  type: int
+  default: random
+  minimum: 0
+  maximum: 10000000000000000
+  optional: true
+  comfyui: 
+    node_id: 3
+    field: inputs
+    subfield: seed
+- name: input_image
+  label: Input image
+  description: Image to use as a starting point
+  type: image
+  default: null
+  optional: true
+  comfyui: 
+    node_id: 17
+    field: inputs
+    subfield: image
+- name: model
+  label: Model
+  description: Which base model or finetune to use for generation.
+  type: string
+  choices:
+  - sdxl2
+  - Juggernaut
+  - photon10
+  default: Juggernaut
+  comfyui: 
+    node_id: 4
+    field: inputs
+    subfield: text
