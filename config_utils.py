@@ -17,7 +17,6 @@ TYPE_MAPPING = {
     'zip': str
 }
 
-
 class ParameterType(str, Enum):
     BOOL = "boolean"
     INT = "int"
@@ -157,28 +156,22 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
     return (field_type, Field(**field_kwargs))
             
 
+def test():
 
+    endpoint_names = ["txt2img", "txt2vid_lcm"]
 
+    endpoints = {}
+    for endpoint in endpoint_names:
+        with open(f"{endpoint}.yaml", "r") as f:
+            data = yaml.safe_load(f)
+            endpoints[endpoint] = Endpoint(data)
 
-
-
-
-
-
-endpoint_names = ["txt2img", "txt2vid_lcm"]
-
-endpoints = {}
-for endpoint in endpoint_names:
-    with open(f"{endpoint}.yaml", "r") as f:
-        data = yaml.safe_load(f)
-        endpoints[endpoint] = Endpoint(data)
-
-        # Instantiate the model
-        EndpointModel = endpoints[endpoint].BaseModel
-        try:
-            instance = EndpointModel(
-                prompt="Sample prompt", 
-            )
-            print(instance)
-        except Exception as e:
-            print(f"An error occurred: {e}")
+            # Instantiate the model
+            EndpointModel = endpoints[endpoint].BaseModel
+            try:
+                instance = EndpointModel(
+                    prompt="Sample prompt", 
+                )
+                print(instance)
+            except Exception as e:
+                print(f"An error occurred: {e}")

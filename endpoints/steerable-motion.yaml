@@ -1,0 +1,17 @@
+name: Real2Real
+description: Create a video from a sequence of images
+tip: This will create a video from a sequence of images
+comfyui_output_node_id: 281
+parameters:
+- name: images
+  label: Images
+  description: Keyframe images to interpolate video through
+  type: image[]
+  media_upload: image/png, image/jpeg, image/webp
+  min_length: 2
+  max_length: 10
+  comfyui: 
+    node_id: 636
+    field: inputs
+    subfield: folder
+    preprocessing: folder
