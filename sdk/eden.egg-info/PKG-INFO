@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: eden
+Version: 0.1.0
+Summary: Client library for making authenticated requests to API
+Home-page: https://github.com/yourgithubrepo
+Author: Your Name
+Author-email: your.email@example.com

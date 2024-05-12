@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-snapshots = ["txt2img", "txt2vid_lcm", "steerable-motion", "img2vid"]
+snapshots = ["txt2img", "txt2vid_lcm", "steerable_motion", "img2vid"]
 
 app = modal.App(
     name="eden-comfyui",

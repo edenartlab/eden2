@@ -157,7 +157,6 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
             
 
 def test():
-
     endpoint_names = ["txt2img", "txt2vid_lcm"]
 
     endpoints = {}

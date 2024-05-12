@@ -1,0 +1,8 @@
+setup.py
+eden/__init__.py
+eden/client.py
+eden.egg-info/PKG-INFO
+eden.egg-info/SOURCES.txt
+eden.egg-info/dependency_links.txt
+eden.egg-info/requires.txt
+eden.egg-info/top_level.txt
