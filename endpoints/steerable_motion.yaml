@@ -7,7 +7,6 @@ parameters:
   label: Images
   description: Keyframe images to interpolate video through
   type: image[]
-  media_upload: image/png, image/jpeg, image/webp
   min_length: 2
   max_length: 10
   comfyui: 
