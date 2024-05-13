@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 snapshots = ["txt2img", "txt2vid_lcm", "steerable_motion", "img2vid"]
+# snapshots = ["txt2img"]
 
 app = modal.App(
     name="eden-comfyui",
@@ -39,7 +40,7 @@ for snapshot in snapshots:
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
         .run_commands(
-            "pip install git+https://github.com/edenartlab/comfyui_service",
+            "echo 12345 && pip install git+https://github.com/edenartlab/comfyui_service",
         )
         .copy_local_dir("snapshots", remote_path="/root/snapshots")
         .copy_local_dir("workflows", remote_path="/root/workflows")
@@ -100,17 +101,20 @@ for snapshot in snapshots:
 #     if request.client_id is None:
 #         client_id = str(uuid.uuid4())
 
-#     endpoint_file = f"endpoints/{request.workflow}.yaml"
 #     workflow_file = f"workflows/{request.workflow}.json"
+#     endpoint_file = f"endpoints/{request.workflow}.yaml"
 
 #     comfyui = ComfyUIServers[request.workflow]
+
 #     result = comfyui.run.remote(
 #         workflow_file, 
 #         endpoint_file,
 #         request.config, 
 #         client_id
 #     )
+
 #     return result
+    
 
 # @app.function(image=image)
 # @modal.asgi_app()

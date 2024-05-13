@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eden"
+version = "0.1.1"
+authors = [
+    { name = "Eden.art", email = "gene@eden.art" }
+]
+description = "Client library Eden"
+readme = "README.md"
+license = { file = "LICENSE" }
+repository = "https://github.com/edenartlab/eden2"
+dependencies = [
+    "requests>=2.25.1",
+    "rich==13.7.1"
+]

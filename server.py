@@ -1,36 +1,21 @@
 import os
-import jwt
 import json
-import httpx
 import uuid
 import modal
 import asyncio
+import fastapi
+from fastapi import FastAPI, WebSocket, status, Request, Response, HTTPException, Depends
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from functools import wraps
-import fastapi
-from fastapi import FastAPI, WebSocket, status, Request, Response, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 from pydantic import BaseModel
 
-
-from mongo import connect
-
-"""
-- proper auth error handling
-- config error handling
-- check manna
-- if job fails, refund manna
-
-"""
-
-
+from auth import authenticate, authenticate_ws
 
 snapshots = ["txt2img", "txt2vid_lcm", "steerable_motion", "img2vid"]
 
 web_app = FastAPI()
-
 
 class WorkflowRequest(BaseModel):
     workflow: str
@@ -38,64 +23,10 @@ class WorkflowRequest(BaseModel):
     client_id: Optional[str] = None
 
 
-def get_auth_credentials(headers: dict):
-    token = headers.get("Authorization")
-    api_key = headers.get("X-Api-Key")
-    
-    db = mongo.connect()
-    print(db)
-
-    if token:
-        print("get token")
-        token = token.split(" ")[1]  # Extract the token part from "Bearer <token>"
-        print("THE TOKEN IS:")
-
-        print(token)
-        # print(JWTBearer.CLERK_PEM_PUBLIC_KEY)
-        try:
-            CLERK_PEM_PUBLIC_KEY = os.environ.get("CLERK_PEM_PUBLIC_KEY")
-            decoded_token = jwt.decode(token, CLERK_PEM_PUBLIC_KEY, algorithms=["RS256"])
-            user_id = decoded_token.get("sub")
-            print("THE USER ID")
-            db = mongo.connect()
-            user = db["users"].find_one({"userId": user_id})
-            print(user)
-            #user = get_user(userId)
-            print("OK!!!")
-            if user:
-                return user
-            else:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        except jwt.ExpiredSignatureError:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Expired Token")
-        except jwt.InvalidTokenError:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Token")
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
-    
-    elif api_key:
-        db = mongo.connect()
-        api_key = db["apikeys"].find_one({"apiKey": api_key})
-        if api_key:
-            user = db["users"].find_one({"_id": ObjectId(api_key["user"])})
-            return user
-        else:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
-    
-    else:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authentication")
-
-def auth_user_post(request: Request):
-    return get_auth_credentials(request.headers)
-
-async def auth_user_websocket(websocket: WebSocket):
-    return get_auth_credentials(websocket.headers)
-
-
 @web_app.post("/tasks/create")
-def create(
+async def create(
     request: WorkflowRequest,
-    user: dict = Depends(auth_user_post)
+    user: dict = Depends(authenticate)
 ):
     if request.workflow not in snapshots:
         raise HTTPException(status_code=400, detail="Invalid workflow")
@@ -106,8 +37,12 @@ def create(
     comfyui = f"ComfyUIServer_{request.workflow}"
     cls = modal.Cls.lookup("eden-comfyui", comfyui)
 
+    workflow_file = f"workflows/{request.workflow}.json"
+    endpoint_file = f"endpoints/{request.workflow}.yaml"
+    
     task = cls().run.spawn(
-        request.workflow, 
+        workflow_file,
+        endpoint_file,
         request.config, 
         client_id
     )
@@ -116,9 +51,9 @@ def create(
 
 
 @web_app.post("/tasks/run")
-def run(
+async def run(
     request: WorkflowRequest,
-    user: dict = Depends(auth_user_post)
+    user: dict = Depends(authenticate)
 ):
     if request.workflow not in snapshots:
         raise HTTPException(status_code=400, detail="Invalid workflow")
@@ -129,8 +64,12 @@ def run(
     comfyui = f"ComfyUIServer_{request.workflow}"
     cls = modal.Cls.lookup("eden-comfyui", comfyui)
 
+    workflow_file = f"workflows/{request.workflow}.json"
+    endpoint_file = f"endpoints/{request.workflow}.yaml"
+
     result = cls().run.remote(
-        request.workflow, 
+        workflow_file,
+        endpoint_file,
         request.config, 
         client_id
     )
@@ -139,30 +78,21 @@ def run(
 
 
 @web_app.websocket("/ws/tasks/run")
-async def websocket_endpoint(
-    websocket: WebSocket, 
-    user: str = Depends(auth_user_websocket)
-):
-    print("THE IUSER IOS !!!" )
-    print(user)
-
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="There IS NO USER")
-
+async def websocket_endpoint(websocket: WebSocket, user: dict = Depends(authenticate_ws)):
     await websocket.accept()
-    while True:
-        try:
-            request_json = await websocket.receive_json()
-            #request = WorkflowRequest(**request_json)
-            #result = run(request, user)
-            result = {"status": "running"}
+    try:
+        while True:
+            data = await websocket.receive_json()
+            request = WorkflowRequest(**data)
+            result = await run(request, user)
             await websocket.send_json(json.dumps(result))
-        except WebSocketDisconnect:
-            print("WebSocket connection closed by the client.")
-            break
-        except Exception as e:
-            print(f"WebSocket error: {e}")
-            break
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        if websocket.application_state == WebSocketState.CONNECTED:
+            await websocket.close()
 
 
 @web_app.get("/task/{task_id}")
@@ -193,8 +123,11 @@ image = (
 )
 
 with image.imports():
+    import os
     import mongo
     from bson.objectid import ObjectId
+    CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
+
 
 @app.function(image=image)
 @modal.asgi_app()
@@ -205,11 +138,14 @@ def fastapi_app():
 
 """
 X check token security
-    - abstract token
-    - clerk auth
+    x abstract token
+    x clerk auth
+- task_id + polling + SSE + client library 
+- sdk library
+
+
 - check if user has manna + withdraw
 - updating mongo
-- task_id + polling + SSE + client library 
 - send back current generators + update
 
 """
@@ -262,5 +198,16 @@ time curl -X GET \
   "https://edenartlab--eden-server-fastapi-app-dev.modal.run/result/fc-01HXMP1JR6SE6A6Z12KD40HC0D" \
   -H "accept: application/json" \
   -H "Content-Type: application/json" 
+
+"""
+
+
+
+
+"""
+x proper auth error handling
+- config error handling
+- check manna
+- if job fails, refund manna
 
 """

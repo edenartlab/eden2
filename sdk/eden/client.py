@@ -51,4 +51,3 @@ class EdenClient:
             json_result = json.loads(response)
             self.console.print("[cyan]Completed:", json_result)
             return json_result
-
