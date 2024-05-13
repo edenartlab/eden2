@@ -16,7 +16,6 @@ parameters:
   description: Negative text prompt, what you do *not* want to generate
   type: string
   default: ugly, watermark, low-quality, signature, padding, margins, blurry, jpeg artifacts, poorly drawn, low-resolution, bad  
-  optional: true
   comfyui: 
     node_id: 291
     field: inputs
@@ -53,7 +52,6 @@ parameters:
   minimum: 4
   maximum: 60
   step: 1
-  optional: true
   comfyui: 
     node_id: 329
     field: inputs
@@ -65,7 +63,6 @@ parameters:
   default: random
   minimum: 0
   maximum: 10000000000000000
-  optional: true
   comfyui: 
     node_id: 273
     field: inputs
