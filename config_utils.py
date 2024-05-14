@@ -89,8 +89,9 @@ class Endpoint(BaseModel):
             param.name: get_field_type_and_kwargs(param) 
             for param in self.parameters
         }
+
         EndpointModel = create_model(
-            f'{endpoint}_Model',
+            f'{self.name.replace(" ", "_")}_Model',
             __base__=EndpointBaseModel, 
             **fields
         )
@@ -163,7 +164,7 @@ def test():
     for endpoint in endpoint_names:
         with open(f"{endpoint}.yaml", "r") as f:
             data = yaml.safe_load(f)
-            endpoints[endpoint] = Endpoint(data)
+            endpoints[endpoint] = Endpoint(data, endpoint)
 
             # Instantiate the model
             EndpointModel = endpoints[endpoint].BaseModel
