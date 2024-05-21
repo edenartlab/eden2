@@ -1,13 +1,14 @@
-from pydantic import BaseModel, create_model, Field, validator, constr, conint, confloat
-from typing import Any, Dict, List, Optional, Union, Type
-from enum import Enum
+import os
 import yaml
-import json
 import random
+from enum import Enum
+from typing import Any, Dict, List, Optional, Type
+from pydantic import BaseModel, Field, create_model
+from instructor.function_calls import openai_schema
 
 
 TYPE_MAPPING = {
-    'boolean': bool,
+    'bool': bool,
     'string': str,
     'int': int,
     'float': float,
@@ -17,9 +18,8 @@ TYPE_MAPPING = {
     'zip': str
 }
 
-
 class ParameterType(str, Enum):
-    BOOL = "boolean"
+    BOOL = "bool"
     INT = "int"
     FLOAT = "float"
     STRING = "string"
@@ -27,7 +27,7 @@ class ParameterType(str, Enum):
     VIDEO = "video"
     AUDIO = "audio"
     ZIP = "zip"
-    BOOL_ARRAY = "boolean[]"
+    BOOL_ARRAY = "bool[]"
     INT_ARRAY = "int[]"
     FLOAT_ARRAY = "float[]"
     STRING_ARRAY = "string[]"
@@ -35,6 +35,9 @@ class ParameterType(str, Enum):
     VIDEO_ARRAY = "video[]"
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
+
+FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO, ParameterType.ZIP]
+FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.ZIP_ARRAY]
 
 
 class ComfyUIInfo(BaseModel):
@@ -45,44 +48,33 @@ class ComfyUIInfo(BaseModel):
 
 
 class EndpointParameter(BaseModel):
-    """
-    Endpoint parameter class model
-    """
-
-    type: ParameterType = Field(..., description="Parameter type")
-    name: str = Field(..., description="Parameter name")
-    label: str = Field(..., description="Human-readable parameter name")
-    description: str = Field(..., description="Short description of parameter")
-    tip: Optional[str] = Field(None, description="Tips for user or LLM to use this parameter")
-    # required: Optional[bool] = Field(False, description="Parameter required as input")
+    name: str
+    label: str
+    description: str = Field(None, description="Human-readable description of what parameter does")
+    tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
+    type: ParameterType
     default: Optional[Any] = Field(None, description="Default value")
-    minimum: Optional[int] = Field(None, description="Minimum value")
-    maximum: Optional[int] = Field(None, description="Maximum value")
-    min_length: Optional[int] = Field(None, description="Minimum length of array")
-    max_length: Optional[int] = Field(None, description="Maximum length of array")
+    minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
+    maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
+    min_length: Optional[int] = Field(None, description="Minimum length for array type")
+    max_length: Optional[int] = Field(None, description="Maximum length for array type")
     choices: Optional[List[Any]] = Field(None, description="Allowed values")
-    comfyui: Optional[ComfyUIInfo] = Field(None, description="ComfyUI info")
+    comfyui: Optional[ComfyUIInfo] = Field(None)
 
 
-class EndpointBaseModel(BaseModel):
-    def __str__(self):
-        return json.dumps(self.dict(), indent=4)
-
+import modal
 
 class Endpoint(BaseModel):
-    """
-    Endpoint class model
-    """
-
-    name: str = Field(..., description="Endpoint name")
-    description: str = Field(..., description="Endpoint description")
-    tip: Optional[str] = Field(None, description="A tip to help the user understand what this endpoint does")
+    key: str
+    name: str
+    description: str = Field(..., description="Human-readable description of what the endpoint does")
+    tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this endpoint")
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     parameters: List[EndpointParameter]
     BaseModel: BaseModel = None
 
-    def __init__(self, data):
-        super().__init__(**data)
+    def __init__(self, data, key):
+        super().__init__(**data, key=key)
         self.BaseModel = self.create_endpoint_model()
 
     def create_endpoint_model(self):
@@ -91,14 +83,14 @@ class Endpoint(BaseModel):
             for param in self.parameters
         }
         EndpointModel = create_model(
-            f'{endpoint}_Model',
-            __base__=EndpointBaseModel, 
+            self.key,
+            __doc__=f'{self.description}. {self.tip}.',
             **fields
         )
         return EndpointModel
 
     def summary(self, include_params=True):
-        summary = f"{self.name}: {self.description}."
+        summary = f'"{self.key}" : {self.name} - {self.description}.'
         if self.tip:
             summary += f" {self.tip}."
         if include_params:
@@ -113,12 +105,35 @@ class Endpoint(BaseModel):
                 summary += f" {param.tip}."
         return summary
 
+    def tool_schema(self):
+        return {
+            "type": "function",
+            "function": openai_schema(self.BaseModel).openai_schema
+        }
+    
+    async def execute(self, workflow: str, config: dict):
+        #return {"urls": ["https://www.example.com/image1.jpg"]}
+        comfyui = f"ComfyUIServer_{workflow}"
+        cls = modal.Cls.lookup("comfyui", comfyui)
+        print(workflow)
+        print(cls)
+        workflow_file = f"workflows/{workflow}.json"
+        endpoint_file = f"endpoints/{workflow}.yaml"
+
+        result = await cls().run.remote.aio(
+            workflow_file,
+            endpoint_file,
+            config, 
+            "client_id"
+        )
+
+        print(result)
+
+        return result
+        # print(self.tool_schema())
+
 
 def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]):
-    """
-    Helper method to convert yaml description of endpoint parameter to pydantic field
-    """
-
     field_kwargs = {
         'description': param.description,
     }
@@ -157,28 +172,25 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
     return (field_type, Field(**field_kwargs))
             
 
+endpoint_names = sorted([
+    f.replace(".yaml", "") 
+    for f in os.listdir("endpoints") if f.endswith(".yaml")
+])
 
+tools = {}
+endpoint_summary = ""
 
-
-
-
-
-
-
-endpoint_names = ["txt2img", "txt2vid_lcm"]
-
-endpoints = {}
-for endpoint in endpoint_names:
-    with open(f"{endpoint}.yaml", "r") as f:
+for endpoint_name in endpoint_names:
+    with open(f"endpoints/{endpoint_name}.yaml", "r") as f:
         data = yaml.safe_load(f)
-        endpoints[endpoint] = Endpoint(data)
+    tool = Endpoint(data, key=endpoint_name)    
+    tools[endpoint_name] = tool
+    endpoint_summary += f"{tool.summary(include_params=False)}\n"
 
-        # Instantiate the model
-        EndpointModel = endpoints[endpoint].BaseModel
-        try:
-            instance = EndpointModel(
-                prompt="Sample prompt", 
-            )
-            print(instance)
-        except Exception as e:
-            print(f"An error occurred: {e}")
+snapshots = [
+    "txt2img", 
+    "txt2vid_lcm", 
+    "img2vid", 
+    "vid2vid",
+    "style_mixing"
+]

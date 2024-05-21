@@ -1,25 +1,23 @@
 name: Text to Video
 description: Generate a video from text
-llm_tip: Use this to make videos from text prompts. It's better to use this instead of lerp because it doesn't use AnimateDiff.
-comfyui_output_node_id: 9
+tip: Use this to make videos from text prompts. It's better to use this instead of lerp because it doesn't use AnimateDiff.
+comfyui_output_node_id: 329
 parameters:
 - name: prompt
   label: Prompt
   description: Text prompt
   type: string
-  required: true
   comfyui: 
-    node_id: 6
+    node_id: 290
     field: inputs
     subfield: text
 - name: negative_prompt
   label: Negative prompt
   description: Negative text prompt, what you do *not* want to generate
   type: string
-  default: ugly, watermark, low-quality, signature, padding, margins, jpeg artifacts, poorly drawn, low-resolution, bad
-  optional: true
+  default: ugly, watermark, low-quality, signature, padding, margins, blurry, jpeg artifacts, poorly drawn, low-resolution, bad  
   comfyui: 
-    node_id: 7
+    node_id: 291
     field: inputs
     subfield: text
 - name: width
@@ -31,7 +29,7 @@ parameters:
   maximum: 2048
   step: 8
   comfyui: 
-    node_id: 5
+    node_id: 321
     field: inputs
     subfield: width
 - name: height
@@ -43,9 +41,21 @@ parameters:
   maximum: 2048
   step: 8
   comfyui: 
-    node_id: 5
+    node_id: 321
     field: inputs
     subfield: height
+- name: frame_rate
+  label: Frame rate
+  description: Video frames per second
+  type: int
+  default: 20
+  minimum: 4
+  maximum: 60
+  step: 1
+  comfyui: 
+    node_id: 329
+    field: inputs
+    subfield: frame_rate
 - name: seed
   label: Seed
   description: Set random seed for reproducibility. If blank, will be set randomly.
@@ -53,31 +63,7 @@ parameters:
   default: random
   minimum: 0
   maximum: 10000000000000000
-  optional: true
   comfyui: 
-    node_id: 3
+    node_id: 273
     field: inputs
-    subfield: seed
-- name: input_image
-  label: Input image
-  description: Image to use as a starting point
-  type: image
-  default: null
-  optional: true
-  comfyui: 
-    node_id: 17
-    field: inputs
-    subfield: image
-- name: model
-  label: Model
-  description: Which base model or finetune to use for generation.
-  type: string
-  choices:
-  - sdxl2
-  - Juggernaut
-  - photon10
-  default: Juggernaut
-  comfyui: 
-    node_id: 4
-    field: inputs
-    subfield: text
+    subfield: noise_seed

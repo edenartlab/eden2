@@ -1,6 +1,6 @@
 name: Text to Image
 description: Generate an image from text
-llm_tip: This is the most basic and common function which generates an image from text a prompt
+tip: This is the most basic and common function which generates an image from text a prompt
 comfyui_output_node_id: 9
 parameters:
 - name: prompt
