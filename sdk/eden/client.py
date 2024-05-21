@@ -10,8 +10,8 @@ from typing import Dict, Any, Optional
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app-dev.modal.run"
-
+#DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app-dev.modal.run"
+DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app.modal.run"
 
 class WorkflowRequest(BaseModel):
     workflow: str
