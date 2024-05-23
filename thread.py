@@ -9,17 +9,19 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
+from instructor.function_calls import openai_schema
 from endpoint import tools, endpoint_summary
+
 
 default_system_message = (
     "You are an assistant who is an expert at using Eden. "
-    "You have the following tools available to you. "
-    "\n\n{endpoint_summary}."
-    "\n\nIf the user clearly wants you to make something, select one of the tools. "
-    "If you are not sure, or the user is just making chat with you or asking a question, leave the tool null and just respond through the chat message. "
-    "If you're not sure, you can leave it blank and ask the user for clarification or confirmation. "
+    "You have the following tools available to you: "
+    "\n\n---\n{endpoint_summary}\n---"
+    "\n\nIf the user clearly wants you to make something, select exactly ONE of the tools. Do NOT select multiple tools. Do NOT hallucinate any tool, especially do not use 'multi_tool_use' or 'multi_tool_use.parallel.parallel'. Only tools allowed: {tool_names}." 
+    "If the user is just making chat with you or asking a question, leave the tool null and just respond through the chat message. "
+    "If you're not sure of the user's intent, you can select no tool and ask the user for clarification or confirmation. " 
     "Look through the whole conversation history for clues as to what the user wants. If they are referencing previous outputs, make sure to use them."
-)
+).format(endpoint_summary=endpoint_summary, tool_names=', '.join(tools.keys()))
 
 
 class PyObjectId(ObjectId):
@@ -221,46 +223,69 @@ class Thread(MongoBaseModel):
         
         response = await maybe_use_tool(
             self.get_chat_messages(system_message=system_message),
-            tools=[t.tool_schema() for t in tools.values()]
+            tools=[
+                {
+                    "type": "function",
+                    "function": openai_schema(t.BaseModel).openai_schema  # maybe put this back in endpoint.py
+                }
+                for t in tools.values()
+            ]
         )
         message = response.choices[0].message
-        assistant_message = AssistantMessage(**message.model_dump())
+        tool_calls = message.tool_calls
         
+        if not tool_calls:
+            assistant_message = AssistantMessage(**message.model_dump())
+            self.add_message(assistant_message)
+            yield assistant_message
+            return
+
+        tool_name = tool_calls[0].function.name
+        args = json.loads(tool_calls[0].function.arguments)
+        
+        tool = tools.get(tool_name)
+        if tool is None:
+            raise Exception(f"Tool {tool_name} not found")
+
+        args = {k: v for k, v in args.items() if v is not None}
+        updated_args = tools[tool_name].BaseModel(**args).model_dump() 
+        message.tool_calls[0].function.arguments = json.dumps(updated_args)
+
+        assistant_message = AssistantMessage(**message.model_dump())
         self.add_message(assistant_message)
         yield assistant_message
         
-        tool_calls = message.tool_calls
-        if tool_calls:
-            tool_name = tool_calls[0].function.name
-            args = json.loads(tool_calls[0].function.arguments)
-            tool = tools[tool_name]
-            result = await tool.execute(
-                workflow=tool_name, 
-                config=args
-            )
-            content = result.get("urls")
-            if isinstance(content, list):
-                content = ", ".join(content)
-            tool_message = ToolMessage(
-                name=tool_calls[0].function.name,
-                tool_call_id=tool_calls[0].id,
-                content=content
-            )
-            self.add_message(tool_message)
-            yield tool_message
+        result = await tool.execute(
+            workflow=tool_name, 
+            config=updated_args
+        )
+        content = result.get("urls")
+        # todo: check for errors
+        if isinstance(content, list):
+            content = ", ".join(content)
+
+        tool_message = ToolMessage(
+            name=tool_calls[0].function.name,
+            tool_call_id=tool_calls[0].id,
+            content=content
+        )
+
+        self.add_message(tool_message)
+        yield tool_message
 
 
 async def maybe_use_tool(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
-    model: str = "gpt-4-1106-preview",
+    model: str = "gpt-3.5-turbo",
 ) -> List[ChatMessage]:
-    client = instructor.from_openai(openai.AsyncOpenAI())
+    client = instructor.from_openai(openai.AsyncOpenAI(), mode=instructor.Mode.TOOLS)
     response = await client.chat.completions.create(
         model=model,
         response_model=None,
         tools=tools,
         messages=messages,
+        max_retries=2,
     )
     return response
 
@@ -278,7 +303,7 @@ def preprocess_message(message):
     return clean_message, metadata, attachments
 
 
-def interactive_chat():
+async def interactive_chat():
     session = Thread(system_message=default_system_message)
     while True:
         try:
@@ -292,9 +317,7 @@ def interactive_chat():
                 attachments=attachments
             )
             print("\033[A\033[K", end='')  # Clears the input line
-            print(user_message)
-            responses = session.prompt(user_message)
-            for response in responses:
+            async for response in session.prompt(user_message):
                 print(response)
             
         except KeyboardInterrupt:
@@ -302,4 +325,5 @@ def interactive_chat():
 
         
 if __name__ == "__main__":
-    interactive_chat()
+    import asyncio
+    asyncio.run(interactive_chat())

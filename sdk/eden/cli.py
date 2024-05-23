@@ -6,7 +6,7 @@ import getpass
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .client import EdenClient, UserMessage
+from .client import EdenClient, get_api_key
 
 
 def preprocess_message(message):
@@ -35,7 +35,7 @@ def main():
     args.func(args)
 
 
-def login():
+def login(args):
     api_key = getpass.getpass("Please enter your API key: ")
     if not api_key:
         print("No API key provided. Exiting.")
@@ -80,6 +80,10 @@ async def async_chat():
                     thread_id=thread_id
                 ):
                     progress.update(task)
+                    error = response.get("error")
+                    if error:
+                        console.print(f"[bold red]ERROR:\({error})[/bold red]")
+                        continue
                     thread_id = response.get("thread_id") 
                     message = response.get("message")
                     message = json.loads(message)
@@ -93,6 +97,11 @@ async def async_chat():
 
 
 def chat(args):
+    os.environ["EDEN_API_KEY"] = get_api_key()
+    if not os.getenv("EDEN_API_KEY"):
+        print("Please use `eden login` or set EDEN_API_KEY environment variable")
+        return
+
     import asyncio
     asyncio.run(async_chat())
 

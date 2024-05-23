@@ -1,0 +1,2 @@
+[console_scripts]
+eden = eden.cli:main

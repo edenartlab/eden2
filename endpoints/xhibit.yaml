@@ -1,0 +1,31 @@
+name: xhibit
+description: Create a stylized image placing a target person (LoRa) into a stylistic context, transfering clothing and aesthetic look
+tip: A highly complex pipeline using many masking nodes, pose controlnet and IDM-VTON garment transfer
+comfyui_output_node_id: 146
+parameters:
+- name: look_image
+  label: look image
+  description: The style / look image you want to transfer onto the target person
+  type: image
+  comfyui: 
+    node_id: 19
+    field: inputs
+    subfield: image
+- name: prompt
+  label: prompt embedding trigger
+  description: First part of the prompt where the target lora embedding must be triggered (the .safetensors file should be in comfyUI/models/embeddings)
+  default: a professional photo of embedding:xander_SDXL_embeddings
+  type: string
+  comfyui: 
+    node_id: 206
+    field: inputs
+    subfield: text
+- name: lora
+  label: person lora
+  description: The LoRa path of the person lora to be loaded (the .safetensors file should be in comfyUI/models/loras)
+  default: SDXL_embeddings_xander.safetensors
+  type: string
+  comfyui: 
+    node_id: 100
+    field: inputs
+    subfield: lora_name

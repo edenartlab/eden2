@@ -4,7 +4,6 @@ import random
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type
 from pydantic import BaseModel, Field, create_model
-from instructor.function_calls import openai_schema
 
 
 TYPE_MAPPING = {
@@ -105,18 +104,16 @@ class Endpoint(BaseModel):
                 summary += f" {param.tip}."
         return summary
 
-    def tool_schema(self):
-        return {
-            "type": "function",
-            "function": openai_schema(self.BaseModel).openai_schema
-        }
+    # def tool_schema(self):
+    #     return {
+    #         "type": "function",
+    #         "function": openai_schema(self.BaseModel).openai_schema
+    #     }
     
     async def execute(self, workflow: str, config: dict):
         #return {"urls": ["https://www.example.com/image1.jpg"]}
         comfyui = f"ComfyUIServer_{workflow}"
         cls = modal.Cls.lookup("comfyui", comfyui)
-        print(workflow)
-        print(cls)
         workflow_file = f"workflows/{workflow}.json"
         endpoint_file = f"endpoints/{workflow}.yaml"
 
@@ -126,8 +123,6 @@ class Endpoint(BaseModel):
             config, 
             "client_id"
         )
-
-        print(result)
 
         return result
         # print(self.tool_schema())

@@ -12,6 +12,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 #DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app-dev.modal.run"
 DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app.modal.run"
+DEFAULT_API_URL = "https://edenartlab--tasks-fastapi-app-dev.modal.run"
+print("THE DEFAULT API URL IS", DEFAULT_API_URL)
 
 class WorkflowRequest(BaseModel):
     workflow: str
@@ -72,6 +74,7 @@ class EdenClient:
             self.console.print("[cyan]Completed:", json_result)
             return json_result
 
+
     async def async_chat(
         self, 
         message: UserMessage, 
@@ -81,13 +84,24 @@ class EdenClient:
         http = "https" if self.ssl else "http"
         timeout = httpx.Timeout(60*5, connect=10)
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", f"{http}://{self.api_url}/tasks/chat",
-                                      headers=headers,
-                                      json={"thread_id": thread_id, "message": message}) as response:
-                async for line in response.aiter_lines():
-                    data = json.loads(line)
-                    yield data
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", 
+                        f"{http}://{self.api_url}/tasks/chat",
+                        headers=headers,
+                        json={"thread_id": thread_id, "message": message}
+                    ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            data = json.loads(line)
+                            yield data
+        except (httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
+            print(f"HTTP or Connection Error: {str(e)}")
+        except json.JSONDecodeError:
+            print("Failed to decode JSON from response.")
+        except Exception as e:
+            print(f"An unexpected error occurred: {str(e)}")
 
 
 def get_api_key() -> str:

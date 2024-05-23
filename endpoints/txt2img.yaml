@@ -15,7 +15,7 @@ parameters:
   label: Negative prompt
   description: Negative text prompt, what you do *not* want to generate
   type: string
-  default: ugly, watermark, low-quality, signature, padding, margins, blurry, jpeg artifacts, poorly drawn, low-resolution, bad
+  default: ugly, watermark, blurry, low-resolution, bad
   comfyui: 
     node_id: 7
     field: inputs
@@ -47,6 +47,7 @@ parameters:
 - name: seed
   label: Seed
   description: Set random seed for reproducibility. If blank, will be set randomly.
+  tip: You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank! 
   type: int
   default: random
   minimum: 0
