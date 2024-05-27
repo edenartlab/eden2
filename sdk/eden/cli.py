@@ -9,18 +9,6 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .client import EdenClient, get_api_key
 
 
-def preprocess_message(message):
-    metadata_pattern = r'\{.*?\}'
-    attachments_pattern = r'\[.*?\]'
-    metadata_match = re.search(metadata_pattern, message)
-    attachments_match = re.search(attachments_pattern, message)
-    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-    clean_message = re.sub(metadata_pattern, '', message)
-    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-    return clean_message, metadata, attachments
-
-
 def main():
     parser = argparse.ArgumentParser(description="ComfyUI Service Tool")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Subcommands")
@@ -29,7 +17,7 @@ def main():
     install_parser.set_defaults(func=login)
 
     run_parser = subparsers.add_parser('chat', help='Chat with Eden')
-    run_parser.set_defaults(func=chat)
+    run_parser.set_defaults(func=interactive_chat)
 
     args = parser.parse_args()
     args.func(args)
@@ -47,10 +35,19 @@ def login(args):
     print("API key saved.")
 
 
-async def async_chat():
-    eden = EdenClient()
-    console = Console()
+def interactive_chat(args):
+    os.environ["EDEN_API_KEY"] = get_api_key().get_secret_value()
+    if not os.getenv("EDEN_API_KEY"):
+        print("Please use `eden login` or set EDEN_API_KEY environment variable")
+        return
 
+    import asyncio
+    asyncio.run(async_interactive_chat())
+
+
+async def async_interactive_chat():
+    client = EdenClient()
+    console = Console()
     thread_id = None
 
     while True:
@@ -75,18 +72,15 @@ async def async_chat():
                 transient=True
             ) as progress:
                 task = progress.add_task("[cyan]Processing", total=None)
-                async for response in eden.async_chat(
-                    message=message,
-                    thread_id=thread_id
-                ):
+
+                async for response in client.async_chat(message, thread_id):
                     progress.update(task)
                     error = response.get("error")
                     if error:
-                        console.print(f"[bold red]ERROR:\({error})[/bold red]")
+                        console.print(f"[bold red]ERROR:\t({error})[/bold red]")
                         continue
-                    thread_id = response.get("thread_id") 
-                    message = response.get("message")
-                    message = json.loads(message)
+                    thread_id = response.get("task_id") 
+                    message = json.loads(response.get("message"))
                     content = message.get("content") or ""
                     if message.get("tool_calls"):
                         content += f"{message['tool_calls'][0]['function']['name']}: {message['tool_calls'][0]['function']['arguments']}"
@@ -96,15 +90,14 @@ async def async_chat():
             break
 
 
-def chat(args):
-    os.environ["EDEN_API_KEY"] = get_api_key()
-    if not os.getenv("EDEN_API_KEY"):
-        print("Please use `eden login` or set EDEN_API_KEY environment variable")
-        return
+def preprocess_message(message):
+    metadata_pattern = r'\{.*?\}'
+    attachments_pattern = r'\[.*?\]'
+    metadata_match = re.search(metadata_pattern, message)
+    attachments_match = re.search(attachments_pattern, message)
+    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
+    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+    clean_message = re.sub(metadata_pattern, '', message)
+    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
+    return clean_message, metadata, attachments
 
-    import asyncio
-    asyncio.run(async_chat())
-
-
-if __name__ == "__main__":
-    main()
