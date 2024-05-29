@@ -15,6 +15,7 @@ db = client[os.getenv("MONGO_DB_NAME")]
 threads = db["threads"]
 users = db["users"]
 api_keys = db["apikeys"]
+models = db["models"]
 
 
 class MongoBaseModel(BaseModel):

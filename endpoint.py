@@ -1,9 +1,19 @@
+import re
 import os
 import yaml
+import json
+import httpx
+import shutil
+import tarfile
+import tempfile
+import pathlib
 import random
+from tqdm import tqdm
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, ValidationError, create_model
+
+from utils import download_file
 
 
 TYPE_MAPPING = {
@@ -14,7 +24,8 @@ TYPE_MAPPING = {
     'image': str,
     'video': str,
     'audio': str,
-    'zip': str
+    'zip': str,
+    'lora': str
 }
 
 class ParameterType(str, Enum):
@@ -26,6 +37,7 @@ class ParameterType(str, Enum):
     VIDEO = "video"
     AUDIO = "audio"
     ZIP = "zip"
+    LORA = "lora"
     BOOL_ARRAY = "bool[]"
     INT_ARRAY = "int[]"
     FLOAT_ARRAY = "float[]"
@@ -34,9 +46,10 @@ class ParameterType(str, Enum):
     VIDEO_ARRAY = "video[]"
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
+    LORA_ARRAY = "lora[]"
 
-FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO, ParameterType.ZIP]
-FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.ZIP_ARRAY]
+FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO, ParameterType.ZIP, ParameterType.LORA]
+FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.ZIP_ARRAY, ParameterType.LORA_ARRAY]
 
 
 class ComfyUIInfo(BaseModel):
@@ -60,8 +73,6 @@ class EndpointParameter(BaseModel):
     choices: Optional[List[Any]] = Field(None, description="Allowed values")
     comfyui: Optional[ComfyUIInfo] = Field(None)
 
-
-import modal
 
 class Endpoint(BaseModel):
     key: str
@@ -89,7 +100,7 @@ class Endpoint(BaseModel):
         return EndpointModel
 
     def summary(self, include_params=True):
-        summary = f'"{self.key}" : {self.name} - {self.description}.'
+        summary = f'"{self.key}" :: {self.name} - {self.description}.'
         if self.tip:
             summary += f" {self.tip}."
         if include_params:
@@ -99,9 +110,21 @@ class Endpoint(BaseModel):
     def parameters_summary(self):
         summary = "Parameters\n---"
         for param in self.parameters:
-            summary += f"\n{param.name}: {param.label}. {param.description}."
+            summary += f"\n{param.name}: {param.description}."
             if param.tip:
                 summary += f" {param.tip}."
+            requirements = ["Type: " + param.type.name]
+            if not param.default:
+                requirements.append("Field required")
+            if param.choices:
+                requirements.append("Allowed choices: " + ", ".join(param.choices))
+            if param.minimum or param.maximum:
+                requirements.append(f"Range: {param.minimum} to {param.maximum}")
+            if param.min_length or param.max_length:
+                requirements.append(f"Allowed length: {param.min_length} to {param.max_length}")
+            requirements_str = "; ".join(requirements)
+            summary += f" ({requirements_str})"   
+
         return summary
 
     # def tool_schema(self):
@@ -111,18 +134,31 @@ class Endpoint(BaseModel):
     #     }
     
     async def execute(self, workflow: str, config: dict):
+        import modal
+        print("EXEC")
         #return {"urls": ["https://www.example.com/image1.jpg"]}
-        comfyui = f"ComfyUIServer_{workflow}"
-        cls = modal.Cls.lookup("comfyui", comfyui)
+        #comfyui = f"ComfyUIServer_{workflow}"
+        # cls = modal.Cls.lookup("comfyui", comfyui)
+        #print("GET DEV-COMFYUI", comfyui)
+        print("GET DEV-COMFYUI", workflow)
+        cls = modal.Cls.lookup("dev-comfyui", workflow)
         workflow_file = f"workflows/{workflow}.json"
         endpoint_file = f"endpoints/{workflow}.yaml"
 
+        print("heres the config", config)
         result = await cls().run.remote.aio(
             workflow_file,
             endpoint_file,
             config, 
             "client_id"
         )
+        print("THE RESULT OF THIS TASK", result)
+
+        if 'error' in result:
+            print("there is an exception error")
+            print(result['error'])
+            # return result['error']
+            raise Exception("Tool error: " + result['error'])
 
         return result
         # print(self.tool_schema())
@@ -167,25 +203,213 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
     return (field_type, Field(**field_kwargs))
             
 
-endpoint_names = sorted([
-    f.replace(".yaml", "") 
-    for f in os.listdir("endpoints") if f.endswith(".yaml")
-])
 
-tools = {}
-endpoint_summary = ""
 
-for endpoint_name in endpoint_names:
-    with open(f"endpoints/{endpoint_name}.yaml", "r") as f:
+
+
+# endpoint_names = sorted([
+#     f.replace(".yaml", "") 
+#     for f in os.listdir("endpoints") if f.endswith(".yaml")
+# ])
+
+# tools = {}
+# endpoint_summary = ""
+
+# for endpoint_name in endpoint_names:
+#     with open(f"endpoints/{endpoint_name}.yaml", "r") as f:
+#         data = yaml.safe_load(f)
+#     tool = Endpoint(data, key=endpoint_name)    
+#     tools[endpoint_name] = tool
+#     endpoint_summary += f"{tool.summary(include_params=False)}\n"
+
+# snapshots = [
+#     "txt2img", 
+#     "txt2vid_lcm", 
+#     "img2vid", 
+#     "vid2vid",
+#     "style_mixing"
+# ]
+
+
+def load_tool(tool_name: str) -> Endpoint:
+    tool_path = f"/root/api.yaml"
+    if not os.path.exists(tool_path):
+        raise ValueError(f"Tool API not found: {tool_path}")
+    with open(tool_path, "r") as f:
         data = yaml.safe_load(f)
-    tool = Endpoint(data, key=endpoint_name)    
-    tools[endpoint_name] = tool
-    endpoint_summary += f"{tool.summary(include_params=False)}\n"
+    tool = Endpoint(data, key=tool_name)    
+    return tool
 
-snapshots = [
-    "txt2img", 
-    "txt2vid_lcm", 
-    "img2vid", 
-    "vid2vid",
-    "style_mixing"
-]
+
+def prepare_args(tool, user_args, save_files=False):
+    args = {}
+    print("USER ARGS!!!")
+    print(user_args)
+    print(tool.name)
+    for param in tool.parameters:
+        key = param.name
+        value = None
+        print("keyval", key, value)
+        if param.default is not None:
+            value = param.default
+        if user_args.get(key) is not None:
+            value = user_args[key]
+
+        if value == "random":
+            value = random.randint(param.minimum, param.maximum)
+
+        # if param.required and value is None:
+        #     raise ValueError(f"Required argument '{key}' is missing")
+
+        if param.type == ParameterType.LORA:
+            lora_tarfile = download_file(value, "/root/downloads/")
+            lora_name, embedding_name = untar_and_move(
+                lora_tarfile, 
+                downloads_folder="/root/downloads",
+                loras_folder="/root/models/loras",
+                embeddings_folder="/root/models/embeddings"
+            )
+            value = lora_name
+
+        elif param.type in [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]:
+            print("was image", value)
+            value = download_file(value, "/root/input")
+            print("is image", value)
+
+        elif param.type in [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]:
+            print("was image", value)
+            value = [download_file(v, "/root/input") for v in value]
+            print("is image", value)
+
+        args[key] = value
+
+    try:
+        tool.BaseModel(**args)
+    except ValidationError as err:
+        raise ValueError(f"Invalid arguments: {err.errors()}")
+    
+    return args
+
+
+def inject_args_into_workflow(workflow, args):
+    tool = load_tool(workflow)
+    workflow = json.load(open(f"/root/workflow_api.json", 'r'))
+
+    comfyui_map = {
+        param.name: param.comfyui 
+        for param in tool.parameters if param.comfyui
+    }
+    
+    for key, comfyui in comfyui_map.items():
+        value = args.get(key)
+        if value is None:
+            continue
+
+        if comfyui.preprocessing is not None:
+            if comfyui.preprocessing == "csv":
+                value = ",".join(value)
+
+            elif comfyui.preprocessing == "folder":
+                temp_subfolder = tempfile.mkdtemp(dir="/root/input")
+                if isinstance(value, list):
+                    for i, file in enumerate(value):
+                        filename = f"{i:06d}_{os.path.basename(file)}"
+                        new_path = os.path.join(temp_subfolder, filename)
+                        shutil.move(file, new_path)
+                else:
+                    shutil.move(value, temp_subfolder)
+                value = temp_subfolder
+
+        node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
+        workflow[node_id][field][subfield] = value
+
+    return workflow
+
+
+
+# def download_file(url, destination_folder):
+#     destination_folder = pathlib.Path(destination_folder)
+#     destination_folder.mkdir(exist_ok=True)
+#     local_filepath = destination_folder / url.split("/")[-1]
+    
+#     print(f"downloading {url} ... to {local_filepath}")
+
+#     with httpx.stream("GET", url, follow_redirects=True) as stream:
+#         total = int(stream.headers["Content-Length"])
+#         with open(local_filepath, "wb") as f, tqdm(
+#             total=total, unit_scale=True, unit_divisor=1024, unit="B"
+#         ) as progress:
+#             num_bytes_downloaded = stream.num_bytes_downloaded
+#             for data in stream.iter_bytes():
+#                 f.write(data)
+#                 progress.update(
+#                     stream.num_bytes_downloaded - num_bytes_downloaded
+#                 )
+#                 num_bytes_downloaded = stream.num_bytes_downloaded
+
+#     return str(local_filepath)
+
+
+def untar_and_move(
+    source_tar: str,
+    downloads_folder: str,
+    loras_folder: str,
+    embeddings_folder: str,
+):
+    if not os.path.exists(source_tar):
+        raise FileNotFoundError(f"The source tar file {source_tar} does not exist.")
+
+    name = os.path.basename(source_tar).split(".")[0]
+    destination_folder = os.path.join(downloads_folder, name)
+    if os.path.exists(destination_folder):
+        print("Destination folder already exists. Skipping.")
+    else:
+        try:
+            with tarfile.open(source_tar, "r:*") as tar:
+                tar.extractall(path=destination_folder)
+                print("Extraction complete.")
+        except Exception as e:
+            raise IOError(f"Failed to extract tar file: {e}")
+
+    extracted_files = os.listdir(destination_folder)
+    pattern = re.compile(r"^(.+)_embeddings\.safetensors$")
+    
+    # Find the base name X for the files X.safetensors and X_embeddings.safetensors
+    base_name = None
+    for file in extracted_files:
+        match = pattern.match(file)
+        if match:
+            base_name = match.group(1)
+            break
+    
+    if base_name is None:
+        raise FileNotFoundError("No matching files found for pattern X_embeddings.safetensors.")
+    
+    lora_filename = f"{base_name}.safetensors"
+    embeddings_filename = f"{base_name}_embeddings.safetensors"
+
+    for file in [lora_filename, embeddings_filename]:
+        if str(file) not in extracted_files:
+            raise FileNotFoundError(f"Required file {file} does not exist in the extracted files.")
+
+    if not os.path.exists(loras_folder):
+        os.makedirs(loras_folder)
+    if not os.path.exists(embeddings_folder):
+        os.makedirs(embeddings_folder)
+
+    lora_path = os.path.join(destination_folder, lora_filename)
+    embeddings_path = os.path.join(destination_folder, embeddings_filename)
+
+    # Copy the lora file to the loras folder
+    lora_copy_path = os.path.join(loras_folder, lora_filename)
+    shutil.copy(lora_path, lora_copy_path)
+    print(f"LoRA {lora_path} has been moved to {lora_copy_path}.")
+
+    # Copy the embedding file to the embeddings folder
+    embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
+    shutil.copy(embeddings_path, embeddings_copy_path)
+    print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
+
+    return lora_filename, embeddings_filename
+
+

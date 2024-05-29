@@ -1,10 +1,11 @@
+import re
 import asyncio
 import json
 import instructor
 import openai
 from bson import ObjectId
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
@@ -42,7 +43,7 @@ class PyObjectId(ObjectId):
 
 class MongoBaseModel(BaseModel):
     id: SkipJsonSchema[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
 
     class Config:
         json_encoders = {
@@ -73,7 +74,7 @@ class MongoBaseModel(BaseModel):
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
     
     def to_mongo(self, **kwargs):
         data = self.model_dump()
@@ -102,11 +103,16 @@ class UserMessage(ChatMessage):
     metadata: Optional[Dict[str, Any]] = Field({}, description="Preset settings, metadata, or context information")
     attachments: Optional[List[HttpUrl]] = Field([], description="Attached files included")
 
+    def __init__(self, **data):
+        super().__init__(**data)
+        if self.name:
+            self.name = ''.join(re.findall(r'[a-zA-Z0-9_-]+', self.name))
+
     def to_mongo(self):
         data = super().to_mongo()
         data['attachments'] = [str(url) for url in self.attachments]
         return data
-
+    
     def chat_message(self):
         content = self.content
         if self.metadata:
@@ -171,12 +177,7 @@ class ToolMessage(ChatMessage):
         }
     
     def __str__(self):
-        return f"\033[93m\033[1mAI\t\033[22moutput: {self.content}\033[0m"
-
-
-def generate_fake_jpg_filename():
-    import uuid
-    return f"/tmp/{uuid.uuid4()}.jpg"
+        return f"\033[93m\033[1mAI\t\033[22m:{self.content}\033[0m"
 
 
 class Thread(MongoBaseModel):
@@ -186,18 +187,13 @@ class Thread(MongoBaseModel):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        messages = []
-        for m in self.messages:
-            if m.role == "user" and not isinstance(m, UserMessage):
-                m = UserMessage(**m.model_dump())
-            elif m.role == "assistant" and not isinstance(m, AssistantMessage):
-                m = AssistantMessage(**m.model_dump())
-            elif m.role == "system" and not isinstance(m, SystemMessage):
-                m = SystemMessage(**m.model_dump())
-            elif m.role == "tool" and not isinstance(m, ToolMessage):
-                m = ToolMessage(**m.model_dump())
-            messages.append(m)
-        self.messages = messages
+        message_types = {
+            "user": UserMessage,
+            "assistant": AssistantMessage,
+            "system": SystemMessage,
+            "tool": ToolMessage
+        }
+        self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
 
     def to_mongo(self):
         data = super().to_mongo()
@@ -219,8 +215,9 @@ class Thread(MongoBaseModel):
         user_message: UserMessage,
         system_message: Optional[str] = None
     ):
+        print("prompt")
+        print(user_message)
         self.add_message(user_message)
-        
         response = await maybe_use_tool(
             self.get_chat_messages(system_message=system_message),
             tools=[
@@ -231,28 +228,59 @@ class Thread(MongoBaseModel):
                 for t in tools.values()
             ]
         )
+        
         message = response.choices[0].message
         tool_calls = message.tool_calls
-        
+                
         if not tool_calls:
             assistant_message = AssistantMessage(**message.model_dump())
+            print("yield single")
             self.add_message(assistant_message)
             yield assistant_message
             return
 
-        tool_name = tool_calls[0].function.name
         args = json.loads(tool_calls[0].function.arguments)
-        
+        tool_name = tool_calls[0].function.name
         tool = tools.get(tool_name)
+
+        # do something about this
         if tool is None:
             raise Exception(f"Tool {tool_name} not found")
 
-        args = {k: v for k, v in args.items() if v is not None}
-        updated_args = tools[tool_name].BaseModel(**args).model_dump() 
+        try:
+            args = {k: v for k, v in args.items() if v is not None}
+            updated_args = tool.BaseModel(**args).model_dump() 
+
+        except ValidationError as err:            
+            assistant_message = AssistantMessage(**message.model_dump())
+            yield assistant_message
+
+            error_details = "\n".join([f" - {e['loc'][0]}: {e['msg']}" for e in err.errors()])
+            error_message = f"{tool_name}: {args} failed with errors:\n{error_details}"
+
+            tool_message = ToolMessage(
+                name=tool_calls[0].function.name,
+                tool_call_id=tool_calls[0].id,
+                content=error_message
+            )
+            self.add_message(assistant_message)
+            self.add_message(tool_message)
+
+            system_message_help = f"You are an expert at using Eden. You have conversations with users in which they sometimes request for you to use the tool {tool_name}. Sometimes you invoke the tool but it fails with one or more errors, which you report. Given the conversation (especially the user's last message requesting the tool), and the error message, you should either explain the problem to the user and/or ask for clarification to try again. For context, the following is a summary of {tool_name}:\n\n{tool.summary()}"
+            messages = self.get_chat_messages(system_message=system_message_help).copy()
+            error_message = await chat(messages)
+            tool_message.content = error_message.choices[0].message.content
+            print(self.messages)
+            print("yield tool")
+            yield tool_message
+            return
+        
+
+        # should we use updated_args or args in the assistant message?
         message.tool_calls[0].function.arguments = json.dumps(updated_args)
 
         assistant_message = AssistantMessage(**message.model_dump())
-        self.add_message(assistant_message)
+        
         yield assistant_message
         
         result = await tool.execute(
@@ -270,6 +298,7 @@ class Thread(MongoBaseModel):
             content=content
         )
 
+        self.add_message(assistant_message)
         self.add_message(tool_message)
         yield tool_message
 
@@ -277,8 +306,8 @@ class Thread(MongoBaseModel):
 async def maybe_use_tool(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
-    model: str = "gpt-3.5-turbo",
-) -> List[ChatMessage]:
+    model: str = "gpt-4-1106-preview",
+) -> ChatMessage:
     client = instructor.from_openai(openai.AsyncOpenAI(), mode=instructor.Mode.TOOLS)
     response = await client.chat.completions.create(
         model=model,
@@ -290,40 +319,15 @@ async def maybe_use_tool(
     return response
 
 
-def preprocess_message(message):
-    import re
-    metadata_pattern = r'\{.*?\}'
-    attachments_pattern = r'\[.*?\]'
-    metadata_match = re.search(metadata_pattern, message)
-    attachments_match = re.search(attachments_pattern, message)
-    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-    clean_message = re.sub(metadata_pattern, '', message)
-    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-    return clean_message, metadata, attachments
-
-
-async def interactive_chat():
-    session = Thread(system_message=default_system_message)
-    while True:
-        try:
-            message_input = input("\033[92m\033[1mUser: \t")
-            if message_input.lower() == 'escape':
-                break
-            content, metadata, attachments = preprocess_message(message_input)
-            user_message = UserMessage(
-                content=content,
-                metadata=metadata,
-                attachments=attachments
-            )
-            print("\033[A\033[K", end='')  # Clears the input line
-            async for response in session.prompt(user_message):
-                print(response)
-            
-        except KeyboardInterrupt:
-            break
-
-        
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(interactive_chat())
+async def chat(
+    messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
+    model: str = "gpt-4-1106-preview",
+) -> ChatMessage: 
+    client = instructor.from_openai(openai.AsyncOpenAI(), mode=instructor.Mode.TOOLS)
+    response = await client.chat.completions.create(
+        model=model,
+        response_model=None,
+        messages=messages,
+        max_retries=2,
+    )
+    return response

@@ -43,11 +43,12 @@ def authenticate(
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     if not api_key and not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No authentication credentials provided")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
+                            detail="No authentication credentials provided")
     return verify_api_key(api_key) if api_key else verify_bearer_token(token)
 
 
-def authenticate_ws(websocket: WebSocket):
+async def authenticate_ws(websocket: WebSocket):
     api_key = websocket.headers.get("X-Api-Key")
     token = websocket.headers.get("Authorization")
     if token:
@@ -59,8 +60,19 @@ def authenticate_ws(websocket: WebSocket):
         user = authenticate(api_key=api_key, token=token)
         return user
     except HTTPException as e:
-        websocket.accept()
-        websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        websocket.send_json({"error": e.detail})
+        await websocket.accept()
+        await websocket.send_json({"error": e.detail})
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         raise e
 
+
+def authenticate_socketio(environ):
+    api_key = environ.get('HTTP_X_API_KEY')
+    token = environ.get('HTTP_AUTHORIZATION')
+    if token:
+        token = HTTPAuthorizationCredentials(
+            scheme="Bearer", 
+            credentials=token.replace("Bearer ", "").strip()
+        )
+    user = authenticate(api_key=api_key, token=token)
+    return user
