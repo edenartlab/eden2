@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: eden
-Version: 0.1.1
-Summary: Client library Eden
-Author-email: "Eden.art" <gene@eden.art>
-Description-Content-Type: text/markdown
-Requires-Dist: requests>=2.25.1
-Requires-Dist: rich==13.7.1

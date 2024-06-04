@@ -4,11 +4,10 @@ from tqdm import tqdm
 
 
 def download_file(url, destination_folder):
+    print(f"downloading {url} to {destination_folder}")
     destination_folder = pathlib.Path(destination_folder)
-    destination_folder.mkdir(exist_ok=True)
+    destination_folder.mkdir(parents=True, exist_ok=True)
     local_filepath = destination_folder / url.split("/")[-1]
-    
-    print(f"downloading {url} ... to {local_filepath}")
 
     with httpx.stream("GET", url, follow_redirects=True) as stream:
         total = int(stream.headers["Content-Length"])
@@ -22,5 +21,4 @@ def download_file(url, destination_folder):
                     stream.num_bytes_downloaded - num_bytes_downloaded
                 )
                 num_bytes_downloaded = stream.num_bytes_downloaded
-
     return str(local_filepath)

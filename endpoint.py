@@ -65,6 +65,7 @@ class EndpointParameter(BaseModel):
     description: str = Field(None, description="Human-readable description of what parameter does")
     tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
+    required: bool = Field(False, description="Indicates if the field is mandatory")
     default: Optional[Any] = Field(None, description="Default value")
     minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
     maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
@@ -94,9 +95,9 @@ class Endpoint(BaseModel):
         }
         EndpointModel = create_model(
             self.key,
-            __doc__=f'{self.description}. {self.tip}.',
             **fields
         )
+        EndpointModel.__doc__ = f'{self.description}. {self.tip}.'
         return EndpointModel
 
     def summary(self, include_params=True):
@@ -135,31 +136,11 @@ class Endpoint(BaseModel):
     
     async def execute(self, workflow: str, config: dict):
         import modal
-        print("EXEC")
-        #return {"urls": ["https://www.example.com/image1.jpg"]}
-        #comfyui = f"ComfyUIServer_{workflow}"
-        # cls = modal.Cls.lookup("comfyui", comfyui)
-        #print("GET DEV-COMFYUI", comfyui)
-        print("GET DEV-COMFYUI", workflow)
-        cls = modal.Cls.lookup("dev-comfyui", workflow)
-        workflow_file = f"workflows/{workflow}.json"
-        endpoint_file = f"endpoints/{workflow}.yaml"
-
-        print("heres the config", config)
-        result = await cls().run.remote.aio(
-            workflow_file,
-            endpoint_file,
-            config, 
-            "client_id"
-        )
-        print("THE RESULT OF THIS TASK", result)
-
+        cls = modal.Cls.lookup("comfyui", workflow)
+        result = await cls().api.remote.aio(config)
         if 'error' in result:
-            print("there is an exception error")
-            print(result['error'])
-            # return result['error']
             raise Exception("Tool error: " + result['error'])
-
+        print(result)
         return result
         # print(self.tool_schema())
 
@@ -184,8 +165,19 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
         assert not param.minimum or not param.maximum, \
             "If default is random, minimum and maximum must be specified"
         field_kwargs['default_factory'] = lambda min_val=param.minimum, max_val=param.maximum: random.randint(min_val, max_val)
-    elif default:
+    elif default is not None:
+        #field_kwargs['default'] = default
         field_kwargs['default_factory'] = lambda: default
+    else:
+        if param.required:
+            field_kwargs['default'] = ...
+        else:
+            # If not required, set the field type to Optional and default to None
+            field_type = Optional[field_type]
+            field_kwargs['default'] = None
+        
+    #elif default:
+    #    field_kwargs['default_factory'] = lambda: default
     #elif not default and not param.required: 
         #field_kwargs['default_factory'] = lambda: list() if is_list else None
         #print("ok")
@@ -198,58 +190,48 @@ def get_field_type_and_kwargs(param: EndpointParameter) -> (Type, Dict[str, Any]
         field_kwargs['choices'] = param.choices
 
     #if not param.required:
-    field_type = Optional[field_type]
+    #field_type = Optional[field_type]
 
     return (field_type, Field(**field_kwargs))
             
 
-
-
-
-
-# endpoint_names = sorted([
-#     f.replace(".yaml", "") 
-#     for f in os.listdir("endpoints") if f.endswith(".yaml")
-# ])
-
-# tools = {}
-# endpoint_summary = ""
-
-# for endpoint_name in endpoint_names:
-#     with open(f"endpoints/{endpoint_name}.yaml", "r") as f:
-#         data = yaml.safe_load(f)
-#     tool = Endpoint(data, key=endpoint_name)    
-#     tools[endpoint_name] = tool
-#     endpoint_summary += f"{tool.summary(include_params=False)}\n"
-
-# snapshots = [
-#     "txt2img", 
-#     "txt2vid_lcm", 
-#     "img2vid", 
-#     "vid2vid",
-#     "style_mixing"
-# ]
-
-
-def load_tool(tool_name: str) -> Endpoint:
-    tool_path = f"/root/api.yaml"
+def load_tool(tool_name: str, tool_path: str) -> Endpoint:
     if not os.path.exists(tool_path):
         raise ValueError(f"Tool API not found: {tool_path}")
-    with open(tool_path, "r") as f:
-        data = yaml.safe_load(f)
+    data = yaml.safe_load(open(tool_path, "r"))
     tool = Endpoint(data, key=tool_name)    
     return tool
 
 
+def get_tools(tools_folder: str):
+    tool_names = [
+        name for name in os.listdir(tools_folder)
+        if os.path.isdir(os.path.join(tools_folder, name)) and not name.startswith('.')
+    ]
+    if not tool_names:
+        raise ValueError(f"No tools found in {tools_folder}")
+    tools = {
+        name: load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
+        for name in tool_names
+    }
+    return tools
+
+
+def get_tools_summary(tools: List[Endpoint]):    
+    tools_summary = ""
+    for tool in tools.values():
+        tools_summary += f"{tool.summary(include_params=False)}\n"
+    return tools_summary
+
+
 def prepare_args(tool, user_args, save_files=False):
     args = {}
-    print("USER ARGS!!!")
     print(user_args)
-    print(tool.name)
+
     for param in tool.parameters:
         key = param.name
         value = None
-        print("keyval", key, value)
+
         if param.default is not None:
             value = param.default
         if user_args.get(key) is not None:
@@ -262,24 +244,23 @@ def prepare_args(tool, user_args, save_files=False):
         #     raise ValueError(f"Required argument '{key}' is missing")
 
         if param.type == ParameterType.LORA:
-            lora_tarfile = download_file(value, "/root/downloads/")
-            lora_name, embedding_name = untar_and_move(
-                lora_tarfile, 
-                downloads_folder="/root/downloads",
-                loras_folder="/root/models/loras",
-                embeddings_folder="/root/models/embeddings"
-            )
-            value = lora_name
+            if value is None:
+                value = None
+            else:
+                lora_tarfile = download_file(value, "/root/downloads/")
+                lora_name, embedding_name = untar_and_move(
+                    lora_tarfile, 
+                    downloads_folder="/root/downloads",
+                    loras_folder="/root/models/loras",
+                    embeddings_folder="/root/models/embeddings"
+                )
+                value = lora_name
 
         elif param.type in [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]:
-            print("was image", value)
-            value = download_file(value, "/root/input")
-            print("is image", value)
+            value = download_file(value, "/root/input") if value else None
 
         elif param.type in [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]:
-            print("was image", value)
-            value = [download_file(v, "/root/input") for v in value]
-            print("is image", value)
+            value = [download_file(v, "/root/input") if v else None for v in value]
 
         args[key] = value
 
@@ -291,10 +272,7 @@ def prepare_args(tool, user_args, save_files=False):
     return args
 
 
-def inject_args_into_workflow(workflow, args):
-    tool = load_tool(workflow)
-    workflow = json.load(open(f"/root/workflow_api.json", 'r'))
-
+def inject_args_into_workflow(workflow, tool, args):
     comfyui_map = {
         param.name: param.comfyui 
         for param in tool.parameters if param.comfyui
@@ -406,6 +384,7 @@ def untar_and_move(
     print(f"LoRA {lora_path} has been moved to {lora_copy_path}.")
 
     # Copy the embedding file to the embeddings folder
+    embeddings_filename = embeddings_filename.replace("_embeddings.safetensors", ".safetensors") 
     embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
     shutil.copy(embeddings_path, embeddings_copy_path)
     print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")

@@ -16,6 +16,7 @@ threads = db["threads"]
 users = db["users"]
 api_keys = db["apikeys"]
 models = db["models"]
+tasks = db["tasks2"]
 
 
 class MongoBaseModel(BaseModel):

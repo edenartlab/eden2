@@ -11,18 +11,10 @@ from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
 from instructor.function_calls import openai_schema
-from endpoint import tools, endpoint_summary
+# from endpoint import tools, endpoint_summary
+from mongo import MongoBaseModel
 
-
-default_system_message = (
-    "You are an assistant who is an expert at using Eden. "
-    "You have the following tools available to you: "
-    "\n\n---\n{endpoint_summary}\n---"
-    "\n\nIf the user clearly wants you to make something, select exactly ONE of the tools. Do NOT select multiple tools. Do NOT hallucinate any tool, especially do not use 'multi_tool_use' or 'multi_tool_use.parallel.parallel'. Only tools allowed: {tool_names}." 
-    "If the user is just making chat with you or asking a question, leave the tool null and just respond through the chat message. "
-    "If you're not sure of the user's intent, you can select no tool and ask the user for clarification or confirmation. " 
-    "Look through the whole conversation history for clues as to what the user wants. If they are referencing previous outputs, make sure to use them."
-).format(endpoint_summary=endpoint_summary, tool_names=', '.join(tools.keys()))
+default_system_message = "You are an assistant who is an expert at using Eden."
 
 
 class PyObjectId(ObjectId):
@@ -40,36 +32,6 @@ class PyObjectId(ObjectId):
     def __get_pydantic_json_schema__(cls, field_schema):
         field_schema.update(type='string')
 
-
-class MongoBaseModel(BaseModel):
-    id: SkipJsonSchema[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-
-    class Config:
-        json_encoders = {
-            ObjectId: str,
-            HttpUrl: str
-        }
-        populate_by_name = True
-
-    @classmethod
-    def from_mongo(cls, data: dict):
-        return cls(**data)
-
-    def to_mongo(self):
-        data = self.model_dump()
-        data["_id"] = data.pop("id")
-        data["created_at"] = self.created_at
-        return data
-
-    @classmethod
-    def save(cls, document, collection):
-        data = document.to_mongo()
-        document_id = data.get('_id')
-        if document_id:
-            return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
-        else:
-            return collection.insert_one(data)
 
 
 class ChatMessage(BaseModel):
@@ -180,10 +142,13 @@ class ToolMessage(ChatMessage):
         return f"\033[93m\033[1mAI\t\033[22m:{self.content}\033[0m"
 
 
+from endpoint import Endpoint
+
 class Thread(MongoBaseModel):
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]] = []
     metadata: Optional[Dict[str, str]] = Field({}, description="Preset settings, metadata, or context information")
     system_message: str = Field(..., description="You are an Eden team member who is an expert at using Eden.")
+    tools: Dict[str, Endpoint] = Field([], description="Tools available to the user")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -215,8 +180,6 @@ class Thread(MongoBaseModel):
         user_message: UserMessage,
         system_message: Optional[str] = None
     ):
-        print("prompt")
-        print(user_message)
         self.add_message(user_message)
         response = await maybe_use_tool(
             self.get_chat_messages(system_message=system_message),
@@ -225,23 +188,20 @@ class Thread(MongoBaseModel):
                     "type": "function",
                     "function": openai_schema(t.BaseModel).openai_schema  # maybe put this back in endpoint.py
                 }
-                for t in tools.values()
+                for t in self.tools.values()
             ]
         )
-        
         message = response.choices[0].message
         tool_calls = message.tool_calls
-                
         if not tool_calls:
             assistant_message = AssistantMessage(**message.model_dump())
-            print("yield single")
             self.add_message(assistant_message)
             yield assistant_message
             return
 
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
-        tool = tools.get(tool_name)
+        tool = self.tools.get(tool_name)
 
         # do something about this
         if tool is None:
@@ -270,8 +230,6 @@ class Thread(MongoBaseModel):
             messages = self.get_chat_messages(system_message=system_message_help).copy()
             error_message = await chat(messages)
             tool_message.content = error_message.choices[0].message.content
-            print(self.messages)
-            print("yield tool")
             yield tool_message
             return
         

@@ -2,6 +2,8 @@ import os
 import asyncio
 import websockets
 import json
+import httpx
+from aiofiles import open as aio_open
 from pydantic import SecretStr
 from typing import Optional
 
@@ -21,10 +23,18 @@ class EdenClient:
             return [message async for message in self.async_chat(message, thread_id)]
         return asyncio.run(consume_chat())
     
-    def create(self, endpoint, config):
+    def create(self, workflow, args):
         async def consume_create():
-            return [message async for message in self.async_create(endpoint, config)]
+            return [message async for message in self.async_create(workflow, args)]
         return asyncio.run(consume_create())
+
+    def train(self, config):
+        async def consume_train():
+            return [message async for message in self.async_train(config)]
+        return asyncio.run(consume_train())
+
+    def upload(self, file_path):
+        return asyncio.run(self.async_upload(file_path))
 
     async def async_chat(self, message, thread_id):
         payload = {
@@ -34,18 +44,21 @@ class EdenClient:
         async for message_data in self.async_run("/ws/chat", payload):
             yield message_data
 
-    async def async_create(self, endpoint, config):
+    async def async_create(self, workflow, args):
         payload = {
-            "endpoint": endpoint,
-            "config": config
+            "workflow": workflow,
+            "args": args
         }
         async for task_data in self.async_run("/ws/create", payload):
+            yield task_data
+
+    async def async_train(self, config):
+        async for task_data in self.async_run("/ws/train", config):
             yield task_data
 
     async def async_run(self, endpoint, payload):
         uri = f"wss://{self.api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key}
-        print("RUN", payload)
         try:
             async with websockets.connect(uri, extra_headers=headers) as websocket:                
                 await websocket.send(json.dumps(payload))
@@ -56,6 +69,19 @@ class EdenClient:
             print(f"Connection closed by the server with code: {e.code}")
         except Exception as e:
             print(f"Error: {e}")
+    
+    async def async_upload(self, file_path):
+        async with aio_open(file_path, "rb") as f:
+            media = await f.read()
+            headers = {"x-api-key": self.api_key}
+            files = {"media": ("media", media)}
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://staging.api.eden.art/media/upload",
+                    headers=headers,
+                    files=files,
+                )
+            return response.json()
 
 
 def get_api_key() -> SecretStr:
@@ -68,7 +94,7 @@ def get_api_key() -> SecretStr:
             api_key = file.read().strip()
         return SecretStr(api_key)
     except FileNotFoundError:
-        return None
+        raise Exception("\033[91mNo EDEN_API_KEY found. Please set it in your environment or run `eden login` to save it in your home directory.\033[0m")
 
 
 

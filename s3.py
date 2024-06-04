@@ -4,6 +4,8 @@ import boto3
 import hashlib
 import mimetypes
 import magic
+import requests
+import tempfile
 from PIL import Image
 
 from dotenv import load_dotenv
@@ -21,6 +23,19 @@ s3 = boto3.client(
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
     region_name=AWS_REGION_NAME
 )
+
+
+def upload_file_from_url(url, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
+    """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
+
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            for chunk in r.iter_content(chunk_size=1024*1024):
+                tmp_file.write(chunk)
+            tmp_file.flush()
+            tmp_file.seek(0)
+            return upload_file(tmp_file.name, png_to_jpg=png_to_jpg, bucket_name=bucket_name)
 
 
 def upload_file(file_path, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
