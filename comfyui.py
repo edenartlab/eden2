@@ -1,16 +1,23 @@
 import os
+import re
 import git
 import json
-import pathlib
-import websocket
-import subprocess
 import uuid
 import time
 import modal
+import shutil
+import pathlib
+import tarfile
+import tempfile
+import websocket
+import subprocess
 import urllib.request
 from urllib.error import URLError
 from typing import Dict
-from utils import download_file
+
+import tools
+import s3
+import utils
 
 
 class ComfyUI:
@@ -33,15 +40,24 @@ class ComfyUI:
         tool_path: str,
         args: Dict
     ):
-        tool = tools.load_tool(workflow_name, tool_path)
-        workflow_args = tools.prepare_args(tool, args)
-        workflow = json.load(open(workflow_path, 'r'))
-        workflow = tools.inject_args_into_workflow(workflow, tool, workflow_args)
-        ws = self._connect_to_server(self.client_id)
-        prompt_id = self._queue_prompt(workflow, self.client_id)['prompt_id']
-        outputs = self._get_outputs(ws, prompt_id)
-        output = outputs.get(str(tool.comfyui_output_node_id))
-        return output
+        try:
+            tool = tools.load_tool(workflow_name, tool_path)
+            print("user args", args)
+            workflow = json.load(open(workflow_path, 'r'))
+            workflow = inject_args_into_workflow(workflow, tool, args)
+            print("workflow after injection")
+            print(workflow)
+            ws = self._connect_to_server(self.client_id)
+            prompt_id = self._queue_prompt(workflow, self.client_id)['prompt_id']
+            print("prompt id", prompt_id) 
+            outputs = self._get_outputs(ws, prompt_id)
+            print("comfyui outputs", outputs)
+            output = outputs.get(str(tool.comfyui_output_node_id))
+            print("final", output)
+            return output
+        except Exception as e:
+            print(f"EXCEPTION OCCURRED: {e}")
+            raise e
     
     def _is_server_running(self):
         try:
@@ -147,30 +163,26 @@ def download_custom_files():
     for path, url in downloads.items():
         comfy_path = pathlib.Path("/root") / path
         vol_path = pathlib.Path("/data") / path
-
         if vol_path.is_file():
             print(f"Skipping download, getting {path} from cache")
         else:
             print(f"Downloading {url} to {vol_path.parent}")
             vol_path.parent.mkdir(parents=True, exist_ok=True)
-            download_file(url, vol_path.parent)
+            utils.download_file(url, vol_path.parent)
             downloads_vol.commit()
-
-        print("sym link from", comfy_path, "to", vol_path)
         try:
             comfy_path.parent.mkdir(parents=True, exist_ok=True)
             comfy_path.symlink_to(vol_path)
         except Exception as e:
-            print("symlink failed", e)
-            if not pathlib.Path(comfy_path).exists():
-                raise Exception(f"No f333ile found at {comfy_path}")
+            raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
         if not pathlib.Path(comfy_path).exists():
             raise Exception(f"No file found at {comfy_path}")
 
 
 def test_workflow():
+    tool = tools.load_tool(workflow_name, "/root/api.yaml")
     args = json.loads(open("/root/test.json", "r").read())
-    print(args)
+    args = tools.prepare_args(tool, args)
     comfy = ComfyUI()
     comfy.start()
     output = comfy.api(
@@ -181,12 +193,150 @@ def test_workflow():
     )
     if not output:
        raise Exception("No output from test")
-    print("output", output)
+    print("test output", output)
+
+
+def inject_embedding_mentions(text, embedding_name):
+    reference = f'embedding:{embedding_name}.safetensors'
+    text = re.sub(rf'(<{embedding_name}>|{embedding_name})', reference, text, flags=re.IGNORECASE)
+    text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
+    return text
+
+
+def transport_lora(
+    source_tar: str,
+    downloads_folder: str,
+    loras_folder: str,
+    embeddings_folder: str,
+):
+    if not os.path.exists(source_tar):
+        raise FileNotFoundError(f"The source tar file {source_tar} does not exist.")
+
+    name = os.path.basename(source_tar).split(".")[0]
+    destination_folder = os.path.join(downloads_folder, name)
+    if os.path.exists(destination_folder):
+        print("Destination folder already exists. Skipping.")
+    else:
+        try:
+            with tarfile.open(source_tar, "r:*") as tar:
+                tar.extractall(path=destination_folder)
+                print("Extraction complete.")
+        except Exception as e:
+            raise IOError(f"Failed to extract tar file: {e}")
+
+    extracted_files = os.listdir(destination_folder)
+    pattern = re.compile(r"^(.+)_embeddings\.safetensors$")
+    
+    # Find the base name X for the files X.safetensors and X_embeddings.safetensors
+    base_name = None
+    for file in extracted_files:
+        match = pattern.match(file)
+        if match:
+            base_name = match.group(1)
+            break
+    
+    if base_name is None:
+        raise FileNotFoundError("No matching files found for pattern X_embeddings.safetensors.")
+    
+    lora_filename = f"{base_name}.safetensors"
+    embeddings_filename = f"{base_name}_embeddings.safetensors"
+
+    for file in [lora_filename, embeddings_filename]:
+        if str(file) not in extracted_files:
+            raise FileNotFoundError(f"Required file {file} does not exist in the extracted files.")
+
+    if not os.path.exists(loras_folder):
+        os.makedirs(loras_folder)
+    if not os.path.exists(embeddings_folder):
+        os.makedirs(embeddings_folder)
+
+    lora_path = os.path.join(destination_folder, lora_filename)
+    embeddings_path = os.path.join(destination_folder, embeddings_filename)
+
+    # copy lora file to loras folder
+    lora_copy_path = os.path.join(loras_folder, lora_filename)
+    shutil.copy(lora_path, lora_copy_path)
+    print(f"LoRA {lora_path} has been moved to {lora_copy_path}.")
+
+    # copy embedding file to embeddings folder
+    embeddings_filename = embeddings_filename.replace("_embeddings.safetensors", ".safetensors") 
+    embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
+    shutil.copy(embeddings_path, embeddings_copy_path)
+    print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
+    
+    return lora_filename, embeddings_filename, base_name
+
+
+def inject_args_into_workflow(workflow, tool, args):
+    embedding_name = None
+    # download and transport files
+    for param in tool.parameters: 
+        if param.type in tools.FILE_TYPES:
+            url = args.get(param.name)
+            args[param.name] = utils.download_file(url, "/root/input") if url else None
+        
+        elif param.type in tools.FILE_ARRAY_TYPES:
+            urls = args.get(param.name)
+            args[param.name] = [utils.download_file(url, "/root/input") if url else None for url in urls] if urls else None
+        
+        elif param.type == tools.ParameterType.LORA:
+            lora_url = args.get(param.name)
+            print("lora_url", lora_url)
+            if lora_url:
+                lora_tarfile = utils.download_file(lora_url, "/root/downloads/")
+                lora_filename, embeddings_filename, embedding_name = transport_lora(
+                    lora_tarfile, 
+                    downloads_folder="/root/downloads",
+                    loras_folder="/root/models/loras",
+                    embeddings_folder="/root/models/embeddings"
+                )
+                print("set lora to", lora_filename, embedding_name)
+                args[param.name] = lora_filename        
+        
+    # inject args
+    comfyui_map = {
+        param.name: param.comfyui 
+        for param in tool.parameters if param.comfyui
+    }
+
+    for key, comfyui in comfyui_map.items():
+        value = args.get(key)
+        if value is None:
+            continue
+
+        # if there's a lora, replace mentions with embedding name
+        if key == "prompt" and embedding_name:
+            value = inject_embedding_mentions(value, embedding_name)
+
+        if comfyui.preprocessing is not None:
+            if comfyui.preprocessing == "csv":
+                value = ",".join(value)
+
+            elif comfyui.preprocessing == "folder":
+                temp_subfolder = tempfile.mkdtemp(dir="/root/input")
+                if isinstance(value, list):
+                    for i, file in enumerate(value):
+                        filename = f"{i:06d}_{os.path.basename(file)}"
+                        new_path = os.path.join(temp_subfolder, filename)
+                        shutil.move(file, new_path)
+                else:
+                    shutil.move(value, temp_subfolder)
+                value = temp_subfolder
+
+        node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
+        workflow[node_id][field][subfield] = value
+        print("inject", node_id, field, subfield, " = ", value)
+
+    return workflow
+
 
 class ModalComfyUI(ComfyUI):
     @modal.build()
-    def build(self):
+    def download(self):
         download_custom_files()
+    
+    @modal.build()
+    def test(self):
         test_workflow()
 
     @modal.enter()
@@ -208,11 +358,14 @@ class ModalComfyUI(ComfyUI):
         print(output)
         if 'error' in output:
             return output
-        urls = [upload_file(o, png_to_jpg=True) for o in output]
-        return {"urls": urls}
+        urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
+        return urls
 
 
-downloads_vol = modal.Volume.from_name("comfy-downloads", create_if_missing=True)
+downloads_vol = modal.Volume.from_name(
+    "comfy-downloads", 
+    create_if_missing=True
+)
 
 app = modal.App(
     name="comfyui",
@@ -230,35 +383,38 @@ for workflow_name in workflows:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", 
-                     "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml")
+        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", "requests", "Pillow",
+                     "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml", "instructor==1.2.6")
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
-        .copy_local_file(workflow_dir / "downloads.json", "/root/downloads.json")
-        .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
-        .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
-        .copy_local_file(workflow_dir / "test.json", "/root/test.json")
-        .copy_local_file("utils.py", remote_path="/root/utils.py")
-        .copy_local_file("s3.py", remote_path="/root/s3.py")
-        .copy_local_file("endpoint.py", remote_path="/root/endpoint.py")
         .run_function(install_comfyui)
         .run_function(install_custom_nodes, gpu=modal.gpu.A100())        
-        # .run_function(download_custom_files)
+
+        .copy_local_file(workflow_dir / "downloads.json", "/root/downloads.json")
+        .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
+
+        # .copy_local_file("utils.py", remote_path="/root/utils.py")
+
+        # .copy_local_file("s3.py", remote_path="/root/s3.py")
+        # .copy_local_file("endpoint.py", remote_path="/root/endpoint.py")
+
+        .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
+        .copy_local_file(workflow_dir / "test.json", "/root/test.json")
+        # .run_function(download_custom_files, volumes={"/data": downloads_vol})
         # .run_function(test_workflow, gpu=modal.gpu.A100())
     )
 
-    with image.imports():
-        import endpoint as tools
-        from s3 import upload_file
-        from utils import download_file
+    # with image.imports():
+        # import endpoint as tools
+        # from s3 import upload_file
+        # from utils import download_file
 
     cls = type(workflow_name, (ModalComfyUI,), {})
     
     globals()[workflow_name] = app.cls(
-        # gpu=modal.gpu.A100(size="80GB"),
         gpu=modal.gpu.A100(),
-        allow_concurrent_inputs=1,
+        allow_concurrent_inputs=5,
         image=image,
         volumes={"/data": downloads_vol},
         timeout=600,
-        container_idle_timeout=300,
+        container_idle_timeout=60,
     )(cls)
