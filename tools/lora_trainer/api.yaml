@@ -1,0 +1,50 @@
+name: LoRA trainer
+description: Finetune a finetuned model on top of Stable Diffusion
+handler: lora_trainer
+parameters:
+- name: name
+  label: Name
+  description: Name of the LoRA
+  type: string
+  required: true
+- name: lora_training_urls
+  label: Images
+  description: Images to train LoRA with
+  type: string[]
+  required: true
+- name: sd_model_version
+  label: Base Model
+  description: Base Stable Diffusion model to finetune from
+  type: string
+  choices: ["sdxl", "sd15"]
+  default: "sdxl"
+- name: concept_mode
+  label: Concept
+  description: Type of LoRA
+  type: string
+  choices: ["face", "object", "style"]
+  default: "style"
+- name: num_train_epochs
+  label: Training epochs
+  description: Number of epochs to loop through your training dataset
+  type: int
+  default: 400
+  minimum: 100
+  maximum: 1000
+  step: 1
+- name: resolution
+  label: Resolution
+  description: Square pixel resolution which your images will be resized to for training
+  type: int
+  default: 960
+  minimum: 768
+  maximum: 1024
+  step: 1
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set randomly.
+  tip: You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank! 
+  type: int
+  default: random
+  minimum: 0
+  maximum: 4294967295
