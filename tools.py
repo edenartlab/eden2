@@ -15,15 +15,15 @@ from utils import download_file
 
 
 TYPE_MAPPING = {
-    'bool': bool,
-    'string': str,
-    'int': int,
-    'float': float,
-    'image': str,
-    'video': str,
-    'audio': str,
-    'zip': str,
-    'lora': str
+    "bool": bool,
+    "string": str,
+    "int": int,
+    "float": float,
+    "image": str,
+    "video": str,
+    "audio": str,
+    "zip": str,
+    "lora": str
 }
 
 class ParameterType(str, Enum):
@@ -47,6 +47,7 @@ class ParameterType(str, Enum):
     LORA_ARRAY = "lora[]"
 
 FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]
+
 FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]
 
 
@@ -71,23 +72,13 @@ class Tool(BaseModel):
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
     parameters: List[ToolParameter]
-    BaseModel: BaseModel = None
 
     def __init__(self, data, key):
         super().__init__(**data, key=key)
-        self.BaseModel = self.create_base_model()
 
-    def create_base_model(self):
-        fields = {
-            param.name: get_field_type_and_kwargs(param) 
-            for param in self.parameters
-        }
-        ToolModel = create_model(
-            self.key,
-            **fields
-        )
-        ToolModel.__doc__ = f'{self.description}. {self.tip}.'
-        return ToolModel
+    def get_base_model(self, **kwargs):
+        base_model = create_tool_base_model(self)
+        return base_model(**kwargs)
 
     def summary(self, include_params=True):
         summary = f'"{self.key}" :: {self.name} - {self.description}.'
@@ -118,20 +109,21 @@ class Tool(BaseModel):
         return summary
 
     def tool_schema(self):
+        tool_model = create_tool_base_model(self)
         return {
             "type": "function",
-            "function": openai_schema(self.BaseModel).openai_schema
+            "function": openai_schema(tool_model).openai_schema
         }
-    
-    async def execute(self, workflow: str, config: dict):
-        import modal
-        cls = modal.Cls.lookup("comfyui", workflow)
-        result = await cls().api.remote.aio(config)
-        if 'error' in result:
-            raise Exception("Tool error: " + result['error'])
-        print(result)
-        return result
-        # print(self.tool_schema())
+
+
+def create_tool_base_model(tool: Tool):
+    fields = {
+        param.name: get_field_type_and_kwargs(param) 
+        for param in tool.parameters
+    }
+    ToolBaseModel = create_model(tool.key, **fields)
+    ToolBaseModel.__doc__ = f'{tool.description}. {tool.tip}.'
+    return ToolBaseModel
 
 
 def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
@@ -155,7 +147,6 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
             "If default is random, minimum and maximum must be specified"
         field_kwargs['default_factory'] = lambda min_val=param.minimum, max_val=param.maximum: random.randint(min_val, max_val)
     elif default is not None:
-        #field_kwargs['default'] = default
         field_kwargs['default_factory'] = lambda: default
     else:
         if param.required:
@@ -216,41 +207,20 @@ def prepare_args(tool, user_args, save_files=False):
 
         if param.default is not None:
             value = param.default
+
         if user_args.get(key) is not None:
             value = user_args[key]
 
         if value == "random":
             value = random.randint(param.minimum, param.maximum)
 
-        # if param.required and value is None:
-        #     raise ValueError(f"Required argument '{key}' is missing")
-
-        # if param.type == ParameterType.LORA:
-        #     if value is None:
-        #         value = None
-        #     else:
-        #         lora_tarfile = download_file(value, "/root/downloads/")
-        #         lora_name, embedding_name = untar_and_move(
-        #             lora_tarfile, 
-        #             downloads_folder="/root/downloads",
-        #             loras_folder="/root/models/loras",
-        #             embeddings_folder="/root/models/embeddings"
-        #         )
-        #         value = lora_name
-
-        # elif param.type in [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]:
-        #     value = download_file(value, "/root/input") if value else None
-
-        # elif param.type in [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]:
-        #     value = [download_file(v, "/root/input") if v else None for v in value]
-
         args[key] = value
 
     try:
-        tool.BaseModel(**args)
+        create_tool_base_model(tool)(**args)  # validate args
     except ValidationError as err:
-        error = get_human_readable_error(err.errors())
-        raise ValueError(f"Invalid args: {error}")
+        error_str = get_human_readable_error(err.errors())
+        raise ValueError(error_str)
 
     return args
 
@@ -290,8 +260,9 @@ def get_human_readable_error(error_list):
             errors.append(f"{field} must be a list")
         elif error_type == 'type_error.none.not_allowed':
             errors.append(f"{field} cannot be None")
-    human_readable_error = ", ".join(errors)
-    return human_readable_error
+    error_str = ", ".join(errors)
+    error_str = f"Invalid args: {error_str}"
+    return error_str
 
 
 class ComfyUIInfo(BaseModel):
@@ -300,9 +271,20 @@ class ComfyUIInfo(BaseModel):
     subfield: str
     preprocessing: Optional[str] = None
 
+
 class ComfyUIParameter(ToolParameter):
     comfyui: Optional[ComfyUIInfo] = Field(None)
+
 
 class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
+
+    async def execute(self, workflow: str, config: dict):
+        import modal
+        cls = modal.Cls.lookup("comfyui-dev-hello", workflow)
+        result = await cls().api.remote.aio(config)
+        return result
+        # if 'error' in result:
+        #     raise Exception("Tool error: " + result['error'])
+        # return result

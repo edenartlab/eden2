@@ -18,6 +18,11 @@ class EdenClient:
         self.api_url = DEFAULT_API_URL
         self.api_key = get_api_key()
 
+    def get_or_create_thread(self, thread_name):
+        response = asyncio.run(self.async_run("/thread/create", {"name": thread_name}))
+        thread_id = response.get("thread_id")
+        return thread_id
+    
     def chat(self, message, thread_id):
         async def consume_chat():
             return [message async for message in self.async_chat(message, thread_id)]
@@ -41,7 +46,7 @@ class EdenClient:
             "message": message,
             "thread_id": thread_id
         }
-        async for message_data in self.async_run("/ws/chat", payload):
+        async for message_data in self.async_run_ws("/ws/chat", payload):
             yield message_data
 
     async def async_create(self, workflow, args):
@@ -49,14 +54,14 @@ class EdenClient:
             "workflow": workflow,
             "args": args
         }
-        async for task_data in self.async_run("/ws/create", payload):
+        async for task_data in self.async_run_ws("/ws/create", payload):
             yield task_data
 
     async def async_train(self, config):
-        async for task_data in self.async_run("/ws/train", config):
+        async for task_data in self.async_run_ws("/ws/train", config):
             yield task_data
 
-    async def async_run(self, endpoint, payload):
+    async def async_run_ws(self, endpoint, payload):
         uri = f"wss://{self.api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key}
         try:
@@ -66,10 +71,17 @@ class EdenClient:
                     message_data = json.loads(message)
                     yield message_data
         except websockets.exceptions.ConnectionClosed as e:
-            print(f"Connection closed by the server with code: {e.code}")
+           print(f"Connection closed by the server with code: {e.code}")
         except Exception as e:
-            print(f"Error: {e}")
-    
+           print(f"Error: {e}")
+        
+    async def async_run(self, endpoint, payload):
+        uri = f"https://{self.api_url}{endpoint}"
+        headers = {"X-Api-Key": self.api_key}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(uri, headers=headers, json=payload)
+        return response.json()
+
     async def async_upload(self, file_path):
         async with aio_open(file_path, "rb") as f:
             media = await f.read()

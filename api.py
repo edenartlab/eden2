@@ -8,16 +8,17 @@
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 import modal
 import replicate
 
 from mongo import MongoBaseModel, tasks, models, users, threads
-from thread import Thread, UserMessage
+from thread import Thread, UserMessage, get_thread
 import auth
 import s3
 import tools
+
 
 # Todo: make names unique (case-insensitive)
 class Model(MongoBaseModel):
@@ -35,7 +36,6 @@ class Model(MongoBaseModel):
 
     def make_slug(self):
         name = self.name.lower().replace(" ", "-")
-        print("make slug for", self.name, self.user)
         version = 1 + models.count_documents({"name": self.name, "user": self.user}) 
         username = users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{version}"
@@ -53,17 +53,18 @@ class Task(MongoBaseModel):
     user: ObjectId
 
     def save(self):
-        print("what am i?", type(self))
         super().save(self, tasks)
-
     
+
 async def create(data, user):
     task = Task(**data, user=user["_id"])
     tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")
+    
+    # todo: should call tool.execute(task.args) instead 
     task.args = tools.prepare_args(tool, task.args)
     task.save()
-    
-    cls = modal.Cls.lookup("comfyui", task.workflow)
+    print("THE ARGS", task.args)
+    cls = modal.Cls.lookup("comfyui-dev-hello", task.workflow)
     result = await cls().api.remote.aio(task.args)
     
     if 'error' in result:
@@ -78,7 +79,7 @@ async def create(data, user):
     
 
 async def train(args: Dict, user):
-    tool = tools.load_tool("lora_trainer", f"/tools/lora_trainer/api.yaml")
+    tool = tools.load_tool("lora_trainer", f"tools/lora_trainer/api.yaml")
     task = Task(
         workflow="lora_trainer",
         args=args,
@@ -89,6 +90,9 @@ async def train(args: Dict, user):
 
     args = task.args.copy()
     args['lora_training_urls'] = "|".join(args['lora_training_urls'])
+
+    print("THE ARGS", args)
+
 
     deployment = replicate.deployments.get("edenartlab/lora-trainer")
     prediction = deployment.predictions.create(args)
@@ -138,7 +142,6 @@ async def train(args: Dict, user):
     )
 
     model.save()
-    print(model)
     yield model.model_dump_json()
 
 
@@ -147,23 +150,30 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
 
 async def chat(data, user):
-    print(data)
     request = ChatRequest(**data)
-    print(request)
 
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
-            raise Exception("Thread ID not found")
+            raise Exception("Thread not found")
         thread = Thread(**thread)
     else:
         thread = Thread()
 
     async for response in thread.prompt(request.message):
         yield {
-            "thread_id": str(thread.id),
             "message": response.model_dump_json()
         }
+
+
+async def get_or_create_thread(request: dict, user: dict = Depends(auth.authenticate)):
+    print("the request", request)
+    # return {"thread_id": "adsfadf"}
+    thread_name = request.get("name")
+    if not thread_name:
+        raise HTTPException(status_code=400, detail="Thread name is required")
+    thread = get_thread(thread_name, create_if_missing=True)
+    return {"thread_id": str(thread.id)}
 
 
 def create_handler(task_handler):
@@ -191,10 +201,15 @@ def create_handler(task_handler):
                 await websocket.close()
     return websocket_handler
 
+
 web_app = FastAPI()
+
 web_app.websocket("/ws/create")(create_handler(create))
 web_app.websocket("/ws/chat")(create_handler(chat))
 web_app.websocket("/ws/train")(create_handler(train))
+
+web_app.post("/thread/create")(get_or_create_thread)
+
 
 app = modal.App(
     name="tasks",
@@ -210,26 +225,12 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-    .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor==1.2.6", "fastapi==0.103.1", "requests",
-                 "pyyaml", "python-dotenv", "python-socketio", "replicate", "boto3", "python-magic", "Pillow")
+    .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor==1.2.6", 
+                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", 
+                 "python-socketio", "replicate", "boto3", "python-magic", "Pillow")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
 )
-
-# with image.imports():
-    # from thread import Thread, UserMessage
-    # from endpoint import get_tools, get_tools_summary
-    # tools = get_tools("/root/workflows")
-    # tools_summary = get_tools_summary(tools)
-    # default_system_message = (
-    #     "You are an assistant who is an expert at using Eden. "
-    #     "You have the following tools available to you: "
-    #     "\n\n---\n{tools_summary}\n---"
-    #     "\n\nIf the user clearly wants you to make something, select exactly ONE of the tools. Do NOT select multiple tools. Do NOT hallucinate any tool, especially do not use 'multi_tool_use' or 'multi_tool_use.parallel.parallel'. Only tools allowed: {tool_names}." 
-    #     "If the user is just making chat with you or asking a question, leave the tool null and just respond through the chat message. "
-    #     "If you're not sure of the user's intent, you can select no tool and ask the user for clarification or confirmation. " 
-    #     "Look through the whole conversation history for clues as to what the user wants. If they are referencing previous outputs, make sure to use them."
-    # ).format(tools_summary=tools_summary, tool_names=', '.join([t for t in tools]))
 
 @app.function(
     image=image, 

@@ -19,25 +19,10 @@ models = db["models"]
 tasks = db["tasks2"]
 
 
-# class PyObjectId(ObjectId):
-#     @classmethod
-#     def __get_validators__(cls):
-#         yield cls.validate
-
-#     @classmethod
-#     def validate(cls, v, values, **kwargs):
-#         if not ObjectId.is_valid(v):
-#             raise ValueError('Invalid ObjectId')
-#         return ObjectId(v)
-    
-#     @classmethod
-#     def __get_pydantic_json_schema__(cls, field_schema):
-#         field_schema.update(type='string')
-
-
 class MongoBaseModel(BaseModel):
     id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id", exclude=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    modified_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
 
     class Config:
         populate_by_name = True
@@ -58,6 +43,7 @@ class MongoBaseModel(BaseModel):
         )
         data["_id"] = self.id
         data["created_at"] = self.created_at
+        data["modified_at"] = self.modified_at
         return data
 
     @classmethod
@@ -65,6 +51,7 @@ class MongoBaseModel(BaseModel):
         data = document.to_mongo()
         document_id = data.get('_id')
         if document_id:
+            data["updated_at"] = datetime.utcnow()
             return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             return collection.insert_one(data)
