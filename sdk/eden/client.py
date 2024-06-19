@@ -46,24 +46,24 @@ class EdenClient:
             "message": message,
             "thread_id": thread_id
         }
-        async for message_data in self.async_run_ws("/ws/chat", payload):
-            yield message_data
+        async for response in self.async_run_ws("/ws/chat", payload):
+            yield response
 
     async def async_create(self, workflow, args):
         payload = {
             "workflow": workflow,
             "args": args
         }
-        async for task_data in self.async_run_ws("/ws/create", payload):
-            yield task_data
+        async for result in self.async_run_ws("/ws/create", payload):
+            yield result
 
     async def async_train(self, config):
-        async for task_data in self.async_run_ws("/ws/train", config):
-            yield task_data
+        async for result in self.async_run_ws("/ws/train", config):
+            yield result
 
     async def async_run_ws(self, endpoint, payload):
         uri = f"wss://{self.api_url}{endpoint}"
-        headers = {"X-Api-Key": self.api_key}
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
         try:
             async with websockets.connect(uri, extra_headers=headers) as websocket:                
                 await websocket.send(json.dumps(payload))
@@ -77,7 +77,7 @@ class EdenClient:
         
     async def async_run(self, endpoint, payload):
         uri = f"https://{self.api_url}{endpoint}"
-        headers = {"X-Api-Key": self.api_key}
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
         async with httpx.AsyncClient() as client:
             response = await client.post(uri, headers=headers, json=payload)
         return response.json()
@@ -85,7 +85,7 @@ class EdenClient:
     async def async_upload(self, file_path):
         async with aio_open(file_path, "rb") as f:
             media = await f.read()
-            headers = {"x-api-key": self.api_key}
+            headers = {"x-api-key": self.api_key.get_secret_value()}
             files = {"media": ("media", media)}
             async with httpx.AsyncClient() as client:
                 response = await client.post(
