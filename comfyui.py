@@ -40,7 +40,7 @@ class ComfyUI:
         tool_path: str,
         args: Dict
     ):
-        if 1:
+        try:
             tool = tools.load_tool(workflow_name, tool_path)
             print("user args", args)
             workflow = json.load(open(workflow_path, 'r'))
@@ -55,9 +55,9 @@ class ComfyUI:
             output = outputs.get(str(tool.comfyui_output_node_id))
             print("final", output)
             return output
-        # except Exception as e:
-        #     print(f"EXCEPTION OCCURRED: {e}")
-        #     raise e
+        except Exception as e:
+            print(f"API Error: {e}")
+            raise e
     
     def _is_server_running(self):
         try:
@@ -193,9 +193,9 @@ def test_workflow():
         "/root/api.yaml", 
         args
     )
-    if not output:
-       raise Exception("No output from test")
     print("test output", output)
+    if not output:
+        raise Exception("No output from test")
 
 
 def inject_embedding_mentions(text, embedding_name):
@@ -348,11 +348,11 @@ def inject_args_into_workflow(workflow, tool, args):
 class ModalComfyUI(ComfyUI):
     @modal.build()
     def download(self):
-        download_custom_files()
-    
+        print("download_custom_files()")
+
     @modal.build()
     def test(self):
-        test_workflow()
+        print("test_workflow()")
 
     @modal.enter()
     def start(self):
@@ -383,43 +383,99 @@ downloads_vol = modal.Volume.from_name(
 )
 
 app = modal.App(
-    name="comfyui-dev-hello",
+    name="comfy-new",
     secrets=[
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("openai")
     ],
 )
 
-workflows = [
+all_workflows = [
     "txt2img", "face_styler", "SD3",
     "txt2vid", "img2vid", "style_mixing", "vid2vid", 
-    "xhibit", 
+    # "xhibit", 
     "moodmix"
-] 
+]
 
-for workflow_name in workflows: 
+env_workflows = os.getenv("WORKFLOW", None)
+workflows = env_workflows.split(",") if env_workflows else all_workflows
+
+if set(workflows) != set(all_workflows):
+    decision = input("Caution: Not all workflows included. Do you want to continue? (y/n): ")
+    if decision.lower() != "y":
+        raise Exception("Aborted!")
+
+def select_workflows(root_folder):
+    required_files = {'api.yaml', 'workflow_api.json', 'test.json'}
+    all_workflows = {}
+    root_folder = os.path.abspath(root_folder)
+    for root, _, files in os.walk(root_folder):
+        if required_files <= set(files):
+            relative_path = os.path.relpath(root, start=root_folder)
+            all_workflows[relative_path] = root
+
+    selected_workflows = os.getenv("WORKFLOW", None)
+    if selected_workflows:
+        selected_workflows = selected_workflows.split(",")
+        workflows = {wf: all_workflows[wf] for wf in selected_workflows if wf in all_workflows}
+        if len(workflows) != len(selected_workflows):
+            missing = set(selected_workflows) - set(workflows.keys())
+            raise ValueError(f"Workflows not found: {', '.join(missing)}")
+    else:
+        selected_workflows = all_workflows
+
+    if set(selected_workflows) != set(all_workflows):
+        decision = input("Caution: Not all workflows included. Do you want to continue? (y/n): ")
+        if decision.lower() != "y":
+            raise Exception("Aborted!")
+        
+    return selected_workflows
+
+workflows_root = os.getenv("WORKFLOWS_ROOT", "../workflows")
+workflows2 = select_workflows(workflows_root)
+
+print("WORKFLOWS ROOT IS!", workflows_root)
+print("WORKFLOWS2", workflows2)
+print("WORKFLOWS", workflows)
+
+# check if they are equal
+if set(workflows2) != set(workflows):
+    pass
+    #print("WORKFLOWS2 NOT EQUAL TO WORKFLOWS")
+    #raise Exception("WORKFLOWS2 NOT EQUAL TO WORKFLOWS")
+# else:
+#     print("ITS EQUAL!!!")
+# print("GO 22!!!")
+
+def dummy_function():
+    pass  # This is an empty dummy function
+
+for workflow_name in workflows2:
     workflow_dir = pathlib.Path("../workflows") / workflow_name
 
     image = (
         modal.Image.debian_slim(python_version="3.11")
+        .env({"WORKFLOWS_ROOT": "../workflows"})
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
         .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", "requests", "Pillow",
-                     "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml", "instructor==1.2.6")
+                    "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml", "instructor==1.2.6")
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
-        .run_function(install_custom_nodes, gpu=modal.gpu.A100())        
-        .copy_local_file(workflow_dir / "downloads.json", "/root/downloads.json")
-        .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
-        .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
-        .copy_local_file(workflow_dir / "test.json", "/root/test.json")
+        .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+        .copy_local_dir("../workflows", remote_path="/workflows")
+        # .copy_local_file(workflow_dir / "downloads.json", "/root/downloads.json")
+        # .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
+        # .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
+        # .copy_local_file(workflow_dir / "test.json", "/root/test.json")
         # .run_function(download_custom_files, volumes={"/data": downloads_vol})
         # .run_function(test_workflow, gpu=modal.gpu.A100())
+        # .run_function(dummy_function, force_build=True)
+        # .run_function(dummy_function2, force_build=True)
     )
 
     cls = type(workflow_name, (ModalComfyUI,), {})
     
     globals()[workflow_name] = app.cls(
-    # app.cls(
         gpu=modal.gpu.A100(),
         allow_concurrent_inputs=5,
         image=image,
@@ -427,3 +483,8 @@ for workflow_name in workflows:
         timeout=1800,
         container_idle_timeout=60,
     )(cls)
+
+
+@app.local_entrypoint()
+def main():
+    print("Build completed successfully")
