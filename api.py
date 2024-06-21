@@ -64,7 +64,7 @@ async def create(data, user):
     task.args = tools.prepare_args(tool, task.args)
     task.save()
     print("THE ARGS", task.args)
-    cls = modal.Cls.lookup("comfyui-dev-hello", task.workflow)
+    cls = modal.Cls.lookup("comfyui", task.workflow)
     result = await cls().api.remote.aio(task.args)
     
     if 'error' in result:
