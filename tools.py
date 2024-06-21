@@ -282,7 +282,7 @@ class ComfyUITool(Tool):
 
     async def execute(self, workflow: str, config: dict):
         import modal
-        cls = modal.Cls.lookup("comfyui-dev-hello", workflow)
+        cls = modal.Cls.lookup("comfyui", workflow)
         result = await cls().api.remote.aio(config)
         return result
         # if 'error' in result:
