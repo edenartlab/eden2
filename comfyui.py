@@ -15,10 +15,26 @@ import urllib.request
 from urllib.error import URLError
 from typing import Dict
 
+from api import Task
 import tools
 import s3
 import utils
 
+
+DEPLOYMENT_NAME = "comfyui-dev2"
+
+workflows = [
+    "txt2img", "txt2img2",
+    "SD3", "face_styler",
+    "txt2vid", "txt2vid_lora",
+    "img2vid", "vid2vid", "style_mixing",
+    "video_upscaler", 
+    "xhibit/vton", "xhibit/remix", 
+    "moodmix"  #inpaint
+]
+workflows = [
+    "txt2img"
+]
 
 class ComfyUI:
 
@@ -40,7 +56,7 @@ class ComfyUI:
         tool_path: str,
         args: Dict
     ):
-        if 1:
+        try:
             tool = tools.load_tool(workflow_name, tool_path)
             print("user args", args)
             workflow = json.load(open(workflow_path, 'r'))
@@ -55,9 +71,8 @@ class ComfyUI:
             output = outputs.get(str(tool.comfyui_output_node_id))
             print("final", output)
             return output
-        # except Exception as e:
-        #     print(f"EXCEPTION OCCURRED: {e}")
-        #     raise e
+        except Exception as e:
+            raise Exception(f"Error running workflow {workflow_name}: {e}")
     
     def _is_server_running(self):
         try:
@@ -97,7 +112,7 @@ class ComfyUI:
                     data = message["data"]
                     print("got data", data)
                     print(data.keys())
-                    if data["prompt_id"] == prompt_id:
+                    if data.get("prompt_id") == prompt_id:
                         if data["node"] is None:
                             break
             else:
@@ -168,9 +183,9 @@ def download_custom_files():
         if vol_path.is_file():
             print(f"Skipping download, getting {path} from cache")
         else:
-            print(f"Downloading {url} to {vol_path.parent}")
+            print(f"Downloading {url} to {vol_path}")
             vol_path.parent.mkdir(parents=True, exist_ok=True)
-            utils.download_file(url, vol_path.parent)
+            utils.download_file(url, vol_path)
             downloads_vol.commit()
         try:
             comfy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -274,34 +289,35 @@ def transport_lora(
     shutil.copy(embeddings_path, embeddings_copy_path)
     print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
     
-    return lora_filename, embeddings_filename, base_name
+    return lora_filename, base_name
 
 
 def inject_args_into_workflow(workflow, tool, args):
-    embedding_name = None
+    embedding_trigger = None
     
     # download and transport files
     for param in tool.parameters: 
         if param.type in tools.FILE_TYPES:
             url = args.get(param.name)
-            args[param.name] = utils.download_file(url, "/root/input") if url else None
+            args[param.name] = utils.download_file(url, f"/root/input{url.split('/')[-1]}") if url else None
         
         elif param.type in tools.FILE_ARRAY_TYPES:
             urls = args.get(param.name)
-            args[param.name] = [utils.download_file(url, "/root/input") if url else None for url in urls] if urls else None
+            args[param.name] = [utils.download_file(url, f"/root/input/{url.split('/')[-1]}") if url else None for url in urls] if urls else None
         
         elif param.type == tools.ParameterType.LORA:
             lora_url = args.get(param.name)
             print("lora_url", lora_url)
             if lora_url:
-                lora_tarfile = utils.download_file(lora_url, "/root/downloads/")
-                lora_filename, embeddings_filename, embedding_name = transport_lora(
+                lora_filename = lora_url.split("/")[-1]
+                lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
+                lora_filename, embedding_trigger = transport_lora(
                     lora_tarfile, 
                     downloads_folder="/root/downloads",
                     loras_folder="/root/models/loras",
                     embeddings_folder="/root/models/embeddings"
                 )
-                print("set lora to", lora_filename, embedding_name)
+                print("set lora to", lora_filename, embedding_trigger)
                 args[param.name] = lora_filename        
         
     # inject args
@@ -316,36 +332,43 @@ def inject_args_into_workflow(workflow, tool, args):
             continue
 
         # if there's a lora, replace mentions with embedding name
-        if key == "prompt" and embedding_name:
-            value = inject_embedding_mentions(value, embedding_name)
+        if key == "prompt" and embedding_trigger:
+            value = inject_embedding_mentions(value, embedding_trigger)
+            print("prompt updated:", value)
 
         if comfyui.preprocessing is not None:
             if comfyui.preprocessing == "csv":
                 value = ",".join(value)
 
             elif comfyui.preprocessing == "folder":
+                print("move to folder")
                 temp_subfolder = tempfile.mkdtemp(dir="/root/input")
+                print("temp subfolder", temp_subfolder)
+                print(value)
                 if isinstance(value, list):
+                    print("q1")
                     for i, file in enumerate(value):
+                        print("q", i)
                         filename = f"{i:06d}_{os.path.basename(file)}"
+                        print(filename)
                         new_path = os.path.join(temp_subfolder, filename)
-                        shutil.move(file, new_path)
+                        shutil.copy(file, new_path)
                 else:
-                    shutil.move(value, temp_subfolder)
+                    shutil.copy(value, temp_subfolder)
                 value = temp_subfolder
 
         node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
         subfields = [s.strip() for s in subfield.split(",")]
         for subfield in subfields:
+            print("inject", node_id, field, subfield, " = ", value)
             if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                 raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
             workflow[node_id][field][subfield] = value  
-            print("inject", node_id, field, subfield, " = ", value)
 
     return workflow
 
 
-class ModalComfyUI(ComfyUI):
+class EdenComfyUI(ComfyUI):
     @modal.build()
     def download(self):
         download_custom_files()
@@ -362,19 +385,38 @@ class ModalComfyUI(ComfyUI):
     # def ui(self):
     #     self._spawn_server()
 
+    # @modal.web_endpoint(method="POST")
     @modal.method()
-    def api(self, args: Dict):
+    def api(self, task: Dict):
+        print("t1")
+        task = Task(**task)
+        print(task)
+        print("t2")
+        task.status = "running"
+        print("t3")
+        task.save()
+        print(task)
+        
         output = super().api(
             workflow_name, 
             "/root/workflow_api.json", 
             "/root/api.yaml", 
-            args
+            task.args
         )
-        print(output)
-        if 'error' in output:
-            return output
+        
+        # if 'error' in output:
+        #     return output
+        print("t4")
         urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
-        return urls
+        print(urls)
+        print("t5")
+        task.status = "completed"
+        task.result = urls
+        task.save()
+        print(task)
+        print("t4")
+        print("DONE!!!")
+        # return urls
 
 
 downloads_vol = modal.Volume.from_name(
@@ -383,19 +425,13 @@ downloads_vol = modal.Volume.from_name(
 )
 
 app = modal.App(
-    name="comfyui-dev-hello",
+    name=DEPLOYMENT_NAME,
     secrets=[
         modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("openai")
+        modal.Secret.from_name("openai"),
+        modal.Secret.from_name("mongo-credentials")
     ],
 )
-
-workflows = [
-    "txt2img", "face_styler", "SD3",
-    "txt2vid", "img2vid", "style_mixing", "vid2vid", 
-    "xhibit", 
-    "moodmix"
-] 
 
 for workflow_name in workflows: 
     workflow_dir = pathlib.Path("../workflows") / workflow_name
@@ -412,15 +448,24 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
-        # .run_function(download_custom_files, volumes={"/data": downloads_vol})
-        # .run_function(test_workflow, gpu=modal.gpu.A100())
+        # .pip_install("bson==0.5.10", "pymongo==4.8.0")
+        .pip_install("bson")
+        .pip_install("pymongo")
+        .pip_install("replicate")
+        #pymongo 4.8.0, 0.5.10
     )
 
-    cls = type(workflow_name, (ModalComfyUI,), {})
+    # with image.imports():
+    #     from api import Task
+    #     import tools
+    #     import s3
     
+    cls = type(workflow_name, (EdenComfyUI,), {})
+    
+    gpu = modal.gpu.A100(size="80GB") if workflow_name == "xhibit/vton" else modal.gpu.A100()
+
     globals()[workflow_name] = app.cls(
-    # app.cls(
-        gpu=modal.gpu.A100(),
+        gpu=gpu,
         allow_concurrent_inputs=5,
         image=image,
         volumes={"/data": downloads_vol},
