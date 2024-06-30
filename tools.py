@@ -181,9 +181,9 @@ def get_tools(tools_folder: str, exclude: List[str] = []):
         if required_files <= set(files):
             name = os.path.relpath(root, start=tools_folder)
             if name in exclude:
-                print(f"Excluding {name}")
+                # print(f"Excluding {name}")
                 continue
-            print(f"Including {name}")
+            # print(f"Including {name}")
             tools[name] = load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
     return tools
 
