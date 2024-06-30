@@ -33,7 +33,7 @@ workflows = [
     "moodmix"  #inpaint
 ]
 workflows = [
-    "txt2img"
+    "txt2vid"
 ]
 
 class ComfyUI:
@@ -430,6 +430,9 @@ for workflow_name in workflows:
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
         .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", "requests", "Pillow",
                      "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml", "instructor==1.2.6")
+        .pip_install("bson")
+        .pip_install("pymongo")
+        .pip_install("replicate")
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
         .run_function(install_custom_nodes, gpu=modal.gpu.A100())        
@@ -438,9 +441,6 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
         # .pip_install("bson==0.5.10", "pymongo==4.8.0")
-        .pip_install("bson")
-        .pip_install("pymongo")
-        .pip_install("replicate")
         #pymongo 4.8.0, 0.5.10
     )
 
