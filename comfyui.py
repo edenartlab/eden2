@@ -29,7 +29,7 @@ workflows = [
     "txt2vid", "txt2vid_lora",
     "img2vid", "vid2vid", "style_mixing",
     "video_upscaler", 
-    #"xhibit/vton", "xhibit/remix", 
+    "xhibit/vton", "xhibit/remix", 
     "moodmix",
     "inpaint"
 ]

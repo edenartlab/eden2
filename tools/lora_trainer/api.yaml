@@ -47,4 +47,4 @@ parameters:
   type: int
   default: random
   minimum: 0
-  maximum: 4294967295
+  maximum: 1000000
