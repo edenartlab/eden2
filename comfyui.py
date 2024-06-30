@@ -388,12 +388,8 @@ class EdenComfyUI(ComfyUI):
     # @modal.web_endpoint(method="POST")
     @modal.method()
     def api(self, task: Dict):
-        print("t1")
         task = Task(**task)
-        print(task)
-        print("t2")
         task.status = "running"
-        print("t3")
         task.save()
         print(task)
         
@@ -406,17 +402,10 @@ class EdenComfyUI(ComfyUI):
         
         # if 'error' in output:
         #     return output
-        print("t4")
         urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
-        print(urls)
-        print("t5")
         task.status = "completed"
         task.result = urls
         task.save()
-        print(task)
-        print("t4")
-        print("DONE!!!")
-        # return urls
 
 
 downloads_vol = modal.Volume.from_name(

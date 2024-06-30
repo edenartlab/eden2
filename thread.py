@@ -10,24 +10,11 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
-from tools import Tool, get_tools, get_tools_summary
-from mongo import MongoBaseModel
+from agent import Agent
+from tools import Tool, get_tools
+from mongo import MongoBaseModel, threads
 
-
-default_tools = get_tools("../workflows") | get_tools("tools")
-
-default_system_message = (
-    "You are an assistant who is an expert at using Eden. "
-    "You have the following tools available to you: "
-    "\n\n---\n{tools_summary}\n---"
-    "\n\nIf the user clearly wants you to make something, select exactly ONE of the tools. Do NOT select multiple tools. Do NOT hallucinate any tool, especially do not use 'multi_tool_use' or 'multi_tool_use.parallel.parallel'. Only tools allowed: {tool_names}." 
-    "If the user is just making chat with you or asking a question, leave the tool null and just respond through the chat message. "
-    "If you're not sure of the user's intent, you can select no tool and ask the user for clarification or confirmation. " 
-    "Look through the whole conversation history for clues as to what the user wants. If they are referencing previous outputs, make sure to use them."
-).format(
-    tools_summary=get_tools_summary(default_tools), 
-    tool_names=', '.join([t for t in default_tools])
-)
+default_tools = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "SD3"]) | get_tools("tools")
 
 
 class ChatMessage(BaseModel):
@@ -42,7 +29,7 @@ class ChatMessage(BaseModel):
 
 class SystemMessage(ChatMessage):
     role: Literal["system"] = "system"
-    content: Optional[str] = default_system_message
+    content: str
 
     def chat_message(self):
         return {
@@ -57,7 +44,7 @@ class SystemMessage(ChatMessage):
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
     name: Optional[str] = Field(None, description="The name of the tool")
-    content: Optional[str] = Field(None, description="A chat message")
+    content: str = Field(..., description="A chat message")
     metadata: Optional[Dict[str, Any]] = Field({}, description="Preset settings, metadata, or context information")
     attachments: Optional[List[HttpUrl]] = Field([], description="Attached files included")
 
@@ -73,19 +60,17 @@ class UserMessage(ChatMessage):
     
     def chat_message(self):
         content = self.content
-        if self.metadata:
-            content += f"\n\nMetadata: {self.metadata.json()}"
+        # if self.metadata:
+            # content += f"\n\nMetadata: {self.metadata.json()}"
         if self.attachments:
             attachments_str = '", "'.join([str(url) for url in self.attachments])
             content += f'\n\nAttachments: ["{attachments_str}"]'
         message = {
             "role": self.role,
-            "name": self.name,
-            "content": content,
-        } if self.name else {
-            "role": self.role,
             "content": content,
         }
+        if self.name:
+            message["name"] = self.name
         return message
 
     def __str__(self):
@@ -113,8 +98,8 @@ class AssistantMessage(ChatMessage):
     def __str__(self):
         content_str = f"{self.content}\n" if self.content else ""
         if self.tool_calls:
-            function = self.tool_calls[0].function
-            tool_call_str = f"{function.name}: {function.arguments}"
+            functions = [f"{tc.function.name}: {tc.function.arguments}" for tc in self.tool_calls]
+            tool_call_str = "\n".join(functions)            
         else:
             tool_call_str = ""
         return f"\033[93m\033[1mAI\t\033[22m{content_str}{tool_call_str}\033[0m"
@@ -139,9 +124,9 @@ class ToolMessage(ChatMessage):
 
 
 class Thread(MongoBaseModel):
+    name: str
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]] = []
     metadata: Optional[Dict[str, str]] = Field({}, description="Preset settings, metadata, or context information")
-    system_message: str = Field(default_system_message, description="You are an Eden team member who is an expert at using Eden.")
     tools: Dict[str, Tool] = Field(default_tools, description="Tools available to the user")
 
     def __init__(self, **kwargs):
@@ -153,31 +138,33 @@ class Thread(MongoBaseModel):
             "tool": ToolMessage
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
-        # self.tools = kwargs.get('tools', default_tools)
-        # self.system_message = kwargs.get('system_message', default_system_message)
 
     def to_mongo(self):
         data = super().to_mongo()
         data['messages'] = [m.to_mongo() for m in self.messages]
+        data.pop('tools')
         return data
 
+    def save(self):
+        super().save(self, threads)
+
     def get_chat_messages(self, system_message: str = None):
-        system_message = SystemMessage(
-            content=system_message or self.system_message
-        )
+        system_message = SystemMessage(content=system_message)
         messages = [system_message, *self.messages]
         return [m.chat_message() for m in messages]
 
-    def add_message(self, message: ChatMessage):
-        self.messages.append(message)
+    def add_message(self, *messages: ChatMessage):
+        self.messages.extend(messages)
+        self.save()
 
     async def prompt(
         self, 
+        agent: Agent,
         user_message: UserMessage,
-        system_message: Optional[str] = None
     ):
-        self.add_message(user_message)
-        response = await maybe_use_tool(
+        self.add_message(user_message)        
+        system_message = agent.get_system_message(self.tools)
+        response = await prompt(
             self.get_chat_messages(system_message=system_message),
             tools=[t.tool_schema() for t in self.tools.values()]
         )
@@ -187,7 +174,7 @@ class Thread(MongoBaseModel):
             assistant_message = AssistantMessage(**message.model_dump())
             self.add_message(assistant_message)
             yield assistant_message
-            return  # no tool calls, we're done here
+            return  # no tool calls, we're done
 
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
@@ -197,46 +184,50 @@ class Thread(MongoBaseModel):
             raise Exception(f"Tool {tool_name} not found")
 
         try:
+            extra_args = user_message.metadata.get('settings', {})
             args = {k: v for k, v in args.items() if v is not None}
-            updated_args = tool.BaseModel(**args).model_dump() 
+            args.update(extra_args)
+            print("args", args)
+            updated_args = tool.get_base_model(**args).model_dump()
+            print("updated ars", updated_args)
 
-        except ValidationError as err:            
+        except ValidationError as err:
             assistant_message = AssistantMessage(**message.model_dump())
             yield assistant_message
 
             error_details = "\n".join([f" - {e['loc'][0]}: {e['msg']}" for e in err.errors()])
             error_message = f"{tool_name}: {args} failed with errors:\n{error_details}"
-
+            print("error message", error_message)
             tool_message = ToolMessage(
                 name=tool_calls[0].function.name,
                 tool_call_id=tool_calls[0].id,
                 content=error_message
             )
-            self.add_message(assistant_message)
-            self.add_message(tool_message)
+            self.add_message(assistant_message, tool_message)
 
             system_message_help = f"You are an expert at using Eden. You have conversations with users in which they sometimes request for you to use the tool {tool_name}. Sometimes you invoke the tool but it fails with one or more errors, which you report. Given the conversation (especially the user's last message requesting the tool), and the error message, you should either explain the problem to the user and/or ask for clarification to try again. For context, the following is a summary of {tool_name}:\n\n{tool.summary()}"
             messages = self.get_chat_messages(system_message=system_message_help).copy()
-            error_message = await chat(messages)
+            error_message = await prompt(messages)
             tool_message.content = error_message.choices[0].message.content
             yield tool_message
             return
         
-
-        # should we use updated_args or args in the assistant message?
-        message.tool_calls[0].function.arguments = json.dumps(updated_args)
-
-        assistant_message = AssistantMessage(**message.model_dump())
+        # todo: actually handle multiple tool calls
+        if len(message.tool_calls) > 1:
+            print("Multiple tool calls found, only using the first one")
+            print(message.tool_calls)
+            print("-------")
+            message.tool_calls = [message.tool_calls[0]]
         
+        message.tool_calls[0].function.arguments = json.dumps(updated_args)
+        assistant_message = AssistantMessage(**message.model_dump())
         yield assistant_message
         
         result = await tool.execute(
             workflow=tool_name, 
             config=updated_args
         )
-        print(result)
-        # content = result #result.get("urls")
-        # todo: check for errors
+
         if isinstance(result, list):
             result = ", ".join(result)
 
@@ -246,17 +237,20 @@ class Thread(MongoBaseModel):
             content=result
         )
 
-        self.add_message(assistant_message)
-        self.add_message(tool_message)
+        self.add_message(assistant_message, tool_message)
         yield tool_message
 
 
-async def maybe_use_tool(
+async def prompt(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
-    model: str = "gpt-4-1106-preview",
-) -> ChatMessage:
-    client = instructor.from_openai(openai.AsyncOpenAI(), mode=instructor.Mode.TOOLS)
+    #model: str = "gpt-4o", 
+    model: str = "gpt-4-turbo"
+) -> ChatMessage: 
+    client = instructor.from_openai(
+        openai.AsyncOpenAI(), 
+        mode=instructor.Mode.TOOLS
+    )
     response = await client.chat.completions.create(
         model=model,
         response_model=None,
@@ -264,18 +258,18 @@ async def maybe_use_tool(
         messages=messages,
         max_retries=2,
     )
+    # todo: deal with tool hallucination
     return response
 
 
-async def chat(
-    messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
-    model: str = "gpt-4-1106-preview",
-) -> ChatMessage: 
-    client = instructor.from_openai(openai.AsyncOpenAI(), mode=instructor.Mode.TOOLS)
-    response = await client.chat.completions.create(
-        model=model,
-        response_model=None,
-        messages=messages,
-        max_retries=2,
-    )
-    return response
+def get_thread(name: str, create_if_missing: bool = False):
+    thread = threads.find_one({"name": name})
+    if not thread:
+        if create_if_missing:
+            thread = Thread(name=name)
+            thread.save()
+        else:
+            raise Exception(f"Thread {name} not found")
+    else:
+        thread = Thread(**thread)
+    return thread

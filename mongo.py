@@ -10,9 +10,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = MongoClient(os.getenv("MONGO_URI"))
-db = client[os.getenv("MONGO_DB_NAME")]
+# db = client[os.getenv("MONGO_DB_NAME")]
+db = client["eden-stg"]
 
 threads = db["threads"]
+agents = db["agents"]
 users = db["users"]
 api_keys = db["apikeys"]
 models = db["models"]
@@ -48,10 +50,19 @@ class MongoBaseModel(BaseModel):
 
     @classmethod
     def save(cls, document, collection):
+        print("SAVE", document)
         data = document.to_mongo()
+
+        # print the list of all documents in the collection
+        print(collection.find())
+        
+
         document_id = data.get('_id')
         if document_id:
             data["updated_at"] = datetime.utcnow()
             return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
-            return collection.insert_one(data)
+            print("INSERT")
+            z= collection.insert_one(data)
+            print(z)
+            return z

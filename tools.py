@@ -1,17 +1,15 @@
-# import re
 import os
 import yaml
-# import shutil
-# import tarfile
-# import tempfile
 import random
-from tqdm import tqdm
+import modal
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
 from instructor.function_calls import openai_schema
 
-from utils import download_file
+# from api import Task
+
+DEPLOYMENT_NAME = "comfyui-dev2"
 
 
 TYPE_MAPPING = {
@@ -64,7 +62,6 @@ class ToolParameter(BaseModel):
     min_length: Optional[int] = Field(None, description="Minimum length for array type")
     max_length: Optional[int] = Field(None, description="Maximum length for array type")
     choices: Optional[List[Any]] = Field(None, description="Allowed values")
-    
 
 class Tool(BaseModel):
     key: str
@@ -91,7 +88,7 @@ class Tool(BaseModel):
     def parameters_summary(self):
         summary = "Parameters\n---"
         for param in self.parameters:
-            summary += f"\n{param.name}: {param.description}."
+            summary += f"\n{param.name}: {param.label}, {param.description}."
             if param.tip:
                 summary += f" {param.tip}."
             requirements = ["Type: " + param.type.name]
@@ -104,15 +101,15 @@ class Tool(BaseModel):
             if param.min_length or param.max_length:
                 requirements.append(f"Allowed length: {param.min_length} to {param.max_length}")
             requirements_str = "; ".join(requirements)
-            summary += f" ({requirements_str})"   
-
+            summary += f" ({requirements_str})"
         return summary
 
     def tool_schema(self):
         tool_model = create_tool_base_model(self)
         return {
             "type": "function",
-            "function": openai_schema(tool_model).openai_schema
+            # "function": openai_schema(tool_model).openai_schema
+            "function": openai_schema(tool_model).anthropic_schema
         }
 
 
@@ -168,7 +165,7 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
 
 def load_tool(tool_name: str, tool_path: str) -> Tool:
     if not os.path.exists(tool_path):
-        raise ValueError(f"Tool API not found: {tool_path}")
+        raise ValueError(f"Tool {tool_name} not found at {tool_path}")
     data = yaml.safe_load(open(tool_path, "r"))
     if data['handler'] == 'comfyui':
         tool = ComfyUITool(data, key=tool_name)
@@ -177,21 +174,17 @@ def load_tool(tool_name: str, tool_path: str) -> Tool:
     return tool
 
 
-def get_tools(tools_folder: str, exclude_tools: List[str] = []):
-    tool_names = [
-        name for name in os.listdir(tools_folder)
-        if os.path.isdir(os.path.join(tools_folder, name)) and not name.startswith('.')
-    ]
-
-    if exclude_tools:
-        tool_names = [name for name in tool_names if name not in exclude_tools]
-
-    if not tool_names:
-        raise ValueError(f"No tools found in {tools_folder}")
-    tools = {
-        name: load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
-        for name in tool_names
-    }
+def get_tools(tools_folder: str, exclude: List[str] = []):
+    required_files = {'api.yaml', 'workflow_api.json', 'test.json'}
+    tools = {}
+    for root, _, files in os.walk(tools_folder):
+        if required_files <= set(files):
+            name = os.path.relpath(root, start=tools_folder)
+            if name in exclude:
+                print(f"Excluding {name}")
+                continue
+            print(f"Including {name}")
+            tools[name] = load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
     return tools
 
 
@@ -212,7 +205,7 @@ def prepare_args(tool, user_args, save_files=False):
         if param.default is not None:
             value = param.default
 
-        if user_args.get(key) is not None:
+        if user_args.get(key):
             value = user_args[key]
 
         if value == "random":
@@ -220,23 +213,31 @@ def prepare_args(tool, user_args, save_files=False):
 
         args[key] = value
 
+    unrecognized_args = set(user_args.keys()) - {param.name for param in tool.parameters}
+    if unrecognized_args:
+        raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+
     try:
         create_tool_base_model(tool)(**args)  # validate args
-    except ValidationError as err:
-        error_str = get_human_readable_error(err.errors())
+    except ValidationError as e:
+        error_str = get_human_readable_error(e.errors())
         raise ValueError(error_str)
 
     return args
 
 
+
 def get_human_readable_error(error_list):
     print("error_list", error_list)
     errors = []
+    print("error_list", error_list)
     for error in error_list:
         field = error['loc'][0]
         error_type = error['type']
         input_value = error['input']
-        if error_type == 'literal_error':
+        if error_type == 'string_type':
+            errors.append(f"{field} is missing")
+        elif error_type == 'literal_error':
             expected_values = error['ctx']['expected']
             errors.append(f"{field} must be one of {expected_values}")
         elif error_type == 'less_than_equal':
@@ -284,11 +285,13 @@ class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
 
+    def submit(self, task):
+        cls = modal.Cls.lookup(DEPLOYMENT_NAME, task.workflow)
+        print("spawn")
+        job = cls().api.spawn(task.to_mongo())
+        return job.object_id
+
     async def execute(self, workflow: str, config: dict):
-        import modal
-        cls = modal.Cls.lookup("comfyui", workflow)
+        cls = modal.Cls.lookup(DEPLOYMENT_NAME, workflow)
         result = await cls().api.remote.aio(config)
         return result
-        # if 'error' in result:
-        #     raise Exception("Tool error: " + result['error'])
-        # return result

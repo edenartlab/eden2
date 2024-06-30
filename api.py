@@ -11,16 +11,18 @@ from pydantic import BaseModel, Field
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 import modal
-import replicate
+# import replicate
 
-from mongo import MongoBaseModel, tasks, models, users, threads
+from mongo import MongoBaseModel, agents, tasks, models, users, threads
+from agent import Agent
 from thread import Thread, UserMessage, get_thread
 import auth
 import s3
 import tools
 
+DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
-# Todo: make names unique (case-insensitive)
+
 class Model(MongoBaseModel):
     name: str
     user: ObjectId
@@ -52,30 +54,36 @@ class Task(MongoBaseModel):
     result: Optional[Any] = None
     user: ObjectId
 
+    def __init__(self, **data):
+        if isinstance(data.get('user'), str):
+            data['user'] = ObjectId(data['user'])
+        super().__init__(**data)
+
     def save(self):
         super().save(self, tasks)
     
 
-async def create(data, user):
-    task = Task(**data, user=user["_id"])
-    tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")
+# async def create(data, user):
+#     task = Task(**data, user=user["_id"])
+#     if task.workflow == "xhibit":
+#         task.workflow = "xhibit/vton"
+#     tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")
     
-    # todo: should call tool.execute(task.args) instead 
-    task.args = tools.prepare_args(tool, task.args)
-    task.save()
-    print("THE ARGS", task.args)
-    cls = modal.Cls.lookup("comfyui", task.workflow)
-    result = await cls().api.remote.aio(task.args)
+#     task.args = tools.prepare_args(tool, task.args)
+#     task.save()
     
-    if 'error' in result:
-        task.status = "failed"
-        task.error = str(result['error'])
-    else:
-        task.status = "completed"
-        task.result = result
+#     print("ARGS", task.args)
+#     result = await tool.execute(task.workflow, task.args)
     
-    task.save()
-    yield task.model_dump_json()
+#     if 'error' in result:
+#         task.status = "failed"
+#         task.error = str(result['error'])
+#     else:
+#         task.status = "completed"
+#         task.result = result
+    
+#     task.save()
+#     yield task.model_dump_json()
     
 
 async def train(args: Dict, user):
@@ -90,30 +98,11 @@ async def train(args: Dict, user):
 
     args = task.args.copy()
     args['lora_training_urls'] = "|".join(args['lora_training_urls'])
-
     print("THE ARGS", args)
-
-
+    
+    import replicate
     deployment = replicate.deployments.get("edenartlab/lora-trainer")
     prediction = deployment.predictions.create(args)
-    # deployment = replicate.deployments.get("edenartlab/lora-trainer")
-    # prediction = deployment.predictions.create(
-    #     input={
-    #         "name": name,
-    #         "lora_training_urls": "|".join(args.training_images), 
-    #         # "ti_lr": 0.001,
-    #         # "unet_lr": 0.001,
-    #         # "n_tokens": 2,
-    #         # "use_dora": False,
-    #         # "lora_rank": 16,
-    #         # "resolution": 512,
-    #         "concept_mode": args.mode,
-    #         # "max_train_steps": 400,
-    #         "sd_model_version": args.base_model,
-    #         # "train_batch_size": 4
-    #     }
-    # )
-
     prediction.wait()
     output = prediction.output[-1]
     
@@ -148,9 +137,16 @@ async def train(args: Dict, user):
 class ChatRequest(BaseModel):
     message: UserMessage
     thread_id: Optional[str] = None
+    agent_id: Optional[str] = None
 
 async def chat(data, user):
     request = ChatRequest(**data)
+
+    agent_id = request.agent_id or DEFAULT_AGENT_ID
+    agent = agents.find_one({"_id": ObjectId(agent_id)})
+    if not agent:
+        raise Exception(f"Agent not found")
+    agent = Agent(**agent)
 
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
@@ -160,7 +156,7 @@ async def chat(data, user):
     else:
         thread = Thread()
 
-    async for response in thread.prompt(request.message):
+    async for response in thread.prompt(agent, request.message):
         yield {
             "message": response.model_dump_json()
         }
@@ -168,12 +164,29 @@ async def chat(data, user):
 
 async def get_or_create_thread(request: dict, user: dict = Depends(auth.authenticate)):
     print("the request", request)
-    # return {"thread_id": "adsfadf"}
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
     thread = get_thread(thread_name, create_if_missing=True)
     return {"thread_id": str(thread.id)}
+
+
+def create(
+    request: dict, 
+    _: dict = Depends(auth.authenticate_admin)
+):
+    try:
+        task = Task(**request)
+        tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")        
+        task.args = tools.prepare_args(tool, task.args)
+        print("Args", task.args)
+        tool.submit(task)
+        task.save() # todo: race condition w/ comfy?
+        return task
+            
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def create_handler(task_handler):
@@ -209,15 +222,18 @@ web_app.websocket("/ws/chat")(create_handler(chat))
 web_app.websocket("/ws/train")(create_handler(train))
 
 web_app.post("/thread/create")(get_or_create_thread)
+web_app.post("/create")(create)
 
 
 app = modal.App(
-    name="tasks",
+    name="tasks2",
     secrets=[
+        modal.Secret.from_name("admin-key"),
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("clerk-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
+        modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
     ],
 )
@@ -225,8 +241,8 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-    .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor==1.2.6", 
-                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", 
+    .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", 
+                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "anthropic",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
@@ -242,3 +258,5 @@ image = (
 @modal.asgi_app()
 def fastapi_app():
     return web_app
+
+

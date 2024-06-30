@@ -6,6 +6,7 @@ from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredenti
 from fastapi import WebSocket, HTTPException, Depends, status
 
 CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
+ADMIN_KEY = os.getenv("ADMIN_KEY")
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -66,13 +67,27 @@ async def authenticate_ws(websocket: WebSocket):
         raise e
 
 
-def authenticate_socketio(environ):
-    api_key = environ.get('HTTP_X_API_KEY')
-    token = environ.get('HTTP_AUTHORIZATION')
-    if token:
-        token = HTTPAuthorizationCredentials(
-            scheme="Bearer", 
-            credentials=token.replace("Bearer ", "").strip()
-        )
-    user = authenticate(api_key=api_key, token=token)
-    return user
+def authenticate_admin(
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    print("token", token)
+    print("token.credentials", token.credentials)
+    print("ADMIN_KEY", ADMIN_KEY)
+    print("GO!")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
+                            detail="No authentication credentials provided")
+    if token.credentials != ADMIN_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+
+# def authenticate_socketio(environ):
+#     api_key = environ.get('HTTP_X_API_KEY')
+#     token = environ.get('HTTP_AUTHORIZATION')
+#     if token:
+#         token = HTTPAuthorizationCredentials(
+#             scheme="Bearer", 
+#             credentials=token.replace("Bearer ", "").strip()
+#         )
+#     user = authenticate(api_key=api_key, token=token)
+#     return user
