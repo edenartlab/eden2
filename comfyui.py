@@ -433,6 +433,7 @@ for workflow_name in workflows:
         .pip_install("bson")
         .pip_install("pymongo")
         .pip_install("replicate")
+        .pip_install("pyjwt")
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
         .run_function(install_custom_nodes, gpu=modal.gpu.A100())        
