@@ -29,11 +29,9 @@ workflows = [
     "txt2vid", "txt2vid_lora",
     "img2vid", "vid2vid", "style_mixing",
     "video_upscaler", 
-    "xhibit/vton", "xhibit/remix", 
-    "moodmix"  #inpaint
-]
-workflows = [
-    "txt2vid"
+    #"xhibit/vton", "xhibit/remix", 
+    "moodmix",
+    "inpaint"
 ]
 
 class ComfyUI:
