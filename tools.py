@@ -177,11 +177,15 @@ def load_tool(tool_name: str, tool_path: str) -> Tool:
     return tool
 
 
-def get_tools(tools_folder: str):
+def get_tools(tools_folder: str, exclude_tools: List[str] = []):
     tool_names = [
         name for name in os.listdir(tools_folder)
         if os.path.isdir(os.path.join(tools_folder, name)) and not name.startswith('.')
     ]
+
+    if exclude_tools:
+        tool_names = [name for name in tool_names if name not in exclude_tools]
+
     if not tool_names:
         raise ValueError(f"No tools found in {tools_folder}")
     tools = {
