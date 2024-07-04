@@ -11,57 +11,46 @@ from pydantic import BaseModel, Field
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 import modal
-# import replicate
 
 from mongo import MongoBaseModel, agents, tasks, models, users, threads
-from agent import Agent
+from agent import Agent, DEFAULT_AGENT_ID
 from thread import Thread, UserMessage, get_thread
-import auth
 import s3
-import tools
+# import tools
+from tools import get_tools
+import auth
 
-DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
+from models import Model, Task
 
-
-class Model(MongoBaseModel):
-    name: str
-    user: ObjectId
-    slug: str = None
-    args: Dict[str, Any]
-    public: bool = False
-    checkpoint: str
-    thumbnail: str
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.make_slug()
-
-    def make_slug(self):
-        name = self.name.lower().replace(" ", "-")
-        version = 1 + models.count_documents({"name": self.name, "user": self.user}) 
-        username = users.find_one({"_id": self.user})["username"]
-        self.slug = f"{username}/{name}/v{version}"
-
-    def save(self):
-        super().save(self, models)
+tools = get_tools("../workflows")
 
 
-class Task(MongoBaseModel):
-    workflow: str
-    args: Dict[str, Any]
-    status: str = "pending"
-    error: Optional[str] = None
-    result: Optional[Any] = None
-    user: ObjectId
+async def get_or_create_thread(request: dict, user: dict = Depends(auth.authenticate)):
+    print("the request", request)
+    thread_name = request.get("name")
+    if not thread_name:
+        raise HTTPException(status_code=400, detail="Thread name is required")
+    thread = get_thread(thread_name, create_if_missing=True)
+    return {"thread_id": str(thread.id)}
 
-    def __init__(self, **data):
-        if isinstance(data.get('user'), str):
-            data['user'] = ObjectId(data['user'])
-        super().__init__(**data)
 
-    def save(self):
-        super().save(self, tasks)
-    
+
+def create(
+    request: dict, 
+    _: dict = Depends(auth.authenticate_admin)
+):
+    try:
+        task = Task(**request)
+        tool = tools[task.workflow]
+        task.args = tool.prepare_args(task.args)
+        tool.submit(task)
+        task.save()  # todo: check for race condition w/ comfy?
+        return task
+            
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 # async def create(data, user):
 #     task = Task(**data, user=user["_id"])
@@ -162,64 +151,38 @@ async def chat(data, user):
         }
 
 
-async def get_or_create_thread(request: dict, user: dict = Depends(auth.authenticate)):
-    print("the request", request)
-    thread_name = request.get("name")
-    if not thread_name:
-        raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = get_thread(thread_name, create_if_missing=True)
-    return {"thread_id": str(thread.id)}
 
-
-def create(
-    request: dict, 
-    _: dict = Depends(auth.authenticate_admin)
-):
-    try:
-        task = Task(**request)
-        tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")        
-        task.args = tools.prepare_args(tool, task.args)
-        print("Args", task.args)
-        tool.submit(task)
-        task.save() # todo: race condition w/ comfy?
-        return task
-            
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-def create_handler(task_handler):
-    async def websocket_handler(
-        websocket: WebSocket, 
-        user: dict = Depends(auth.authenticate_ws)
-    ):
-        await websocket.accept()
-        try:
-            async for data in websocket.iter_json():
-                try:
-                    async for response in task_handler(data, user):
-                        await websocket.send_json(response)
-                    break
-                except Exception as e:
-                    await websocket.send_json({"error": str(e)})
-                    break
-        except WebSocketDisconnect:
-            print("WebSocket disconnected by client")
-        except Exception as e:
-            print(f"Unexpected error: {str(e)}")
-        finally:
-            if websocket.application_state == WebSocketState.CONNECTED:
-                print("Closing WebSocket...")
-                await websocket.close()
-    return websocket_handler
+# def create_handler(task_handler):
+#     async def websocket_handler(
+#         websocket: WebSocket, 
+#         user: dict = Depends(auth.authenticate_ws)
+#     ):
+#         await websocket.accept()
+#         try:
+#             async for data in websocket.iter_json():
+#                 try:
+#                     async for response in task_handler(data, user):
+#                         await websocket.send_json(response)
+#                     break
+#                 except Exception as e:
+#                     await websocket.send_json({"error": str(e)})
+#                     break
+#         except WebSocketDisconnect:
+#             print("WebSocket disconnected by client")
+#         except Exception as e:
+#             print(f"Unexpected error: {str(e)}")
+#         finally:
+#             if websocket.application_state == WebSocketState.CONNECTED:
+#                 print("Closing WebSocket...")
+#                 await websocket.close()
+#     return websocket_handler
 
 
 web_app = FastAPI()
 
-web_app.websocket("/ws/create")(create_handler(create))
-web_app.websocket("/ws/chat")(create_handler(chat))
-web_app.websocket("/ws/train")(create_handler(train))
+# web_app.websocket("/ws/create")(create_handler(create))
+# web_app.websocket("/ws/chat")(create_handler(chat))
+# web_app.websocket("/ws/train")(create_handler(train))
 
 web_app.post("/thread/create")(get_or_create_thread)
 web_app.post("/create")(create)
@@ -245,7 +208,7 @@ image = (
                  "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "anthropic",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow")
     .copy_local_dir("../workflows", remote_path="/workflows")
-    .copy_local_dir("tools", remote_path="/root/tools")
+    # .copy_local_dir("tools", remote_path="/root/tools")
 )
 
 @app.function(

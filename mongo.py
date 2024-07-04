@@ -22,9 +22,9 @@ tasks = db["tasks2"]
 
 
 class MongoBaseModel(BaseModel):
-    id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id", exclude=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-    modified_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id")
+    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
 
     class Config:
         populate_by_name = True
@@ -44,8 +44,8 @@ class MongoBaseModel(BaseModel):
             **kwargs,
         )
         data["_id"] = self.id
-        data["created_at"] = self.created_at
-        data["modified_at"] = self.modified_at
+        data["createdAt"] = self.createdAt
+        data["updatedAt"] = self.updatedAt
         return data
 
     @classmethod

@@ -9,30 +9,22 @@ import shutil
 import pathlib
 import tarfile
 import tempfile
+import argparse
 import websocket
 import subprocess
 import urllib.request
 from urllib.error import URLError
 from typing import Dict
 
-from api import Task
+from models import Task
 import tools
 import s3
 import utils
 
+APP_NAME_PROD  = "comfyui"
+APP_NAME_STAGE = "comfyui-dev"
+app_name = APP_NAME_STAGE
 
-DEPLOYMENT_NAME = "comfyui-dev2"
-
-workflows = [
-    "txt2img", "txt2img2",
-    "SD3", "face_styler",
-    "txt2vid", "txt2vid_lora",
-    "img2vid", "vid2vid", "style_mixing",
-    "video_upscaler", 
-    "xhibit/vton", "xhibit/remix", 
-    "moodmix",
-    "inpaint"
-]
 
 class ComfyUI:
 
@@ -108,8 +100,6 @@ class ComfyUI:
                 message = json.loads(out)
                 if message["type"] == "executing":
                     data = message["data"]
-                    print("got data", data)
-                    print(data.keys())
                     if data.get("prompt_id") == prompt_id:
                         if data["node"] is None:
                             break
@@ -197,7 +187,7 @@ def download_custom_files():
 def test_workflow():
     tool = tools.load_tool(workflow_name, "/root/api.yaml")
     args = json.loads(open("/root/test.json", "r").read())
-    args = tools.prepare_args(tool, args)
+    args = tool.prepare_args(args)
     comfy = ComfyUI()
     comfy.start()
     output = comfy.api(
@@ -260,12 +250,12 @@ def transport_lora(
 
     # hack to correct for older lora naming convention
     if str(lora_filename) not in extracted_files:
-        print("! Old lora naming convention detected. Correcting...")
+        print("Old lora naming convention detected. Correcting...")
         lora_filename = f"{base_name}_lora.safetensors"
 
     for file in [lora_filename, embeddings_filename]:
         if str(file) not in extracted_files:
-            raise FileNotFoundError(f"!! Required file {file} does not exist in the extracted files.")
+            raise FileNotFoundError(f"Required file {file} does not exist in the extracted files.")
 
     if not os.path.exists(loras_folder):
         os.makedirs(loras_folder)
@@ -301,11 +291,13 @@ def inject_args_into_workflow(workflow, tool, args):
         
         elif param.type in tools.FILE_ARRAY_TYPES:
             urls = args.get(param.name)
-            args[param.name] = [utils.download_file(url, f"/root/input/{url.split('/')[-1]}") if url else None for url in urls] if urls else None
+            args[param.name] = [
+                utils.download_file(url, f"/root/input/{url.split('/')[-1]}") if url else None 
+                for url in urls
+            ] if urls else None
         
         elif param.type == tools.ParameterType.LORA:
             lora_url = args.get(param.name)
-            print("lora_url", lora_url)
             if lora_url:
                 lora_filename = lora_url.split("/")[-1]
                 lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
@@ -315,7 +307,6 @@ def inject_args_into_workflow(workflow, tool, args):
                     loras_folder="/root/models/loras",
                     embeddings_folder="/root/models/embeddings"
                 )
-                print("set lora to", lora_filename, embedding_trigger)
                 args[param.name] = lora_filename        
         
     # inject args
@@ -339,16 +330,10 @@ def inject_args_into_workflow(workflow, tool, args):
                 value = ",".join(value)
 
             elif comfyui.preprocessing == "folder":
-                print("move to folder")
                 temp_subfolder = tempfile.mkdtemp(dir="/root/input")
-                print("temp subfolder", temp_subfolder)
-                print(value)
                 if isinstance(value, list):
-                    print("q1")
                     for i, file in enumerate(value):
-                        print("q", i)
                         filename = f"{i:06d}_{os.path.basename(file)}"
-                        print(filename)
                         new_path = os.path.join(temp_subfolder, filename)
                         shutil.copy(file, new_path)
                 else:
@@ -382,28 +367,67 @@ class EdenComfyUI(ComfyUI):
     # @modal.web_server(8188, startup_timeout=300)
     # def ui(self):
     #     self._spawn_server()
+    
+    def _run(self, args: Dict):
+        output = super().api(
+            workflow_name, 
+            "/root/workflow_api.json", 
+            "/root/api.yaml", 
+            args
+        )
+        print(output)
+        if 'error' in output:
+            return output
+        urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
+        return urls
 
-    # @modal.web_endpoint(method="POST")
+    @modal.method()
+    def execute(self, args: Dict):
+        return self._run(args)
+
     @modal.method()
     def api(self, task: Dict):
         task = Task(**task)
         task.status = "running"
         task.save()
-        print(task)
-        
-        output = super().api(
-            workflow_name, 
-            "/root/workflow_api.json", 
-            "/root/api.yaml", 
-            task.args
-        )
-        
-        # if 'error' in output:
-        #     return output
-        urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
+        output = self._run(task.args)
+        task.result = output
         task.status = "completed"
-        task.result = urls
         task.save()
+
+
+if modal.is_local():
+    parser = argparse.ArgumentParser(description="Serve or deploy ComfyUI workflows to Modal")
+    subparsers = parser.add_subparsers(dest="method", required=True)
+    parser_test = subparsers.add_parser("test", help="Test ComfyUI workflows")
+    parser_test.add_argument("--workflows", type=str, help="Which workflows to deploy (comma-separated)", default="_all_")
+    parser_deploy = subparsers.add_parser("deploy", help="Deploy to Modal")
+    parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
+    args = parser.parse_args()
+
+    if args.method == "deploy" and args.production:
+        app_name = APP_NAME_PROD
+
+    import tools
+    workflows = tools.get_tools("../workflows")
+    selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
+    selected_workflows = [w for w in selected_workflows if w != "blend"]
+    missing_workflows = [w for w in selected_workflows if w not in workflows]
+    if missing_workflows:
+        raise ValueError(f"Workflows {', '.join(missing_workflows)} not found.")
+    workflows = {key: workflows[key] for key in selected_workflows}
+
+else:
+    workflows = [
+        "txt2img", "txt2img2",
+        "SD3", "face_styler",
+        "txt2vid", "txt2vid_lora",
+        "img2vid", "vid2vid", "style_mixing",
+        "video_upscaler", 
+        "xhibit/vton", "xhibit/remix", 
+        "moodmix",
+        "inpaint"
+    ]
 
 
 downloads_vol = modal.Volume.from_name(
@@ -412,7 +436,7 @@ downloads_vol = modal.Volume.from_name(
 )
 
 app = modal.App(
-    name=DEPLOYMENT_NAME,
+    name=app_name,
     secrets=[
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("openai"),
@@ -426,12 +450,10 @@ for workflow_name in workflows:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", "requests", "Pillow",
-                     "fastapi==0.103.1", "python-magic", "python-dotenv", "pyyaml", "instructor==1.2.6")
-        .pip_install("bson")
-        .pip_install("pymongo")
-        .pip_install("replicate")
-        .pip_install("pyjwt")
+        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", 
+                     "requests", "Pillow", "fastapi==0.103.1", "python-magic", 
+                     "python-dotenv", "pyyaml", "instructor==1.2.6")#, "bson", "pymongo")
+        .pip_install("bson").pip_install("pymongo") 
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
         .run_function(install_custom_nodes, gpu=modal.gpu.A100())        
@@ -439,15 +461,8 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
-        # .pip_install("bson==0.5.10", "pymongo==4.8.0")
-        #pymongo 4.8.0, 0.5.10
     )
 
-    # with image.imports():
-    #     from api import Task
-    #     import tools
-    #     import s3
-    
     cls = type(workflow_name, (EdenComfyUI,), {})
     
     gpu = modal.gpu.A100(size="80GB") if workflow_name == "xhibit/vton" else modal.gpu.A100()
@@ -460,3 +475,14 @@ for workflow_name in workflows:
         timeout=1800,
         container_idle_timeout=60,
     )(cls)
+
+
+if __name__ == "__main__":
+    if args.method == "test":
+        from modal.cli.run import serve
+        filepath = os.path.abspath(__file__)
+        serve(filepath, timeout=1800, env=None)
+    elif args.method == "deploy":
+        from modal.runner import deploy_app
+        deploy_app(app, name=app_name)
+    

@@ -1,6 +1,7 @@
 from mongo import MongoBaseModel, agents
 from tools import get_tools_summary
 
+DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
 class Agent(MongoBaseModel):
     name: str

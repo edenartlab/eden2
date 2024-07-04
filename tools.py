@@ -1,15 +1,17 @@
 import os
 import yaml
+import json
 import random
 import modal
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
+from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
-# from api import Task
+from models import Task
 
-DEPLOYMENT_NAME = "comfyui-dev2"
+DEFAULT_APP_NAME = "comfyui-dev"
 
 
 TYPE_MAPPING = {
@@ -68,6 +70,7 @@ class Tool(BaseModel):
     name: str
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
+    gpu: SkipJsonSchema[Optional[str]] = Field(False, description="Which GPU to use for this tool", exclude=True)
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -111,6 +114,40 @@ class Tool(BaseModel):
             # "function": openai_schema(tool_model).openai_schema
             "function": openai_schema(tool_model).anthropic_schema
         }
+
+    def prepare_args(self, user_args, save_files=False):
+        args = {}
+
+        for param in self.parameters:
+            key = param.name
+            value = None
+
+            if param.default is not None:
+                value = param.default
+
+            if user_args.get(key):
+                value = user_args[key]
+
+            if value == "random":
+                value = random.randint(param.minimum, param.maximum)
+
+            args[key] = value
+
+        unrecognized_args = set(user_args.keys()) - {param.name for param in self.parameters}
+        if unrecognized_args:
+            raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+
+        try:
+            create_tool_base_model(self)(**args)  # validate args
+        except ValidationError as e:
+            error_str = get_human_readable_error(e.errors())
+            raise ValueError(error_str)
+
+        return args
+
+    def test_args(self):
+        args = json.loads(open(f"../workflows/{self.key}/test.json", "r").read())
+        return self.prepare_args(args)
 
 
 def create_tool_base_model(tool: Tool):
@@ -181,9 +218,7 @@ def get_tools(tools_folder: str, exclude: List[str] = []):
         if required_files <= set(files):
             name = os.path.relpath(root, start=tools_folder)
             if name in exclude:
-                # print(f"Excluding {name}")
                 continue
-            # print(f"Including {name}")
             tools[name] = load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
     return tools
 
@@ -195,42 +230,41 @@ def get_tools_summary(tools: List[Tool]):
     return tools_summary
 
 
-def prepare_args(tool, user_args, save_files=False):
-    args = {}
+# def prepare_args(tool, user_args, save_files=False):
+#     args = {}
 
-    for param in tool.parameters:
-        key = param.name
-        value = None
+#     for param in tool.parameters:
+#         key = param.name
+#         value = None
 
-        if param.default is not None:
-            value = param.default
+#         if param.default is not None:
+#             value = param.default
 
-        if user_args.get(key):
-            value = user_args[key]
+#         if user_args.get(key):
+#             value = user_args[key]
 
-        if value == "random":
-            value = random.randint(param.minimum, param.maximum)
+#         if value == "random":
+#             value = random.randint(param.minimum, param.maximum)
 
-        args[key] = value
+#         args[key] = value
 
-    unrecognized_args = set(user_args.keys()) - {param.name for param in tool.parameters}
-    if unrecognized_args:
-        raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+#     unrecognized_args = set(user_args.keys()) - {param.name for param in tool.parameters}
+#     if unrecognized_args:
+#         raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
 
-    try:
-        create_tool_base_model(tool)(**args)  # validate args
-    except ValidationError as e:
-        error_str = get_human_readable_error(e.errors())
-        raise ValueError(error_str)
+#     try:
+#         create_tool_base_model(tool)(**args)  # validate args
+#     except ValidationError as e:
+#         error_str = get_human_readable_error(e.errors())
+#         raise ValueError(error_str)
 
-    return args
+#     return args
 
 
 
 def get_human_readable_error(error_list):
     print("error_list", error_list)
     errors = []
-    print("error_list", error_list)
     for error in error_list:
         field = error['loc'][0]
         error_type = error['type']
@@ -285,13 +319,12 @@ class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
 
-    def submit(self, task):
-        cls = modal.Cls.lookup(DEPLOYMENT_NAME, task.workflow)
-        print("spawn")
+    def submit(self, task: Task, app_name=DEFAULT_APP_NAME):
+        cls = modal.Cls.lookup(app_name, task.workflow)
         job = cls().api.spawn(task.to_mongo())
         return job.object_id
 
-    async def execute(self, workflow: str, config: dict):
-        cls = modal.Cls.lookup(DEPLOYMENT_NAME, workflow)
-        result = await cls().api.remote.aio(config)
+    async def execute(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
+        cls = modal.Cls.lookup(app_name, workflow)
+        result = await cls().execute.remote.aio(args)
         return result
