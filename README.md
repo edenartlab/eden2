@@ -5,4 +5,4 @@
 `python comfyui.py deploy --workflows NAME_OF_WORKFLOW`
 
 ### Push all workflows to production:
-`python comfyui.py deploy --deploy`
+`python comfyui.py deploy --production`
