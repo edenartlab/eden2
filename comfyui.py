@@ -426,7 +426,8 @@ else:
         "video_upscaler", 
         "xhibit/vton", "xhibit/remix", 
         "moodmix",
-        "inpaint"
+        "inpaint",
+        "background_removal"
     ]
 
 
