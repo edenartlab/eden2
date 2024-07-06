@@ -1,8 +1,13 @@
 ## Basic usage:
-### Staging:
+
+### Test a single workflow
 `python comfyui.py test --workflows NAME_OF_WORKFLOW`
 
-`python comfyui.py deploy --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...`
+### Test multiple workflows
+`python comfyui.py test --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...`
+
+### Test all workflows
+`python comfyui.py test`
 
 ### Push all workflows to staging:
 `python comfyui.py deploy`

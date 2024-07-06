@@ -1,7 +1,8 @@
+from tqdm import tqdm
 import pathlib
 import httpx
-from tqdm import tqdm
-
+import random
+import time
 
 def download_file(url, local_filepath, overwrite=False):
     local_filepath = pathlib.Path(local_filepath)
@@ -34,3 +35,22 @@ def download_file(url, local_filepath, overwrite=False):
         raise Exception(f"HTTP error occurred while downloading {url}: {e}")
     except Exception as e:
         raise Exception(f"An error occurred while downloading {url}: {e}")
+    
+
+def exponential_backoff(
+    func,
+    max_attempts=5,
+    initial_delay=1,
+    max_jitter=1,
+):
+    delay = initial_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_attempts:
+                raise e
+            jitter = random.uniform(-max_jitter, max_jitter)
+            print(f"Attempt {attempt} failed. Retrying in {delay} seconds...") 
+            time.sleep(delay + jitter)
+            delay = delay * 2

@@ -125,6 +125,7 @@ class ToolMessage(ChatMessage):
 
 class Thread(MongoBaseModel):
     name: str
+    user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]] = []
     metadata: Optional[Dict[str, str]] = Field({}, description="Preset settings, metadata, or context information")
     tools: Dict[str, Tool] = Field(default_tools, description="Tools available to the user")
@@ -214,18 +215,16 @@ class Thread(MongoBaseModel):
         
         # todo: actually handle multiple tool calls
         if len(message.tool_calls) > 1:
-            print("Multiple tool calls found, only using the first one")
-            print(message.tool_calls)
-            print("-------")
+            print("Multiple tool calls found, only using the first one", message.tool_calls)
             message.tool_calls = [message.tool_calls[0]]
         
         message.tool_calls[0].function.arguments = json.dumps(updated_args)
         assistant_message = AssistantMessage(**message.model_dump())
         yield assistant_message
         
-        result = await tool.execute(
+        result = await tool.run(
             workflow=tool_name, 
-            config=updated_args
+            args=updated_args
         )
 
         if isinstance(result, list):
@@ -244,7 +243,6 @@ class Thread(MongoBaseModel):
 async def prompt(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
-    #model: str = "gpt-4o", 
     model: str = "gpt-4-turbo"
 ) -> ChatMessage: 
     client = instructor.from_openai(
@@ -262,11 +260,12 @@ async def prompt(
     return response
 
 
-def get_thread(name: str, create_if_missing: bool = False):
-    thread = threads.find_one({"name": name})
+def get_thread(name: str, user: dict, create_if_missing: bool = False):
+    print("GET THREAD!")
+    thread = threads.find_one({"name": name, "user": user["_id"]})
     if not thread:
         if create_if_missing:
-            thread = Thread(name=name)
+            thread = Thread(name=name, user=user["_id"])
             thread.save()
         else:
             raise Exception(f"Thread {name} not found")

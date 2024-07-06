@@ -70,7 +70,7 @@ class Tool(BaseModel):
     name: str
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
-    gpu: SkipJsonSchema[Optional[str]] = Field(False, description="Which GPU to use for this tool", exclude=True)
+    gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -111,8 +111,8 @@ class Tool(BaseModel):
         tool_model = create_tool_base_model(self)
         return {
             "type": "function",
-            # "function": openai_schema(tool_model).openai_schema
-            "function": openai_schema(tool_model).anthropic_schema
+            "function": openai_schema(tool_model).openai_schema
+            # "function": openai_schema(tool_model).anthropic_schema
         }
 
     def prepare_args(self, user_args, save_files=False):
@@ -200,26 +200,30 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
     return (field_type, Field(**field_kwargs))
             
 
-def load_tool(tool_name: str, tool_path: str) -> Tool:
-    if not os.path.exists(tool_path):
-        raise ValueError(f"Tool {tool_name} not found at {tool_path}")
-    data = yaml.safe_load(open(tool_path, "r"))
+def load_tool(tool_path: str, name: str = None) -> Tool:    
+    api_path = f"{tool_path}/api.yaml"    
+    if not os.path.exists(api_path):
+        raise ValueError(f"Tool {name} not found at {api_path}")
+    if name is None:
+        name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
+    data = yaml.safe_load(open(api_path, "r"))
     if data['handler'] == 'comfyui':
-        tool = ComfyUITool(data, key=tool_name)
+        tool = ComfyUITool(data, key=name)
+    elif data['handler'] == 'replicate':
+        tool = ReplicateTool(data, key=name)
     else:
-        tool = Tool(data, key=tool_name)
+        tool = Tool(data, key=name)
     return tool
 
 
 def get_tools(tools_folder: str, exclude: List[str] = []):
-    required_files = {'api.yaml', 'workflow_api.json', 'test.json'}
+    required_files = {'api.yaml', 'test.json'}
     tools = {}
     for root, _, files in os.walk(tools_folder):
-        if required_files <= set(files):
-            name = os.path.relpath(root, start=tools_folder)
-            if name in exclude:
-                continue
-            tools[name] = load_tool(name, os.path.join(tools_folder, name, "api.yaml"))
+        name = os.path.relpath(root, start=tools_folder)
+        if "." in name or name in exclude or not required_files <= set(files):
+            continue
+        tools[name] = load_tool(os.path.join(tools_folder, name), name)
     return tools
 
 
@@ -228,38 +232,6 @@ def get_tools_summary(tools: List[Tool]):
     for tool in tools.values():
         tools_summary += f"{tool.summary(include_params=False)}\n"
     return tools_summary
-
-
-# def prepare_args(tool, user_args, save_files=False):
-#     args = {}
-
-#     for param in tool.parameters:
-#         key = param.name
-#         value = None
-
-#         if param.default is not None:
-#             value = param.default
-
-#         if user_args.get(key):
-#             value = user_args[key]
-
-#         if value == "random":
-#             value = random.randint(param.minimum, param.maximum)
-
-#         args[key] = value
-
-#     unrecognized_args = set(user_args.keys()) - {param.name for param in tool.parameters}
-#     if unrecognized_args:
-#         raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
-
-#     try:
-#         create_tool_base_model(tool)(**args)  # validate args
-#     except ValidationError as e:
-#         error_str = get_human_readable_error(e.errors())
-#         raise ValueError(error_str)
-
-#     return args
-
 
 
 def get_human_readable_error(error_list):
@@ -320,11 +292,27 @@ class ComfyUITool(Tool):
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
 
     def submit(self, task: Task, app_name=DEFAULT_APP_NAME):
+        task.args = self.prepare_args(task.args)
         cls = modal.Cls.lookup(app_name, task.workflow)
         job = cls().api.spawn(task.to_mongo())
         return job.object_id
 
-    async def execute(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
+    async def run(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
+        args = self.prepare_args(args)
         cls = modal.Cls.lookup(app_name, workflow)
         result = await cls().execute.remote.aio(args)
+        return result
+
+
+class ReplicateTool(Tool):
+    model: str
+
+    # def submit(self, task: Task):
+    #     task.args = self.prepare_args(task.args)
+        
+    async def run(self, args: Dict):
+        import replicate
+        args = self.prepare_args(args)
+        output = await replicate.async_run(self.model, input=args)
+        result = list(output)
         return result

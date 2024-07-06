@@ -25,6 +25,10 @@ APP_NAME_PROD  = "comfyui"
 APP_NAME_STAGE = "comfyui-dev"
 app_name = APP_NAME_STAGE
 
+GPUs = {
+    "A100": modal.gpu.A100(),
+    "A100-80GB": modal.gpu.A100(size="80GB")
+}
 
 class ComfyUI:
 
@@ -47,7 +51,7 @@ class ComfyUI:
         args: Dict
     ):
         try:
-            tool = tools.load_tool(workflow_name, tool_path)
+            tool = tools.load_tool(tool_path)
             print("user args", args)
             workflow = json.load(open(workflow_path, 'r'))
             workflow = inject_args_into_workflow(workflow, tool, args)
@@ -185,7 +189,7 @@ def download_custom_files():
 
 
 def test_workflow():
-    tool = tools.load_tool(workflow_name, "/root/api.yaml")
+    tool = tools.load_tool("/root", name=workflow_name)
     args = json.loads(open("/root/test.json", "r").read())
     args = tool.prepare_args(args)
     comfy = ComfyUI()
@@ -193,7 +197,7 @@ def test_workflow():
     output = comfy.api(
         workflow_name,  
         "/root/workflow_api.json", 
-        "/root/api.yaml", 
+        "/root", 
         args
     )
     if not output:
@@ -372,7 +376,7 @@ class EdenComfyUI(ComfyUI):
         output = super().api(
             workflow_name, 
             "/root/workflow_api.json", 
-            "/root/api.yaml", 
+            "/root", 
             args
         )
         print(output)
@@ -405,9 +409,6 @@ if modal.is_local():
     parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
     args = parser.parse_args()
 
-    if args.method == "deploy" and args.production:
-        app_name = APP_NAME_PROD
-
     import tools
     workflows = tools.get_tools("../workflows")
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
@@ -416,6 +417,13 @@ if modal.is_local():
     if missing_workflows:
         raise ValueError(f"Workflows {', '.join(missing_workflows)} not found.")
     workflows = {key: workflows[key] for key in selected_workflows}
+
+    if args.method == "deploy" and args.production:
+        app_name = APP_NAME_PROD
+        confirm = input(f"Warning: this will deploy all of the following pipelines to Modal App {app_name}: {list(workflows.keys())}\n\nThis will overwrite all existing deployments. Are you sure you want to do this?  (y/n): ")
+        if confirm.lower() != "y":
+            print("Aborting deployment.")
+            raise SystemExit
 
 else:
     workflows = [
@@ -447,7 +455,7 @@ app = modal.App(
 
 for workflow_name in workflows: 
     workflow_dir = pathlib.Path("../workflows") / workflow_name
-
+    
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
@@ -464,10 +472,12 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
     )
 
+    gpu = modal.gpu.A100()
+    if modal.is_local():
+        gpu = GPUs[workflows[workflow_name].gpu]
+    
     cls = type(workflow_name, (EdenComfyUI,), {})
     
-    gpu = modal.gpu.A100(size="80GB") if workflow_name == "xhibit/vton" else modal.gpu.A100()
-
     globals()[workflow_name] = app.cls(
         gpu=gpu,
         allow_concurrent_inputs=5,
@@ -482,7 +492,7 @@ if __name__ == "__main__":
     if args.method == "test":
         from modal.cli.run import serve
         filepath = os.path.abspath(__file__)
-        serve(filepath, timeout=1800, env=None)
+        serve(filepath, timeout=600, env=None)
     elif args.method == "deploy":
         from modal.runner import deploy_app
         deploy_app(app, name=app_name)

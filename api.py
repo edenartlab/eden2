@@ -1,10 +1,3 @@
-"""
-- check if user has manna + withdraw
-- updating mongo
-- if job fails, refund manna
-- send back current generators + update
-"""
-
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
@@ -22,17 +15,18 @@ import auth
 
 from models import Model, Task
 
-tools = get_tools("../workflows")
+tools = get_tools("../workflows") | get_tools("tools")
 
 
-async def get_or_create_thread(request: dict, user: dict = Depends(auth.authenticate)):
-    print("the request", request)
+async def get_or_create_thread(
+    request: dict, 
+    user: dict = Depends(auth.authenticate)
+):
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = get_thread(thread_name, create_if_missing=True)
+    thread = get_thread(thread_name, user, create_if_missing=True)
     return {"thread_id": str(thread.id)}
-
 
 
 def create(
@@ -42,9 +36,8 @@ def create(
     try:
         task = Task(**request)
         tool = tools[task.workflow]
-        task.args = tool.prepare_args(task.args)
         tool.submit(task)
-        task.save()  # todo: check for race condition w/ comfy?
+        task.save() 
         return task
             
     except Exception as e:
@@ -56,13 +49,13 @@ def create(
 #     task = Task(**data, user=user["_id"])
 #     if task.workflow == "xhibit":
 #         task.workflow = "xhibit/vton"
-#     tool = tools.load_tool(task.workflow, f"../workflows/{task.workflow}/api.yaml")
-    
+#     tool = tools.load_tool(f"../workflows/{task.workflow}")
+
 #     task.args = tools.prepare_args(tool, task.args)
 #     task.save()
     
 #     print("ARGS", task.args)
-#     result = await tool.execute(task.workflow, task.args)
+#     result = await tool.run(task.workflow, task.args)
     
 #     if 'error' in result:
 #         task.status = "failed"
@@ -76,7 +69,7 @@ def create(
     
 
 async def train(args: Dict, user):
-    tool = tools.load_tool("lora_trainer", f"tools/lora_trainer/api.yaml")
+    tool = tools.load_tool("tools/lora_trainer")
     task = Task(
         workflow="lora_trainer",
         args=args,
@@ -152,36 +145,36 @@ async def chat(data, user):
 
 
 
-# def create_handler(task_handler):
-#     async def websocket_handler(
-#         websocket: WebSocket, 
-#         user: dict = Depends(auth.authenticate_ws)
-#     ):
-#         await websocket.accept()
-#         try:
-#             async for data in websocket.iter_json():
-#                 try:
-#                     async for response in task_handler(data, user):
-#                         await websocket.send_json(response)
-#                     break
-#                 except Exception as e:
-#                     await websocket.send_json({"error": str(e)})
-#                     break
-#         except WebSocketDisconnect:
-#             print("WebSocket disconnected by client")
-#         except Exception as e:
-#             print(f"Unexpected error: {str(e)}")
-#         finally:
-#             if websocket.application_state == WebSocketState.CONNECTED:
-#                 print("Closing WebSocket...")
-#                 await websocket.close()
-#     return websocket_handler
+def create_handler(task_handler):
+    async def websocket_handler(
+        websocket: WebSocket, 
+        user: dict = Depends(auth.authenticate_ws)
+    ):
+        await websocket.accept()
+        try:
+            async for data in websocket.iter_json():
+                try:
+                    async for response in task_handler(data, user):
+                        await websocket.send_json(response)
+                    break
+                except Exception as e:
+                    await websocket.send_json({"error": str(e)})
+                    break
+        except WebSocketDisconnect:
+            print("WebSocket disconnected by client")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+        finally:
+            if websocket.application_state == WebSocketState.CONNECTED:
+                print("Closing WebSocket...")
+                await websocket.close()
+    return websocket_handler
 
 
 web_app = FastAPI()
 
+web_app.websocket("/ws/chat")(create_handler(chat))
 # web_app.websocket("/ws/create")(create_handler(create))
-# web_app.websocket("/ws/chat")(create_handler(chat))
 # web_app.websocket("/ws/train")(create_handler(train))
 
 web_app.post("/thread/create")(get_or_create_thread)
