@@ -64,6 +64,7 @@ class EdenClient:
 
     def get_or_create_thread(self, thread_name):
         uri = f"https://{self.agent_api_url}/thread/create"
+        print("THE KEY", self.api_key.get_secret_value())
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"name": thread_name}
 
