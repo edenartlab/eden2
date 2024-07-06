@@ -10,7 +10,8 @@ from typing import Optional
 
 
 DEFAULT_API_URL = "staging.api.eden.art"
-DEFAULT_AGENT_API_URL = "edenartlab--tasks2-fastapi-app-dev.modal.run"
+#DEFAULT_AGENT_API_URL = "edenartlab--tasks2-fastapi-app-dev.modal.run"
+DEFAULT_AGENT_API_URL = "edenartlab--tasks2-fastapi-app.modal.run"
 
 
 class EdenClient:
@@ -25,7 +26,7 @@ class EdenClient:
         payload = {"workflow": workflow, "args": args}
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=30) as client:
                 response = client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 task_id = response.json().get("task", {}).get("_id")
@@ -45,7 +46,7 @@ class EdenClient:
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=30) as client:
                 with client.stream("GET", url, headers=headers) as response:
                     response.raise_for_status()
                     event_data = None
@@ -67,7 +68,7 @@ class EdenClient:
         payload = {"name": thread_name}
 
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=30) as client:
                 response = client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 response = response.json()
