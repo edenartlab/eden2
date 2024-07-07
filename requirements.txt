@@ -7,3 +7,7 @@ websockets
 starlette
 modal
 gitpython
+boto3
+python-magic
+python-dotenv
+Pillow
