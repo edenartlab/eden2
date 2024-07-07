@@ -12,19 +12,20 @@ COMFYUI_STAGE  = "comfyui-dev"
 APP_NAME_PROD  = "tools"
 APP_NAME_STAGE = "tools-dev"
 app_name = APP_NAME_STAGE
+os.environ["ENVIRONMENT"] = "STAGE"
 
-parser = argparse.ArgumentParser(description="Serve or deploy Tools API to Modal")
-subparsers = parser.add_subparsers(dest="method", required=True)
-parser_deploy = subparsers.add_parser("deploy", help="Deploy to Modal")
-parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
-args = parser.parse_args()
-if args.production:
-    app_name = APP_NAME_PROD
-    os.environ["ENVIRONMENT"] = "PROD"
-else:
-    app_name = APP_NAME_STAGE
-    os.environ["ENVIRONMENT"] = "STAGE"
-
+if modal.is_local():
+    parser = argparse.ArgumentParser(description="Serve or deploy Tools API to Modal")
+    subparsers = parser.add_subparsers(dest="method", required=True)
+    parser_serve = subparsers.add_parser("serve", help="Serve Tools API")
+    parser_serve.add_argument("--production", action='store_true', help="Serve production (otherwise staging)")
+    parser_deploy = subparsers.add_parser("deploy", help="Deploy Tools API to Modal")
+    parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
+    args = parser.parse_args()
+    if args.production:
+        app_name = APP_NAME_PROD
+        os.environ["ENVIRONMENT"] = "PROD"
+        
 import s3
 import auth
 from mongo import agents, threads
@@ -213,7 +214,10 @@ def fastapi_app():
 
 
 if __name__ == "__main__":
-    if args.method == "deploy":
+    if args.method == "serve":
+        from modal.cli.run import serve
+        filepath = os.path.abspath(__file__)
+        serve(filepath, timeout=600, env=None)
+    elif args.method == "deploy":
         from modal.runner import deploy_app
         deploy_app(app, name=app_name)
-    
