@@ -1,3 +1,5 @@
+import os
+import argparse
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
@@ -5,15 +7,31 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 import modal
 
-from mongo import MongoBaseModel, agents, tasks, models, users, threads
+COMFYUI_PROD   = "comfyui"
+COMFYUI_STAGE  = "comfyui-dev"
+APP_NAME_PROD  = "tools"
+APP_NAME_STAGE = "tools-dev"
+app_name = APP_NAME_STAGE
+
+parser = argparse.ArgumentParser(description="Serve or deploy Tools API to Modal")
+subparsers = parser.add_subparsers(dest="method", required=True)
+parser_deploy = subparsers.add_parser("deploy", help="Deploy to Modal")
+parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
+args = parser.parse_args()
+if args.production:
+    app_name = APP_NAME_PROD
+    os.environ["ENVIRONMENT"] = "PROD"
+else:
+    app_name = APP_NAME_STAGE
+    os.environ["ENVIRONMENT"] = "STAGE"
+
+import s3
+import auth
+from mongo import agents, threads
 from agent import Agent, DEFAULT_AGENT_ID
 from thread import Thread, UserMessage, get_thread
-import s3
-# import tools
-from tools import get_tools
-import auth
-
 from models import Model, Task
+from tools import get_tools
 
 tools = get_tools("../workflows") | get_tools("tools")
 
@@ -34,9 +52,11 @@ def create(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
+        comfyui_app_name = COMFYUI_PROD if app_name == APP_NAME_PROD else COMFYUI_STAGE
+        print("THE APP NAME", comfyui_app_name)
         task = Task(**request)
         tool = tools[task.workflow]
-        tool.submit(task)
+        tool.submit(task, app_name=comfyui_app_name)
         task.save() 
         return task
             
@@ -44,29 +64,6 @@ def create(
         print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
-
-# async def create(data, user):
-#     task = Task(**data, user=user["_id"])
-#     if task.workflow == "xhibit":
-#         task.workflow = "xhibit/vton"
-#     tool = tools.load_tool(f"../workflows/{task.workflow}")
-
-#     task.args = tools.prepare_args(tool, task.args)
-#     task.save()
-    
-#     print("ARGS", task.args)
-#     result = await tool.run(task.workflow, task.args)
-    
-#     if 'error' in result:
-#         task.status = "failed"
-#         task.error = str(result['error'])
-#     else:
-#         task.status = "completed"
-#         task.result = result
-    
-#     task.save()
-#     yield task.model_dump_json()
-    
 
 async def train(args: Dict, user):
     tool = tools.load_tool("tools/lora_trainer")
@@ -80,7 +77,7 @@ async def train(args: Dict, user):
 
     args = task.args.copy()
     args['lora_training_urls'] = "|".join(args['lora_training_urls'])
-    print("THE ARGS", args)
+    print("training args", args)
     
     import replicate
     deployment = replicate.deployments.get("edenartlab/lora-trainer")
@@ -144,7 +141,6 @@ async def chat(data, user):
         }
 
 
-
 def create_handler(task_handler):
     async def websocket_handler(
         websocket: WebSocket, 
@@ -176,13 +172,12 @@ web_app = FastAPI()
 web_app.websocket("/ws/chat")(create_handler(chat))
 # web_app.websocket("/ws/create")(create_handler(create))
 # web_app.websocket("/ws/train")(create_handler(train))
-
 web_app.post("/thread/create")(get_or_create_thread)
 web_app.post("/create")(create)
 
 
 app = modal.App(
-    name="tasks2",
+    name=app_name,
     secrets=[
         modal.Secret.from_name("admin-key"),
         modal.Secret.from_name("s3-credentials"),
@@ -192,6 +187,7 @@ app = modal.App(
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
     ],
+    
 )
 
 image = (
@@ -209,10 +205,15 @@ image = (
     keep_warm=1,
     concurrency_limit=5,
     timeout=1800,
-    container_idle_timeout=30,
+    container_idle_timeout=30
 )
 @modal.asgi_app()
 def fastapi_app():
     return web_app
 
 
+if __name__ == "__main__":
+    if args.method == "deploy":
+        from modal.runner import deploy_app
+        deploy_app(app, name=app_name)
+    

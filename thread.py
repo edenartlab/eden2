@@ -177,6 +177,7 @@ class Thread(MongoBaseModel):
             yield assistant_message
             return  # no tool calls, we're done
 
+        print("TOOL CALLS", tool_calls[0])
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
         tool = self.tools.get(tool_name)

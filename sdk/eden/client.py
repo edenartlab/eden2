@@ -3,21 +3,24 @@ import asyncio
 import websockets
 import json
 import httpx
-import requests
 from aiofiles import open as aio_open
 from pydantic import SecretStr
-from typing import Optional
 
 
-DEFAULT_API_URL = "staging.api.eden.art"
-#DEFAULT_AGENT_API_URL = "edenartlab--tasks2-fastapi-app-dev.modal.run"
-DEFAULT_AGENT_API_URL = "edenartlab--tasks2-fastapi-app.modal.run"
+STAGE = True
+
+if STAGE:
+    DEFAULT_API_URL = "staging.api.eden.art"
+    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app.modal.run"
+else:
+    DEFAULT_API_URL = "api.eden.art"
+    DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
 
 
 class EdenClient:
     def __init__(self):
         self.api_url = DEFAULT_API_URL
-        self.agent_api_url = DEFAULT_AGENT_API_URL
+        self.tools_api_url = DEFAULT_TOOLS_API_URL
         self.api_key = get_api_key()
 
     def create(self, workflow, args):
@@ -30,7 +33,6 @@ class EdenClient:
                 response = client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 task_id = response.json().get("task", {}).get("_id")
-                
                 for event in self._subscribe(task_id):
                     if event["status"] == "completed":
                         return event["result"]
@@ -63,8 +65,7 @@ class EdenClient:
             raise Exception(f"An error occurred: {str(e)}")
 
     def get_or_create_thread(self, thread_name):
-        uri = f"https://{self.agent_api_url}/thread/create"
-        print("THE KEY", self.api_key.get_secret_value())
+        uri = f"https://{self.tools_api_url}/thread/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"name": thread_name}
 
@@ -94,7 +95,7 @@ class EdenClient:
             yield response
 
     async def async_run_ws(self, endpoint, payload):
-        uri = f"wss://{self.agent_api_url}{endpoint}"
+        uri = f"wss://{self.tools_api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         try:
             async with websockets.connect(uri, extra_headers=headers) as websocket:                

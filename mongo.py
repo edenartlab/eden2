@@ -8,10 +8,15 @@ from pymongo import MongoClient
 
 from dotenv import load_dotenv
 load_dotenv()
+env = os.getenv("ENVIRONMENT")
 
 client = MongoClient(os.getenv("MONGO_URI"))
 # db = client[os.getenv("MONGO_DB_NAME")]
-db = client["eden-stg"]
+
+if env == "PROD":
+    db = client["eden-prod"]
+elif env == "STAGE":
+    db = client["eden-stg"]
 
 threads = db["threads"]
 agents = db["agents"]
