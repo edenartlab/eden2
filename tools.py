@@ -200,13 +200,16 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
     return (field_type, Field(**field_kwargs))
             
 
-def load_tool(tool_path: str, name: str = None) -> Tool:    
-    api_path = f"{tool_path}/api.yaml"    
+def load_tool(tool_path: str, name: str = None) -> Tool:
+    api_path = f"{tool_path}/api.yaml"
     if not os.path.exists(api_path):
         raise ValueError(f"Tool {name} not found at {api_path}")
     if name is None:
         name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
-    data = yaml.safe_load(open(api_path, "r"))
+    try:
+        data = yaml.safe_load(open(api_path, "r"))
+    except yaml.YAMLError as e:
+        raise ValueError(f"Error loading {api_path}: {e}")
     if data['handler'] == 'comfyui':
         tool = ComfyUITool(data, key=name)
     elif data['handler'] == 'replicate':
