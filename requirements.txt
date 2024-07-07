@@ -1,0 +1,9 @@
+fastapi
+pydantic
+bson
+pymongo
+pyjwt
+websockets
+starlette
+modal
+gitpython
