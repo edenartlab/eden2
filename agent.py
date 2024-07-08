@@ -1,7 +1,13 @@
+from bson import ObjectId
 from mongo import MongoBaseModel, agents
 from tools import get_tools_summary
 
 DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
+
+def get_default_agent():
+    _agent = agents.find_one({"_id": ObjectId(DEFAULT_AGENT_ID)})
+    return Agent(**_agent)
+
 
 class Agent(MongoBaseModel):
     name: str
