@@ -99,7 +99,7 @@ class ComfyUI:
 
     def _get_outputs(self, ws, prompt_id):
         print("comfgo start")
-        ws.settimeout(10) 
+        ws.settimeout(60) 
         try:
             while True:
                 try:
