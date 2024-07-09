@@ -6,17 +6,14 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 env = os.getenv("ENVIRONMENT")
+mongo_url = os.getenv("MONGO_URI")
 
-client = MongoClient(os.getenv("MONGO_URI"))
-# db = client[os.getenv("MONGO_DB_NAME")]
-
-if env == "PROD":
-    db = client["eden-prod"]
-elif env == "STAGE":
-    db = client["eden-stg"]
+client = MongoClient(mongo_url)
+db_name = "PROD" if env == "PROD" else "STAGE"
+db = client[db_name]
 
 threads = db["threads"]
 agents = db["agents"]
@@ -55,19 +52,11 @@ class MongoBaseModel(BaseModel):
 
     @classmethod
     def save(cls, document, collection):
-        print("SAVE", document)
         data = document.to_mongo()
-
-        # print the list of all documents in the collection
-        print(collection.find())
-        
-
         document_id = data.get('_id')
         if document_id:
             data["updated_at"] = datetime.utcnow()
             return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
-            print("INSERT")
-            z= collection.insert_one(data)
-            print(z)
-            return z
+            return collection.insert_one(data)
+            
