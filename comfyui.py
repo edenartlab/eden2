@@ -98,17 +98,29 @@ class ComfyUI:
             return json.loads(response.read())
 
     def _get_outputs(self, ws, prompt_id):
-        while True:
-            out = ws.recv()
-            if isinstance(out, str):
-                message = json.loads(out)
-                if message["type"] == "executing":
-                    data = message["data"]
-                    if data.get("prompt_id") == prompt_id:
-                        if data["node"] is None:
-                            break
-            else:
-                continue
+        print("comfgo start")
+        ws.settimeout(10) 
+        try:
+            while True:
+                try:
+                    out = ws.recv()
+                    # print("comfgo, recv time=", time.time())
+                    if isinstance(out, str):
+                        message = json.loads(out)
+                        if message["type"] == "executing":
+                            data = message["data"]
+                            if data.get("prompt_id") == prompt_id:
+                                if data["node"] is None:
+                                    break
+                    else:
+                        continue
+                except websocket.WebSocketTimeoutException:
+                    print("comfgo, WebSocket timeout, retrying...")
+                    continue
+        except (websocket.WebSocketConnectionClosedException, websocket.WebSocketException) as e:
+            print(f"comfgo, WebSocket error: {e}")
+            raise Exception("WebSocket connection error")
+
         outputs = {}
         history = self._get_history(prompt_id)[prompt_id]
         for _ in history['outputs']:
@@ -124,8 +136,13 @@ class ComfyUI:
                         os.path.join("output", video['subfolder'], video['filename'])
                         for video in node_output['gifs']
                     ]
+        print("comfgo end")
+        print("comfgo, outputs", outputs)
         return outputs
-        
+    
+
+
+
 
 def install_comfyui():
     snapshot = json.load(open("/root/snapshot.json", 'r'))
@@ -215,27 +232,35 @@ def inject_embedding_mentions(text, embedding_name):
 
 
 def transport_lora(
-    source_tar: str,
+    lora_url: str,
     downloads_folder: str,
     loras_folder: str,
     embeddings_folder: str,
 ):
-    if not os.path.exists(source_tar):
-        raise FileNotFoundError(f"The source tar file {source_tar} does not exist.")
-
-    name = os.path.basename(source_tar).split(".")[0]
+    print("tl, download lora", lora_url)
+    if not re.match(r'^https?://', lora_url):
+        raise ValueError(f"Lora URL Invalid: {lora_url}")
+    
+    lora_filename = lora_url.split("/")[-1]    
+    name = lora_filename.split(".")[0]
     destination_folder = os.path.join(downloads_folder, name)
+    print("tl, destination folder", destination_folder)
+
     if os.path.exists(destination_folder):
-        print("Lore bundle already extracted. Skipping.")
+        print("Lora bundle already extracted. Skipping.")
     else:
         try:
-            with tarfile.open(source_tar, "r:*") as tar:
+            lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
+            if not os.path.exists(lora_tarfile):
+                raise FileNotFoundError(f"The LoRA tar file {lora_tarfile} does not exist.")
+            with tarfile.open(lora_tarfile, "r:*") as tar:
                 tar.extractall(path=destination_folder)
                 print("Extraction complete.")
         except Exception as e:
             raise IOError(f"Failed to extract tar file: {e}")
 
     extracted_files = os.listdir(destination_folder)
+    print("tl, extracted files", extracted_files)
     
     # Find the base name X for the files X.safetensors and X_embeddings.safetensors
     base_name = None
@@ -245,6 +270,8 @@ def transport_lora(
         if match:
             base_name = match.group(1)
             break
+
+    print("tl, base name", base_name)
     
     if base_name is None:
         raise FileNotFoundError("No matching files found for pattern X_embeddings.safetensors.")
@@ -256,6 +283,7 @@ def transport_lora(
     if str(lora_filename) not in extracted_files:
         print("Old lora naming convention detected. Correcting...")
         lora_filename = f"{base_name}_lora.safetensors"
+        print("tl, old lora filename", lora_filename)
 
     for file in [lora_filename, embeddings_filename]:
         if str(file) not in extracted_files:
@@ -283,6 +311,14 @@ def transport_lora(
     
     return lora_filename, base_name
 
+def url_to_filename(url):
+    filename = url.split('/')[-1]
+    filename = re.sub(r'\?.*$', '', filename)
+    max_length = 255
+    if len(filename) > max_length: # ensure filename is not too long
+        name, ext = os.path.splitext(filename)
+        filename = name[:max_length - len(ext)] + ext
+    return filename    
 
 def inject_args_into_workflow(workflow, tool, args):
     embedding_trigger = None
@@ -291,22 +327,20 @@ def inject_args_into_workflow(workflow, tool, args):
     for param in tool.parameters: 
         if param.type in tools.FILE_TYPES:
             url = args.get(param.name)
-            args[param.name] = utils.download_file(url, f"/root/input{url.split('/')[-1]}") if url else None
+            args[param.name] = utils.download_file(url, f"/root/input{url_to_filename(url)}") if url else None
         
         elif param.type in tools.FILE_ARRAY_TYPES:
             urls = args.get(param.name)
             args[param.name] = [
-                utils.download_file(url, f"/root/input/{url.split('/')[-1]}") if url else None 
+                utils.download_file(url, f"/root/input/{url_to_filename(url)}") if url else None 
                 for url in urls
             ] if urls else None
         
         elif param.type == tools.ParameterType.LORA:
             lora_url = args.get(param.name)
             if lora_url:
-                lora_filename = lora_url.split("/")[-1]
-                lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
                 lora_filename, embedding_trigger = transport_lora(
-                    lora_tarfile, 
+                    lora_url, 
                     downloads_folder="/root/downloads",
                     loras_folder="/root/models/loras",
                     embeddings_folder="/root/models/embeddings"
@@ -410,7 +444,7 @@ if modal.is_local():
     args = parser.parse_args()
 
     import tools
-    workflows = tools.get_tools("../workflows")
+    workflows = tools.get_tools("../workflows", exclude=["blend"])
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows if w != "blend"]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
@@ -450,7 +484,7 @@ app = modal.App(
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("mongo-credentials")
-    ],
+    ]
 )
 
 for workflow_name in workflows: 
@@ -470,6 +504,7 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
+        .env({"ENVIRONMENT": "STAGE"})
     )
 
     gpu = modal.gpu.A100()
@@ -484,7 +519,7 @@ for workflow_name in workflows:
         image=image,
         volumes={"/data": downloads_vol},
         timeout=1800,
-        container_idle_timeout=60,
+        container_idle_timeout=60
     )(cls)
 
 
