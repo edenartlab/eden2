@@ -1,16 +1,36 @@
-## Basic usage:
+# ComfyUI
 
-### Test a single workflow
-`python comfyui.py test --workflows NAME_OF_WORKFLOW`
+Test a single workflow
 
-### Test multiple workflows
-`python comfyui.py test --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...`
+    python comfyui.py test --workflows NAME_OF_WORKFLOW
 
-### Test all workflows
-`python comfyui.py test`
+Test multiple workflows
 
-### Push all workflows to staging:
-`python comfyui.py deploy`
+    python comfyui.py test --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...
 
-### Push all workflows to production:
-`python comfyui.py deploy --production`
+Test all workflows
+
+    python comfyui.py test
+
+Push all workflows to staging:
+
+    python comfyui.py deploy
+
+Push all workflows to production:
+
+    python comfyui.py deploy --production
+
+
+# Tools API
+
+Test server
+
+    python api.py serve
+
+Deploy api to stage.
+
+    python api.py deploy
+
+Deploy api to production.
+
+    python api.py deploy --production

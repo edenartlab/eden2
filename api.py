@@ -52,6 +52,7 @@ def create(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
+    print("request", request)
     try:
         comfyui_app_name = COMFYUI_PROD if app_name == APP_NAME_PROD else COMFYUI_STAGE
         print("THE APP NAME", comfyui_app_name)

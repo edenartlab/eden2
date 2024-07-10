@@ -262,7 +262,6 @@ async def prompt(
 
 
 def get_thread(name: str, user: dict, create_if_missing: bool = False):
-    print("GET THREAD!")
     thread = threads.find_one({"name": name, "user": user["_id"]})
     if not thread:
         if create_if_missing:
