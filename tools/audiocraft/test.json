@@ -1,0 +1,5 @@
+{
+    "text_input": "Drum and bass",
+    "model_name": "facebook/audiogen-medium",
+    "duration_seconds": 10
+}

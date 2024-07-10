@@ -1,5 +1,6 @@
 name: LoRA trainer
 description: Finetune a finetuned model on top of Stable Diffusion
+output_type: lora
 handler: lora_trainer
 parameters:
 - name: name
