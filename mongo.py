@@ -12,7 +12,7 @@ env = os.getenv("ENVIRONMENT")
 mongo_url = os.getenv("MONGO_URI")
 
 client = MongoClient(mongo_url)
-db_name = "PROD" if env == "PROD" else "STAGE"
+db_name = "eden-prod" if env == "PROD" else "eden-stg"
 db = client[db_name]
 
 threads = db["threads"]
