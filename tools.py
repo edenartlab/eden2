@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
+from utils import mock_image
 from models import Task
 
 DEFAULT_APP_NAME = "comfyui-dev"
@@ -70,8 +71,10 @@ class Tool(BaseModel):
     name: str
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
+    output_type: ParameterType = Field(None, description="Output type from the tool")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     parameters: List[ToolParameter]
+    mock: SkipJsonSchema[bool] = Field(False, description="Use mock outputs for the tool")
 
     def __init__(self, data, key):
         super().__init__(**data, key=key)
@@ -302,6 +305,8 @@ class ComfyUITool(Tool):
 
     async def run(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
         args = self.prepare_args(args)
+        if self.mock:
+            return mock_image(args)
         cls = modal.Cls.lookup(app_name, workflow)
         result = await cls().execute.remote.aio(args)
         return result
@@ -316,6 +321,8 @@ class ReplicateTool(Tool):
     async def run(self, args: Dict):
         import replicate
         args = self.prepare_args(args)
+        if self.mock:
+            return mock_image(args)
         output = await replicate.async_run(self.model, input=args)
         result = list(output)
         return result
