@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 
-# from dotenv import load_dotenv
-# load_dotenv()
-env = os.getenv("ENVIRONMENT")
+from dotenv import load_dotenv
+load_dotenv()
+env = os.getenv("ENVIRONMENT", "STAGE")
 mongo_url = os.getenv("MONGO_URI")
 
 client = MongoClient(mongo_url)
