@@ -3,7 +3,7 @@ import argparse
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 import modal
 
@@ -33,6 +33,8 @@ from agent import Agent, DEFAULT_AGENT_ID
 from thread import Thread, UserMessage, get_thread
 from models import Model, Task
 from tools import get_tools
+from models import tasks
+
 
 tools = get_tools("../workflows") | get_tools("tools")
 
@@ -48,72 +50,97 @@ async def get_or_create_thread(
     return {"thread_id": str(thread.id)}
 
 
-def create(
+def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    print("request", request)
     try:
-        comfyui_app_name = COMFYUI_PROD if app_name == APP_NAME_PROD else COMFYUI_STAGE
-        print("THE APP NAME", comfyui_app_name)
-        task = Task(**request)
-        tool = tools[task.workflow]
-        tool.submit(task, app_name=comfyui_app_name)
-        task.save() 
-        return task
-            
+        return create(request)
     except Exception as e:
         print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
-
-async def train(args: Dict, user):
-    tool = tools.load_tool("tools/lora_trainer")
-    task = Task(
-        workflow="lora_trainer",
-        args=args,
-        user=user["_id"]
-    )
-    task.args = tools.prepare_args(tool, task.args)
+def create(request: dict):
+    # comfyui_app_name = COMFYUI_PROD if app_name == APP_NAME_PROD else COMFYUI_STAGE
+    task = Task(**request)
+    tool = tools[task.workflow]
+    handler_id = tool.submit(task) #, app_name=comfyui_app_name)
+    task.handler_id = handler_id
     task.save()
+    return task
 
-    args = task.args.copy()
-    args['lora_training_urls'] = "|".join(args['lora_training_urls'])
-    print("training args", args)
-    
-    import replicate
-    deployment = replicate.deployments.get("edenartlab/lora-trainer")
-    prediction = deployment.predictions.create(args)
-    prediction.wait()
-    output = prediction.output[-1]
-    
-    if not output.get('files'):
-        task.status = "failed"
-        task.error = "No files found in output"
+
+async def replicate_create_update(request: Request):
+    body = await request.json()
+    output = body.get("output") 
+    handler_id = body.get("id")
+    status = body.get("status")
+
+    # print("handler_id", handler_id)
+    # print("status", status)
+    # print("output", output)
+
+    task = tasks.find_one({"handler_id": handler_id})
+    # print("task", task)
+    if not task:
+        raise Exception("Task not found")
+    task = Task(**task)
+
+    if status == "processing":
+        task.status = "running"
         task.save()
-        raise Exception("No files found in output")
-    
-    tarfile = output['files'][0]
-    thumbnail = output['thumbnails'][0]
-    
-    tarfile_url = s3.upload_file_from_url(tarfile)
-    thumbnail_url = s3.upload_file_from_url(thumbnail)
-    
-    task.result = output
-    task.status = "completed"
-    task.save()
+    elif status == "succeeded":
+        output = [s3.upload_file_from_url(url, png_to_jpg=True) for url in output]
+        task.status = "completed"
+        task.result = output
+        task.save()
 
-    model = Model(
-        name=args["name"],
-        user=user["_id"],
-        args=task.args,
-        checkpoint=tarfile_url, 
-        thumbnail=thumbnail_url
-    )
 
-    model.save()
-    yield model.model_dump_json()
+async def replicate_train_update(request: Request):
+    body = await request.json()
+    output = body.get("output") 
+    handler_id = body.get("id")
+    status = body.get("status")
+    
+    task = tasks.find_one({"handler_id": handler_id})
+    if not task:
+        raise Exception("Task not found")
+    task = Task(**task)
 
+    if status == "processing":
+        task.status = "running"
+        task.save()
+
+    elif status == "succeeded":
+        if not output:
+            raise Exception("No output found")        
+        
+        output = output[-1]
+        
+        if "files" in output and "thumbnails" in output:
+            checkpoint = s3.upload_file_from_url(output["files"][0])
+            thumbnail = s3.upload_file_from_url(output["thumbnails"][0])
+            
+            if "attributes" in output:
+                print(output["attributes"])
+
+            model = Model(
+                name=task.args["name"],
+                user=task.user,
+                args=task.args,
+                checkpoint=checkpoint, 
+                thumbnail=thumbnail
+            )
+            model.save()
+
+            task.result = model.id
+            task.status = "completed"
+        else:        
+            task.error = "No files found in output"
+            task.status = "failed"
+
+        task.save()
+            
 
 class ChatRequest(BaseModel):
     message: UserMessage
@@ -169,13 +196,51 @@ def create_handler(task_handler):
     return websocket_handler
 
 
+# def tool_summary(key: str, include_params=True):
+#     tool = tools[key]
+#     data = {
+#         "key": key,
+#         "name": tool.name,
+#         "description": tool.description,
+#         "outputType": tool.output_type
+#     } 
+#     if include_params:
+#         data["tip"] = tool.tip
+#         data["parameters"] = [p.model_dump(exclude="comfyui") for p in tool.parameters]
+#     return data
+
+    
+
+
+
+
+
+
+
+
+
+def tools_list():
+    return [tools[t].get_info(include_params=False) for t in tools]
+
+def tools_summary():
+    return [tools[t].get_info() for t in tools]
+
+
 web_app = FastAPI()
 
 web_app.websocket("/ws/chat")(create_handler(chat))
 # web_app.websocket("/ws/create")(create_handler(create))
 # web_app.websocket("/ws/train")(create_handler(train))
 web_app.post("/thread/create")(get_or_create_thread)
-web_app.post("/create")(create)
+
+web_app.post("/create")(task_handler)
+web_app.post("/update/create")(replicate_create_update)
+web_app.post("/update/train")(replicate_train_update)
+
+web_app.get("/tools")(tools_summary)
+web_app.get("/tools/list")(tools_list)
+for t in tools:
+    web_app.get(f"/tool/{t}")(lambda key=t: tools[key].get_info())
 
 
 app = modal.App(
@@ -188,8 +253,7 @@ app = modal.App(
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
-    ],
-    
+    ],   
 )
 
 image = (
@@ -199,7 +263,7 @@ image = (
                  "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "anthropic",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow")
     .copy_local_dir("../workflows", remote_path="/workflows")
-    # .copy_local_dir("tools", remote_path="/root/tools")
+    .copy_local_dir("tools", remote_path="/root/tools")
 )
 
 @app.function(

@@ -1,12 +1,13 @@
 import os
+from dotenv import load_dotenv
 from pymongo import MongoClient
 from datetime import datetime
 from bson import ObjectId
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 
-from dotenv import load_dotenv
+
 load_dotenv()
 env = os.getenv("ENVIRONMENT", "STAGE")
 mongo_url = os.getenv("MONGO_URI")
@@ -52,10 +53,17 @@ class MongoBaseModel(BaseModel):
 
     @classmethod
     def save(cls, document, collection):
+        try:
+            cls.validate(document.dict())
+        except ValidationError as e:
+            print("Validation error:", e)
+            return None
+        
         data = document.to_mongo()
         document_id = data.get('_id')
+
         if document_id:
-            data["updated_at"] = datetime.utcnow()
+            data["updatedAt"] = datetime.utcnow()
             return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             return collection.insert_one(data)

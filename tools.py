@@ -2,7 +2,9 @@ import os
 import yaml
 import json
 import random
+import asyncio
 import modal
+import replicate
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
@@ -12,7 +14,13 @@ from instructor.function_calls import openai_schema
 from utils import mock_image
 from models import Task
 
-DEFAULT_APP_NAME = "comfyui-dev"
+env = os.getenv("ENVIRONMENT", "STAGE")
+if env == "PROD":
+    DEFAULT_APP_NAME = "comfyui"
+    WEBHOOK_URL = "https://edenartlab--tools-fastapi-app-dev.modal.run"
+else:
+    DEFAULT_APP_NAME = "comfyui-dev"
+    WEBHOOK_URL = "https://edenartlab--tools-dev-fastapi-app-dev.modal.run"
 
 
 TYPE_MAPPING = {
@@ -50,6 +58,8 @@ class ParameterType(str, Enum):
 FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]
 
 FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]
+
+ARRAY_TYPES = [ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY]
 
 
 class ToolParameter(BaseModel):
@@ -110,12 +120,23 @@ class Tool(BaseModel):
             summary += f" ({requirements_str})"
         return summary
 
+    def get_info(self, include_params=True):
+        data = {
+            "key": self.key,
+            "name": self.name,
+            "description": self.description,
+            "outputType": self.output_type
+        } 
+        if include_params:
+            data["tip"] = self.tip
+            data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
+        return data
+
     def tool_schema(self):
         tool_model = create_tool_base_model(self)
         return {
             "type": "function",
-            "function": openai_schema(tool_model).openai_schema
-            # "function": openai_schema(tool_model).anthropic_schema
+            "function": openai_schema(tool_model).openai_schema  #anthropic_schema
         }
 
     def prepare_args(self, user_args, save_files=False):
@@ -288,10 +309,8 @@ class ComfyUIInfo(BaseModel):
     subfield: str
     preprocessing: Optional[str] = None
 
-
 class ComfyUIParameter(ToolParameter):
     comfyui: Optional[ComfyUIInfo] = Field(None)
-
 
 class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
@@ -314,15 +333,59 @@ class ComfyUITool(Tool):
 
 class ReplicateTool(Tool):
     model: str
+    output_handler: str = "create"
 
-    # def submit(self, task: Task):
-    #     task.args = self.prepare_args(task.args)
+    def format_args_for_replicate(self, args):
+        new_args = args.copy()
+        for param in self.parameters:
+            if param.type in ARRAY_TYPES:
+                new_args[param.name] = "|".join([str(p) for p in args[param.name]])
+        return new_args
+
+    def submit(self, task: Task):
+        task.args = self.prepare_args(task.args)
+        args = self.format_args_for_replicate(task.args)
+        print("THE ARGS", args)
+
+        user, model = self.model.split('/', 1)
+        model, version = model.split(':', 1)
+        endpoint = f"update/{self.output_handler}" 
         
+        if version == "deployment":
+            deployment = replicate.deployments.get(f"{user}/{model}")
+            print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            prediction = deployment.predictions.create(
+                input=args,
+                webhook=f"{WEBHOOK_URL}/{endpoint}",
+                webhook_events_filter=["start", "completed"]
+            )
+        else:
+            model = replicate.models.get(f"{user}/{model}")
+            version = model.versions.get(version)
+            print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            prediction = replicate.predictions.create(
+                version=version,
+                input=task.args,
+                webhook=f"{WEBHOOK_URL}/{endpoint}",
+                webhook_events_filter=["start", "completed"]
+            )
+        return prediction.id
+
+
     async def run(self, args: Dict):
-        import replicate
         args = self.prepare_args(args)
+        args = self.format_args_for_replicate(args)
         if self.mock:
             return mock_image(args)
+        
+        
+        # user, model = self.model.split('/', 1)
+        # model, hash = model.split(':', 1)
+        # model = replicate.models.get(f"{user}/{model}")
+        # version = model.versions.get(hash)
+
         output = await replicate.async_run(self.model, input=args)
+        
+        
         result = list(output)
         return result

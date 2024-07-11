@@ -1,7 +1,9 @@
 name: LoRA trainer
 description: Finetune a finetuned model on top of Stable Diffusion
 output_type: lora
-handler: lora_trainer
+handler: replicate
+output_handler: train
+model: edenartlab/lora-trainer:deployment
 parameters:
 - name: name
   label: Name
@@ -11,7 +13,7 @@ parameters:
 - name: lora_training_urls
   label: Images
   description: Images to train LoRA with
-  type: string[]
+  type: image[]
   required: true
 - name: sd_model_version
   label: Base Model
