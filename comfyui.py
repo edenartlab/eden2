@@ -465,6 +465,7 @@ else:
         "SD3", "face_styler",
         "txt2vid", "txt2vid_lora",
         "img2vid", "vid2vid", "style_mixing",
+        "img2vid_museV",
         "video_upscaler", 
         "xhibit/vton", "xhibit/remix", 
         "moodmix",
@@ -493,9 +494,10 @@ for workflow_name in workflows:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3", 
+        .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3",
                      "requests", "Pillow", "fastapi==0.103.1", "python-magic", 
-                     "python-dotenv", "pyyaml", "instructor==1.2.6")#, "bson", "pymongo")
+                     "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
+                     "torchaudio")#, "bson", "pymongo")
         .pip_install("bson").pip_install("pymongo") 
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
@@ -505,6 +507,7 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
         .env({"ENVIRONMENT": "STAGE"})
+
     )
 
     gpu = modal.gpu.A100()
