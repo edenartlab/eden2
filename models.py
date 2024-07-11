@@ -29,6 +29,7 @@ class Model(MongoBaseModel):
 class Task(MongoBaseModel):
     workflow: str
     args: Dict[str, Any]
+    handler_id: Optional[str] = None
     status: str = "pending"
     error: Optional[str] = None
     result: Optional[Any] = None
