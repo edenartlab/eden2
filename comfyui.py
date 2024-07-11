@@ -465,7 +465,7 @@ else:
         "SD3", "face_styler",
         "txt2vid", "txt2vid_lora",
         "img2vid", "vid2vid", "style_mixing",
-        "img2vid_museV",
+        "img2vid_museV", "img2vid_museV2",
         "video_upscaler", 
         "xhibit/vton", "xhibit/remix", 
         "moodmix",
