@@ -4,7 +4,6 @@ import json
 import random
 import asyncio
 import modal
-import replicate
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
@@ -14,13 +13,28 @@ from instructor.function_calls import openai_schema
 from utils import mock_image
 from models import Task
 
-env = os.getenv("ENVIRONMENT", "STAGE")
-if env == "PROD":
-    DEFAULT_APP_NAME = "comfyui"
-    WEBHOOK_URL = "https://edenartlab--tools-fastapi-app-dev.modal.run"
-else:
-    DEFAULT_APP_NAME = "comfyui-dev"
-    WEBHOOK_URL = "https://edenartlab--tools-dev-fastapi-app-dev.modal.run"
+env = os.getenv("ENV", "STAGE")
+DEFAULT_APP_NAME = "comfyui" if env == "PROD" else "comfyui-dev"
+
+# dev = "-dev" if env == "PROD" else ""
+# if env == "PROD":
+#     DEFAULT_APP_NAME = "comfyui"
+#     # WEBHOOK_URL = f"https://edenartlab--tools-fastapi-app{dev}.modal.run"
+# else:
+#     DEFAULT_APP_NAME = "comfyui-dev"
+#     # WEBHOOK_URL = f"https://edenartlab--tools-dev-fastapi-app{dev}.modal.run"
+
+
+
+def get_webhook_url():
+    print("GET WEBHOOK URL")
+    print(os.getenv("MODAL_SERVE"))
+    env = "tools-dev" if os.getenv("ENV").lower() == "prod" else "tools-dev"
+    dev = "-dev" if os.getenv("MODAL_SERVE") else ""
+    print("ENV",env)
+    print("DEV", dev)
+    webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run"
+    return webhook_url
 
 
 TYPE_MAPPING = {
@@ -270,6 +284,9 @@ def get_human_readable_error(error_list):
         input_value = error['input']
         if error_type == 'string_type':
             errors.append(f"{field} is missing")
+        elif error_type == 'list_type':
+            msg = error['msg']
+            errors.append(f"{field}: {msg}")
         elif error_type == 'literal_error':
             expected_values = error['ctx']['expected']
             errors.append(f"{field} must be one of {expected_values}")
@@ -322,13 +339,16 @@ class ComfyUITool(Tool):
         job = cls().api.spawn(task.to_mongo())
         return job.object_id
 
-    async def run(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
+    async def async_run(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
         args = self.prepare_args(args)
         if self.mock:
             return mock_image(args)
         cls = modal.Cls.lookup(app_name, workflow)
         result = await cls().execute.remote.aio(args)
         return result
+    
+    def run(self, workflow: str, args: Dict, app_name=DEFAULT_APP_NAME):
+        return asyncio.run(self.async_run(workflow, args, app_name))
 
 
 class ReplicateTool(Tool):
@@ -343,6 +363,7 @@ class ReplicateTool(Tool):
         return new_args
 
     def submit(self, task: Task):
+        import replicate
         task.args = self.prepare_args(task.args)
         args = self.format_args_for_replicate(task.args)
         print("THE ARGS", args)
@@ -353,26 +374,31 @@ class ReplicateTool(Tool):
         
         if version == "deployment":
             deployment = replicate.deployments.get(f"{user}/{model}")
-            print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            # print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            print("lets go to ", get_webhook_url())
             prediction = deployment.predictions.create(
                 input=args,
-                webhook=f"{WEBHOOK_URL}/{endpoint}",
+                # webhook=f"{WEBHOOK_URL}/{endpoint}",
+                webhook=get_webhook_url(),
                 webhook_events_filter=["start", "completed"]
             )
         else:
             model = replicate.models.get(f"{user}/{model}")
             version = model.versions.get(version)
-            print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            # print("lets go to ", f"{WEBHOOK_URL}/{endpoint}")
+            print("22 lets go to ", get_webhook_url())
             prediction = replicate.predictions.create(
                 version=version,
                 input=task.args,
-                webhook=f"{WEBHOOK_URL}/{endpoint}",
+                # webhook=f"{WEBHOOK_URL}/{endpoint}",
+                webhook=get_webhook_url(),
                 webhook_events_filter=["start", "completed"]
             )
         return prediction.id
 
 
-    async def run(self, args: Dict):
+    async def async_run(self, args: Dict):
+        import replicate
         args = self.prepare_args(args)
         args = self.format_args_for_replicate(args)
         if self.mock:
@@ -389,3 +415,6 @@ class ReplicateTool(Tool):
         
         result = list(output)
         return result
+    
+    def run(self, args: Dict):
+        return asyncio.run(self.async_run(args))
