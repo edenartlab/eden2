@@ -487,7 +487,7 @@ else:
         "img2vid", "vid2vid", "style_mixing",
         "img2vid_museV",
         "video_upscaler", 
-        "xhibit/vton", "xhibit/remix", 
+        "xhibit/vton", "xhibit/remix", "xhibit/beeple_ai",
         "moodmix",
         "inpaint",
         "background_removal"
