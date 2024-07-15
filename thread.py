@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
 from agent import Agent
-from tools import Tool, get_tools
+from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
 default_tools = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "SD3"]) | get_tools("tools")
@@ -19,11 +19,11 @@ default_tools = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
-    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
     
     def to_mongo(self, **kwargs):
         data = self.model_dump()
-        data["created_at"] = self.created_at
+        data["createdAt"] = self.createdAt
         return data
 
 
@@ -140,6 +140,10 @@ class Thread(MongoBaseModel):
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
 
+    @classmethod
+    def from_id(self, document_id: str):
+        return super().from_id(self, threads, document_id)
+
     def to_mongo(self):
         data = super().to_mongo()
         data['messages'] = [m.to_mongo() for m in self.messages]
@@ -149,6 +153,9 @@ class Thread(MongoBaseModel):
     def save(self):
         super().save(self, threads)
 
+    def update(self, args: dict):
+        super().update(self, threads, args)
+
     def get_chat_messages(self, system_message: str = None):
         system_message = SystemMessage(content=system_message)
         messages = [system_message, *self.messages]
@@ -157,13 +164,13 @@ class Thread(MongoBaseModel):
     def add_message(self, *messages: ChatMessage):
         self.messages.extend(messages)
         self.save()
-
+    
     async def prompt(
         self, 
         agent: Agent,
         user_message: UserMessage,
     ):
-        self.add_message(user_message)        
+        self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
         response = await prompt(
             self.get_chat_messages(system_message=system_message),
@@ -177,7 +184,7 @@ class Thread(MongoBaseModel):
             yield assistant_message
             return  # no tool calls, we're done
 
-        print("TOOL CALLS", tool_calls[0])
+        print("tool calls", tool_calls[0])
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
         tool = self.tools.get(tool_name)

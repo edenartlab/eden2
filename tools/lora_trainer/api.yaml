@@ -15,6 +15,7 @@ parameters:
   description: Images to train LoRA with
   type: image[]
   required: true
+  min_length: 1
 - name: sd_model_version
   label: Base Model
   description: Base Stable Diffusion model to finetune from
@@ -27,13 +28,13 @@ parameters:
   type: string
   choices: ["face", "object", "style"]
   default: "style"
-- name: num_train_epochs
-  label: Training epochs
-  description: Number of epochs to loop through your training dataset
+- name: max_train_steps
+  label: Training steps
+  description: Maximum number of training steps to loop through your training dataset
   type: int
   default: 400
   minimum: 100
-  maximum: 1000
+  maximum: 1500
   step: 1
 - name: resolution
   label: Resolution

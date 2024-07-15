@@ -9,11 +9,11 @@ from pymongo import MongoClient
 
 
 load_dotenv()
-env = os.getenv("ENVIRONMENT", "STAGE")
+env = os.getenv("ENV", "STAGE").lower()
 mongo_url = os.getenv("MONGO_URI")
 
 client = MongoClient(mongo_url)
-db_name = "eden-prod" if env == "PROD" else "eden-stg"
+db_name = "eden-prod" if env == "prod" else "eden-stg"
 db = client[db_name]
 
 threads = db["threads"]
@@ -33,6 +33,15 @@ class MongoBaseModel(BaseModel):
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+    @staticmethod
+    def from_id(cls, collection, document_id):
+        document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
+        document = collection.find_one({"_id": document_id})
+        if not document:
+            raise Exception("Document not found")
+        return cls(**document)
 
     @classmethod
     def from_mongo(cls, data: dict):
@@ -54,11 +63,11 @@ class MongoBaseModel(BaseModel):
     @classmethod
     def save(cls, document, collection):
         try:
-            cls.validate(document.dict())
+            cls.validate(document)
         except ValidationError as e:
             print("Validation error:", e)
             return None
-        
+
         data = document.to_mongo()
         document_id = data.get('_id')
 
@@ -67,4 +76,20 @@ class MongoBaseModel(BaseModel):
             return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             return collection.insert_one(data)
-            
+
+    @classmethod
+    def update(cls, document, collection, update_args):
+        try:
+            cls.validate({**document.to_mongo(), **update_args})
+        except ValidationError as e:
+            print("Validation error:", e)
+            return None
+
+        data = document.to_mongo()
+        document_id = data.get('_id')
+
+        if document_id:
+            update_args["updatedAt"] = datetime.utcnow()
+            return collection.update_one({'_id': document_id}, {'$set': update_args})
+        else:
+            raise Exception("Document not found")

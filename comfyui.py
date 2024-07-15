@@ -17,7 +17,7 @@ from bson import ObjectId
 from urllib.error import URLError
 from typing import Dict
 
-import tools
+import tool
 import s3
 import utils
 
@@ -50,10 +50,10 @@ class ComfyUI:
         tool_path: str,
         args: Dict
     ):
-        tool = tools.load_tool(tool_path)
+        tool_ = tool.load_tool(tool_path)
         print("user args", args)
         workflow = json.load(open(workflow_path, 'r'))
-        workflow = inject_args_into_workflow(workflow, tool, args)
+        workflow = inject_args_into_workflow(workflow, tool_, args)
         print("workflow after injection")
         print(workflow)
         ws = self._connect_to_server(self.client_id)
@@ -61,7 +61,7 @@ class ComfyUI:
         print("prompt id", prompt_id) 
         outputs = self._get_outputs(ws, prompt_id)
         print("comfyui outputs", outputs)
-        output = outputs.get(str(tool.comfyui_output_node_id))
+        output = outputs.get(str(tool_.comfyui_output_node_id))
         print("final", output)
         return output
     
@@ -203,9 +203,9 @@ def download_custom_files():
 
 
 def test_workflow():
-    tool = tools.load_tool("/root", name=workflow_name)
+    tool_ = tool.load_tool("/root", name=workflow_name)
     args = json.loads(open("/root/test.json", "r").read())
-    args = tool.prepare_args(args)
+    args = tool_.prepare_args(args)
     comfy = ComfyUI()
     comfy.start()
     output = comfy.api(
@@ -317,23 +317,23 @@ def url_to_filename(url):
         filename = name[:max_length - len(ext)] + ext
     return filename    
 
-def inject_args_into_workflow(workflow, tool, args):
+def inject_args_into_workflow(workflow, tool_, args):
     embedding_trigger = None
     
     # download and transport files
-    for param in tool.parameters: 
-        if param.type in tools.FILE_TYPES:
+    for param in tool_.parameters: 
+        if param.type in tool.FILE_TYPES:
             url = args.get(param.name)
             args[param.name] = utils.download_file(url, f"/root/input{url_to_filename(url)}") if url else None
         
-        elif param.type in tools.FILE_ARRAY_TYPES:
+        elif param.type in tool.FILE_ARRAY_TYPES:
             urls = args.get(param.name)
             args[param.name] = [
                 utils.download_file(url, f"/root/input/{url_to_filename(url)}") if url else None 
                 for url in urls
             ] if urls else None
         
-        elif param.type == tools.ParameterType.LORA:
+        elif param.type == tool.ParameterType.LORA:
             
 
             print("PARAM NAME", param.name)
@@ -366,7 +366,7 @@ def inject_args_into_workflow(workflow, tool, args):
     # inject args
     comfyui_map = {
         param.name: param.comfyui 
-        for param in tool.parameters if param.comfyui
+        for param in tool_.parameters if param.comfyui
     }
 
     for key, comfyui in comfyui_map.items():
@@ -442,16 +442,17 @@ class EdenComfyUI(ComfyUI):
     @modal.method()
     def api(self, task: Dict):
         task = Task(**task)
-        task.status = "running"
-        task.save()
+        # task.status = "running"
+        task.update({"status": "running"})
         output = self._run(task.args)
         
         # how to handle failures???
         
         
-        task.result = output
-        task.status = "completed"
-        task.save()
+        # task.result = output
+        # task.status = "completed"
+        task.update({"status": "completed", "result": output})
+        # task.save()
 
 
 if modal.is_local():
@@ -463,10 +464,10 @@ if modal.is_local():
     parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
     args = parser.parse_args()
 
-    import tools
-    workflows = tools.get_tools("../workflows", exclude=["blend"])
+    import tool
+    workflows = tool.get_tools("../workflows", exclude=["_dev"])
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
-    selected_workflows = [w for w in selected_workflows if w != "blend"]
+    selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
     if missing_workflows:
         raise ValueError(f"Workflows {', '.join(missing_workflows)} not found.")
@@ -481,16 +482,11 @@ if modal.is_local():
 
 else:
     workflows = [
-        "txt2img", "txt2img2",
-        "SD3", "face_styler",
-        "txt2vid", "txt2vid_lora",
-        "img2vid", "vid2vid", "style_mixing",
-        "img2vid_museV",
-        "video_upscaler", 
+        "txt2img", "txt2img2", "SD3", "face_styler",
+        "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid", 
+        "style_mixing", "video_upscaler", 
+        "moodmix", "inpaint", "blend", "background_removal",
         "xhibit/vton", "xhibit/remix", "xhibit/beeple_ai",
-        "moodmix",
-        "inpaint",
-        "background_removal"
     ]
 
 

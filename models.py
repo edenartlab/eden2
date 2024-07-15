@@ -16,6 +16,10 @@ class Model(MongoBaseModel):
         super().__init__(**data)
         self.make_slug()
 
+    @classmethod
+    def from_id(self, document_id: str):
+        return super().from_id(self, models, document_id)
+
     def make_slug(self):
         name = self.name.lower().replace(" ", "-")
         version = 1 + models.count_documents({"name": self.name, "user": self.user}) 
@@ -24,6 +28,9 @@ class Model(MongoBaseModel):
 
     def save(self):
         super().save(self, models)
+
+    def update(self, args: dict):
+        super().update(self, models, args)
 
 
 class Task(MongoBaseModel):
@@ -40,6 +47,12 @@ class Task(MongoBaseModel):
             data['user'] = ObjectId(data['user'])
         super().__init__(**data)
 
+    @classmethod
+    def from_id(self, document_id: str):
+        return super().from_id(self, tasks, document_id)
+
     def save(self):
         super().save(self, tasks)
     
+    def update(self, args: dict):
+        super().update(self, tasks, args)
