@@ -252,19 +252,10 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
     return tool
 
 
-# def get_tools(tools_folder: str, exclude: List[str] = []):
-#     required_files = {'api.yaml', 'test.json'}
-#     tools = {}
-#     for root, _, files in os.walk(tools_folder):
-#         name = os.path.relpath(root, start=tools_folder)
-#         if "." in name or name in exclude or not required_files <= set(files):
-#             continue
-#         tools[name] = load_tool(os.path.join(tools_folder, name), name)
-#     return tools
 def get_tools(tools_folder: str, exclude: List[str] = []):
     required_files = {'api.yaml', 'test.json'}
     tools = {}
-    exclude_set = set(exclude)
+    exclude_set = set(exclude) | {"_dev"}  # exclude worklows/_dev folder 
     for root, dirs, files in os.walk(tools_folder):
         dirs[:] = [d for d in dirs if os.path.relpath(os.path.join(root, d), start=tools_folder) not in exclude_set]
         name = os.path.relpath(root, start=tools_folder)

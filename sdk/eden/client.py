@@ -7,20 +7,15 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-import sseclient
-
-STAGE = True
+STAGE = False
 
 if STAGE:
     DEFAULT_API_URL = "staging.api.eden.art"
-    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app.modal.run"
     DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app-dev.modal.run" 
-    
 else:
     DEFAULT_API_URL = "api.eden.art"
     DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
-    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app-dev.modal.run"
-
+    
 
 class EdenClient:
     def __init__(self):

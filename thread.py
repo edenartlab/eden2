@@ -14,8 +14,9 @@ from agent import Agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-default_tools = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "SD3"]) | get_tools("tools")
-
+workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
+extra_tools = get_tools("tools")
+default_tools = workflows | extra_tools
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
@@ -230,8 +231,7 @@ class Thread(MongoBaseModel):
         assistant_message = AssistantMessage(**message.model_dump())
         yield assistant_message
         
-        result = await tool.run(
-            workflow=tool_name, 
+        result = await tool.async_run(
             args=updated_args
         )
 

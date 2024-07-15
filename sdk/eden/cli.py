@@ -48,7 +48,8 @@ def interactive_chat(args):
 async def async_interactive_chat():
     client = EdenClient()
     console = Console()
-    thread_id = None
+    thread_id = client.get_or_create_thread("test_thread")
+    print("Thread:", thread_id)
 
     while True:
         try:
@@ -79,7 +80,6 @@ async def async_interactive_chat():
                     if error:
                         console.print(f"[bold red]ERROR:\t({error})[/bold red]")
                         continue
-                    thread_id = response.get("task_id") 
                     message = json.loads(response.get("message"))
                     content = message.get("content") or ""
                     if message.get("tool_calls"):
