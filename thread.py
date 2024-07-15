@@ -10,7 +10,7 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
-from agent import Agent
+from agent import Agent, get_default_agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
@@ -279,3 +279,50 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
     else:
         thread = Thread(**thread)
     return thread
+
+
+
+async def interactive_chat():
+    user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
+    agent = get_default_agent() # eve
+    tools = get_tools("../workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
+
+    thread = Thread(
+        name="my_test_thread", 
+        user=user,
+        tools=tools
+    )
+    
+    while True:
+        try:
+            message_input = input("\033[92m\033[1mUser:\t")
+            if message_input.lower() == 'escape':
+                break
+            
+            content, metadata, attachments = preprocess_message(message_input)
+            user_message = UserMessage(
+                content=content,
+                metadata=metadata,
+                attachments=attachments
+            )
+            print("\033[93m\033[1m")
+            async for msg in thread.prompt(agent, user_message):
+                print(msg)
+
+        except KeyboardInterrupt:
+            break
+
+def preprocess_message(message):
+    metadata_pattern = r'\{.*?\}'
+    attachments_pattern = r'\[.*?\]'
+    metadata_match = re.search(metadata_pattern, message)
+    attachments_match = re.search(attachments_pattern, message)
+    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
+    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+    clean_message = re.sub(metadata_pattern, '', message)
+    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
+    return clean_message, metadata, attachments
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(interactive_chat())
