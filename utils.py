@@ -60,7 +60,7 @@ def exponential_backoff(
             print(f"Attempt {attempt} failed. Retrying in {delay} seconds...") 
             time.sleep(delay + jitter)
             delay = delay * 2
-
+            
 
 def mock_image(args):
     image = Image.new("RGB", (300, 300), color="white")

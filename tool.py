@@ -231,7 +231,7 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
         field_type = Literal[*param.choices]
     
     return (field_type, Field(**field_kwargs))
-            
+
 
 def load_tool(tool_path: str, name: str = None) -> Tool:
     api_path = f"{tool_path}/api.yaml"
@@ -248,7 +248,7 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
     else:
-        tool = Tool(data, key=name)
+        tool = ModalTool(data, key=name)
     return tool
 
 
@@ -326,6 +326,32 @@ def get_human_readable_error(error_list):
     return error_str
 
 
+class ModalTool(Tool):
+
+    def submit(self, task: Task):
+        task.args = self.prepare_args(task.args)
+        func = modal.Function.lookup("handlers", "submit")
+        job = func.spawn(self.key, task.to_mongo())
+        return job.object_id
+
+    def run(self, args: Dict):
+        return asyncio.run(self.async_run(args))
+
+    async def async_run(self, args: Dict):
+        args = self.prepare_args(args)
+        if self.mock:
+            return mock_image(args)
+        func = modal.Function.lookup("handlers", "run")
+        result = await func.remote.aio(self.key, args)
+        return result
+    
+    def cancel(self, task: Task):
+        fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        fc.cancel()
+        task.status = "cancelled"
+        task.save()
+
+
 class ComfyUIInfo(BaseModel):
     node_id: int
     field: str
@@ -345,6 +371,9 @@ class ComfyUITool(Tool):
         job = cls().api.spawn(task.to_mongo())
         return job.object_id
 
+    def run(self, args: Dict, app_name=DEFAULT_APP_NAME):
+        return asyncio.run(self.async_run(args, app_name))
+
     async def async_run(self, args: Dict, app_name=DEFAULT_APP_NAME):
         args = self.prepare_args(args)
         if self.mock:
@@ -353,9 +382,6 @@ class ComfyUITool(Tool):
         result = await cls().execute.remote.aio(args)
         return result
     
-    def run(self, args: Dict, app_name=DEFAULT_APP_NAME):
-        return asyncio.run(self.async_run(args, app_name))
-
     def cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         fc.cancel()
@@ -401,6 +427,9 @@ class ReplicateTool(Tool):
                 webhook_events_filter=["start", "completed"]
             )
         return prediction.id
+    
+    def run(self, args: Dict):
+        return asyncio.run(self.async_run(args))
 
     async def async_run(self, args: Dict):
         import replicate
@@ -421,13 +450,9 @@ class ReplicateTool(Tool):
         result = list(output)
         return result
     
-    def run(self, args: Dict):
-        return asyncio.run(self.async_run(args))
-
     def cancel(self, task: Task):
         import replicate
         prediction = replicate.predictions.get(task.handler_id)
         prediction.cancel()
         task.status = "cancelled"
         task.save()
-        
