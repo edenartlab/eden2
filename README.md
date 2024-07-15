@@ -44,3 +44,14 @@ Deploy api to stage.
 Deploy api to production.
 
     ENV=PROD modal deploy api.py
+
+
+# Interactive mode for threads
+
+To interact with an agent, run
+
+    python thread.py
+
+To interact via client:
+
+    eden chat
