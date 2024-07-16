@@ -1,8 +1,8 @@
 from eden import EdenClient
 
-eden_client = EdenClient()
+client = EdenClient()
 
-config = {
+result = client.create("lora_trainer", {
     "name": "Verdelis",
     "lora_training_urls": [
         "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1716502851/user_uploads/kyuuefmnf56cnot8mqug.jpg",
@@ -17,10 +17,12 @@ config = {
     ],
     "sd_model_version": "sdxl",
     "concept_mode": "face",
-    "num_train_epochs": 500
-}
+    "max_train_steps": 200
+})
 
-print(config)
-response = eden_client.train(config)
-print(response)
+print(result)
+
+# print(config)
+# response = eden_client.train(config)
+# print(response)
 
