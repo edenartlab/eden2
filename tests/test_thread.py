@@ -12,7 +12,7 @@ user = ObjectId("65284b18f8bbb9bff13ebe65")  # user = gene3
 agent = get_default_agent() # eve
 
 thread = Thread(
-    name="test", 
+    name="test55", 
     user=user,
     tools=tools
 )

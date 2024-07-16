@@ -10,20 +10,21 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
-from agent import Agent
-from tools import Tool, get_tools
+from agent import Agent, get_default_agent
+from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-default_tools = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "SD3"]) | get_tools("tools")
-
+workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
+extra_tools = get_tools("tools")
+default_tools = workflows | extra_tools
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
-    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
     
     def to_mongo(self, **kwargs):
         data = self.model_dump()
-        data["created_at"] = self.created_at
+        data["createdAt"] = self.createdAt
         return data
 
 
@@ -140,6 +141,10 @@ class Thread(MongoBaseModel):
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
 
+    @classmethod
+    def from_id(self, document_id: str):
+        return super().from_id(self, threads, document_id)
+
     def to_mongo(self):
         data = super().to_mongo()
         data['messages'] = [m.to_mongo() for m in self.messages]
@@ -149,6 +154,9 @@ class Thread(MongoBaseModel):
     def save(self):
         super().save(self, threads)
 
+    def update(self, args: dict):
+        super().update(self, threads, args)
+
     def get_chat_messages(self, system_message: str = None):
         system_message = SystemMessage(content=system_message)
         messages = [system_message, *self.messages]
@@ -157,13 +165,13 @@ class Thread(MongoBaseModel):
     def add_message(self, *messages: ChatMessage):
         self.messages.extend(messages)
         self.save()
-
+    
     async def prompt(
         self, 
         agent: Agent,
         user_message: UserMessage,
     ):
-        self.add_message(user_message)        
+        self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
         response = await prompt(
             self.get_chat_messages(system_message=system_message),
@@ -177,7 +185,7 @@ class Thread(MongoBaseModel):
             yield assistant_message
             return  # no tool calls, we're done
 
-        print("TOOL CALLS", tool_calls[0])
+        print("tool calls", tool_calls[0])
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
         tool = self.tools.get(tool_name)
@@ -223,8 +231,7 @@ class Thread(MongoBaseModel):
         assistant_message = AssistantMessage(**message.model_dump())
         yield assistant_message
         
-        result = await tool.run(
-            workflow=tool_name, 
+        result = await tool.async_run(
             args=updated_args
         )
 
@@ -272,3 +279,50 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
     else:
         thread = Thread(**thread)
     return thread
+
+
+
+async def interactive_chat():
+    user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
+    agent = get_default_agent() # eve
+    tools = get_tools("../workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
+
+    thread = Thread(
+        name="my_test_thread", 
+        user=user,
+        tools=tools
+    )
+    
+    while True:
+        try:
+            message_input = input("\033[92m\033[1mUser:\t")
+            if message_input.lower() == 'escape':
+                break
+            
+            content, metadata, attachments = preprocess_message(message_input)
+            user_message = UserMessage(
+                content=content,
+                metadata=metadata,
+                attachments=attachments
+            )
+            print("\033[93m\033[1m")
+            async for msg in thread.prompt(agent, user_message):
+                print(msg)
+
+        except KeyboardInterrupt:
+            break
+
+def preprocess_message(message):
+    metadata_pattern = r'\{.*?\}'
+    attachments_pattern = r'\[.*?\]'
+    metadata_match = re.search(metadata_pattern, message)
+    attachments_match = re.search(attachments_pattern, message)
+    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
+    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+    clean_message = re.sub(metadata_pattern, '', message)
+    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
+    return clean_message, metadata, attachments
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(interactive_chat())

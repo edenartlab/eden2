@@ -7,15 +7,15 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-STAGE = True
+STAGE = False
 
 if STAGE:
     DEFAULT_API_URL = "staging.api.eden.art"
-    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app.modal.run"
+    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app-dev.modal.run" 
 else:
     DEFAULT_API_URL = "api.eden.art"
     DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
-
+    
 
 class EdenClient:
     def __init__(self):
@@ -23,17 +23,20 @@ class EdenClient:
         self.tools_api_url = DEFAULT_TOOLS_API_URL
         self.api_key = get_api_key()
 
-    def create(self, workflow, args):
+    def create(self, workflow, args):        
+        return asyncio.run(self.async_create(workflow, args))
+    
+    async def async_create(self, workflow, args):
         uri = f"https://{self.api_url}/v2/tasks/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"workflow": workflow, "args": args}
         
         try:
-            with httpx.Client(timeout=30) as client:
-                response = client.post(uri, headers=headers, json=payload)
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 task_id = response.json().get("task", {}).get("_id")
-                for event in self._subscribe(task_id):
+                async for event in self._subscribe(task_id):
                     if event["status"] == "completed":
                         return event["result"]
                     if event["status"] == "failed":
@@ -43,16 +46,15 @@ class EdenClient:
         except Exception as e:
             raise Exception(f"An error occurred: {str(e)}")
 
-    def _subscribe(self, task_id):
+    async def _subscribe(self, task_id):
         url = f"https://{self.api_url}/v2/tasks/events?taskId={task_id}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         
         try:
-            with httpx.Client(timeout=30) as client:
-                with client.stream("GET", url, headers=headers) as response:
+            async with httpx.AsyncClient(timeout=60) as client:
+                async with client.stream("GET", url, headers=headers) as response:
                     response.raise_for_status()
-                    event_data = None
-                    for line in response.iter_lines():
+                    async for line in response.aiter_lines():
                         if not line:
                             continue
                         if line.startswith("event:"):
@@ -63,14 +65,13 @@ class EdenClient:
             raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
         except Exception as e:
             raise Exception(f"An error occurred: {str(e)}")
-
+        
     def get_or_create_thread(self, thread_name):
         uri = f"https://{self.tools_api_url}/thread/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"name": thread_name}
-
         try:
-            with httpx.Client(timeout=30) as client:
+            with httpx.Client(timeout=60) as client:
                 response = client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 response = response.json()
@@ -116,7 +117,7 @@ class EdenClient:
             media = await f.read()
             headers = {"x-api-key": self.api_key.get_secret_value()}
             files = {"media": ("media", media)}
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(
                     f"https://{self.api_url}/media/upload",
                     headers=headers,

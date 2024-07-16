@@ -13,11 +13,11 @@ import argparse
 import websocket
 import subprocess
 import urllib.request
+from bson import ObjectId
 from urllib.error import URLError
 from typing import Dict
 
-from models import Task
-import tools
+import tool
 import s3
 import utils
 
@@ -50,23 +50,20 @@ class ComfyUI:
         tool_path: str,
         args: Dict
     ):
-        try:
-            tool = tools.load_tool(tool_path)
-            print("user args", args)
-            workflow = json.load(open(workflow_path, 'r'))
-            workflow = inject_args_into_workflow(workflow, tool, args)
-            print("workflow after injection")
-            print(workflow)
-            ws = self._connect_to_server(self.client_id)
-            prompt_id = self._queue_prompt(workflow, self.client_id)['prompt_id']
-            print("prompt id", prompt_id) 
-            outputs = self._get_outputs(ws, prompt_id)
-            print("comfyui outputs", outputs)
-            output = outputs.get(str(tool.comfyui_output_node_id))
-            print("final", output)
-            return output
-        except Exception as e:
-            raise Exception(f"Error running workflow {workflow_name}: {e}")
+        tool_ = tool.load_tool(tool_path)
+        print("user args", args)
+        workflow = json.load(open(workflow_path, 'r'))
+        workflow = inject_args_into_workflow(workflow, tool_, args)
+        print("workflow after injection")
+        print(workflow)
+        ws = self._connect_to_server(self.client_id)
+        prompt_id = self._queue_prompt(workflow, self.client_id)['prompt_id']
+        print("prompt id", prompt_id) 
+        outputs = self._get_outputs(ws, prompt_id)
+        print("comfyui outputs", outputs)
+        output = outputs.get(str(tool_.comfyui_output_node_id))
+        print("final", output)
+        return output
     
     def _is_server_running(self):
         try:
@@ -206,9 +203,9 @@ def download_custom_files():
 
 
 def test_workflow():
-    tool = tools.load_tool("/root", name=workflow_name)
+    tool_ = tool.load_tool("/root", name=workflow_name)
     args = json.loads(open("/root/test.json", "r").read())
-    args = tool.prepare_args(args)
+    args = tool_.prepare_args(args)
     comfy = ComfyUI()
     comfy.start()
     output = comfy.api(
@@ -320,37 +317,56 @@ def url_to_filename(url):
         filename = name[:max_length - len(ext)] + ext
     return filename    
 
-def inject_args_into_workflow(workflow, tool, args):
+def inject_args_into_workflow(workflow, tool_, args):
     embedding_trigger = None
     
     # download and transport files
-    for param in tool.parameters: 
-        if param.type in tools.FILE_TYPES:
+    for param in tool_.parameters: 
+        if param.type in tool.FILE_TYPES:
             url = args.get(param.name)
             args[param.name] = utils.download_file(url, f"/root/input{url_to_filename(url)}") if url else None
         
-        elif param.type in tools.FILE_ARRAY_TYPES:
+        elif param.type in tool.FILE_ARRAY_TYPES:
             urls = args.get(param.name)
             args[param.name] = [
                 utils.download_file(url, f"/root/input/{url_to_filename(url)}") if url else None 
                 for url in urls
             ] if urls else None
         
-        elif param.type == tools.ParameterType.LORA:
-            lora_url = args.get(param.name)
-            if lora_url:
-                lora_filename, embedding_trigger = transport_lora(
-                    lora_url, 
-                    downloads_folder="/root/downloads",
-                    loras_folder="/root/models/loras",
-                    embeddings_folder="/root/models/embeddings"
-                )
-                args[param.name] = lora_filename        
+        elif param.type == tool.ParameterType.LORA:
+            
+
+            print("PARAM NAME", param.name)
+            lora_id = args.get(param.name)
+            print("LORA ID", lora_id)
+            if not lora_id:
+                continue
+
+            lora = models.find_one({"_id": ObjectId(lora_id)})
+            print("LORA", lora)
+            if not lora:
+                raise Exception(f"Lora {lora_id} not found")
+
+            lora_url = lora.get("checkpoint")
+            print("LORA URL", lora_url)
+            if not lora_url:
+                raise Exception(f"Lora {lora_id} has no checkpoint")
+            
+            # lora_url = args.get(param.name)
+            print("LORA UR!!!", lora_url)
+            # if lora_url:
+            lora_filename, embedding_trigger = transport_lora(
+                lora_url, 
+                downloads_folder="/root/downloads",
+                loras_folder="/root/models/loras",
+                embeddings_folder="/root/models/embeddings"
+            )
+            args[param.name] = lora_filename        
         
     # inject args
     comfyui_map = {
         param.name: param.comfyui 
-        for param in tool.parameters if param.comfyui
+        for param in tool_.parameters if param.comfyui
     }
 
     for key, comfyui in comfyui_map.items():
@@ -426,12 +442,17 @@ class EdenComfyUI(ComfyUI):
     @modal.method()
     def api(self, task: Dict):
         task = Task(**task)
-        task.status = "running"
-        task.save()
+        # task.status = "running"
+        task.update({"status": "running"})
         output = self._run(task.args)
-        task.result = output
-        task.status = "completed"
-        task.save()
+        
+        # how to handle failures???
+        
+        
+        # task.result = output
+        # task.status = "completed"
+        task.update({"status": "completed", "result": output})
+        # task.save()
 
 
 if modal.is_local():
@@ -443,10 +464,10 @@ if modal.is_local():
     parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
     args = parser.parse_args()
 
-    import tools
-    workflows = tools.get_tools("../workflows", exclude=["blend"])
+    import tool
+    workflows = tool.get_tools("../workflows", exclude=["_dev"])
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
-    selected_workflows = [w for w in selected_workflows if w != "blend"]
+    selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
     if missing_workflows:
         raise ValueError(f"Workflows {', '.join(missing_workflows)} not found.")
@@ -461,16 +482,11 @@ if modal.is_local():
 
 else:
     workflows = [
-        "txt2img", "txt2img2",
-        "SD3", "face_styler",
-        "txt2vid", "txt2vid_lora",
-        "img2vid", "vid2vid", "style_mixing",
-        "img2vid_museV", "img2vid_museV2",
-        "video_upscaler", 
+        "txt2img", "txt2img2", "SD3", "face_styler",
+        "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid", 
+        "style_mixing", "video_upscaler", 
+        "moodmix", "inpaint", "blend", "background_removal",
         "xhibit/vton", "xhibit/remix", "xhibit/beeple_ai",
-        "moodmix",
-        "inpaint",
-        "background_removal"
     ]
 
 
@@ -497,7 +513,7 @@ for workflow_name in workflows:
         .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3",
                      "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
                      "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-                     "torchaudio")#, "bson", "pymongo")
+                     "torchaudio", "bson")#, "bson", "pymongo")
         .pip_install("bson").pip_install("pymongo") 
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)
@@ -506,9 +522,11 @@ for workflow_name in workflows:
         .copy_local_file(workflow_dir / "workflow_api.json", "/root/workflow_api.json")
         .copy_local_file(workflow_dir / "api.yaml", "/root/api.yaml")
         .copy_local_file(workflow_dir / "test.json", "/root/test.json")
-        .env({"ENVIRONMENT": "STAGE"})
-
+        .env({"ENV": "PROD" if app_name == APP_NAME_PROD else "STAGE"})
     )
+
+    with image.imports():
+        from models import Task, models
 
     gpu = modal.gpu.A100()
     if modal.is_local():

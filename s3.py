@@ -6,6 +6,7 @@ import mimetypes
 import magic
 import requests
 import tempfile
+from typing import Iterator
 from PIL import Image
 
 from dotenv import load_dotenv
@@ -53,6 +54,9 @@ def upload_file(file_path, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
 def upload_buffer(buffer, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
+    if isinstance(buffer, Iterator):
+        buffer = b"".join(buffer)
+
     # Get sha256 hash of content
     hasher = hashlib.sha256()
     hasher.update(buffer)
