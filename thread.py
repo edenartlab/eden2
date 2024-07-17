@@ -18,6 +18,7 @@ workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools
 
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
     createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
