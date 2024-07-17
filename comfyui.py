@@ -483,7 +483,7 @@ if modal.is_local():
 else:
     workflows = [
         "txt2img", "txt2img2", "SD3", "face_styler",
-        "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid", 
+        "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", 
         "moodmix", "inpaint", "blend", "background_removal",
         "xhibit/vton", "xhibit/remix", "xhibit/beeple_ai",
