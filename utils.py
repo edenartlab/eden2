@@ -391,7 +391,7 @@ def video_textbox(
     margin_right: int = 25,
     line_spacing: float = 1.25,
 ):
-    from moviepy.editor import *
+    from moviepy.editor import ImageClip, TextClip, AudioClip
     
     font = get_font(font_ttf, font_size)
 
