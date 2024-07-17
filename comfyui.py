@@ -511,7 +511,7 @@ for workflow_name in workflows:
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
         .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3",
-                     "requests", "Pillow", "fastapi==0.103.1", "python-magic", 
+                     "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
                      "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
                      "torchaudio", "bson")#, "bson", "pymongo")
         .pip_install("bson").pip_install("pymongo") 
