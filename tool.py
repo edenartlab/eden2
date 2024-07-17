@@ -17,13 +17,6 @@ env = os.getenv("ENV", "STAGE")
 DEFAULT_APP_NAME = "comfyui" if env == "PROD" else "comfyui-dev"
 
 
-def get_webhook_url(endpoint: str = ""):
-    env = "tools" if os.getenv("ENV").lower() == "prod" else "tools-dev"
-    dev = "-dev" if os.getenv("MODAL_SERVE") else ""
-    webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/{endpoint}"
-    return webhook_url
-
-
 TYPE_MAPPING = {
     "bool": bool,
     "string": str,
@@ -384,61 +377,62 @@ class ReplicateTool(Tool):
     model: str
     output_handler: str = "create"
 
-    def format_args_for_replicate(self, args):
+    def _format_args_for_replicate(self, args):
         new_args = args.copy()
         for param in self.parameters:
             if param.type in ARRAY_TYPES:
                 new_args[param.name] = "|".join([str(p) for p in args[param.name]])
         return new_args
 
-    def submit(self, task: Task):
+    def _get_webhook_url(self, endpoint: str = ""):
+        env = "tools" if os.getenv("ENV").lower() == "prod" else "tools-dev"
+        dev = "-dev" if os.getenv("MODAL_SERVE") else ""
+        webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/{endpoint}"
+        return webhook_url
+    
+    def _create_prediction(self, args: dict, webhook=True):
         import replicate
         user, model = self.model.split('/', 1)
         model, version = model.split(':', 1)
         endpoint = f"update/{self.output_handler}" 
-        webhook_url = get_webhook_url(endpoint)
-
-        task.args = self.prepare_args(task.args)
-        args = self.format_args_for_replicate(task.args)
+        webhook_url = self._get_webhook_url(endpoint) if webhook else None
+        webhook_events_filter = ["start", "completed"] if webhook else None
         
         if version == "deployment":
             deployment = replicate.deployments.get(f"{user}/{model}")
             prediction = deployment.predictions.create(
                 input=args,
                 webhook=webhook_url,
-                webhook_events_filter=["start", "completed"]
+                webhook_events_filter=webhook_events_filter
             )
         else:
             model = replicate.models.get(f"{user}/{model}")
             version = model.versions.get(version)
             prediction = replicate.predictions.create(
                 version=version,
-                input=task.args,
+                input=args,
                 webhook=webhook_url,
-                webhook_events_filter=["start", "completed"]
+                webhook_events_filter=webhook_events_filter
             )
+        return prediction
+
+    def submit(self, task: Task):
+        task.args = self.prepare_args(task.args)
+        args = self._format_args_for_replicate(task.args)
+        prediction = self._create_prediction(args)
         return prediction.id
     
     def run(self, args: Dict):
         return asyncio.run(self.async_run(args))
 
     async def async_run(self, args: Dict):
-        import replicate
         args = self.prepare_args(args)
-        args = self.format_args_for_replicate(args)
+        args = self._format_args_for_replicate(args)
         if self.mock:
             return mock_image(args)
-        
-        
-        # user, model = self.model.split('/', 1)
-        # model, hash = model.split(':', 1)
-        # model = replicate.models.get(f"{user}/{model}")
-        # version = model.versions.get(hash)
-
-        output = await replicate.async_run(self.model, input=args)
-        
-        
-        result = list(output)
+        prediction = self._create_prediction(args, webhook=False)
+        prediction.wait()        
+        result = list(prediction.output)
         return result
     
     def cancel(self, task: Task):
