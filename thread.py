@@ -18,6 +18,7 @@ workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools
 
+print("available tools", default_tools.keys()) 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
@@ -141,6 +142,7 @@ class Thread(MongoBaseModel):
             "tool": ToolMessage
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
+        print("available tools", self.tools.keys())
 
     @classmethod
     def from_id(self, document_id: str):
