@@ -15,6 +15,7 @@ import subprocess
 import urllib.request
 from bson import ObjectId
 from urllib.error import URLError
+from datetime import datetime
 from typing import Dict
 
 import tool
@@ -56,13 +57,17 @@ class ComfyUI:
         workflow = inject_args_into_workflow(workflow, tool_, args)
         print("workflow after injection")
         print(workflow)
-        ws = self._connect_to_server(self.client_id)
+        # ws = self._connect_to_server(self.client_id)
+        ws = None
         prompt_id = self._queue_prompt(workflow, self.client_id)['prompt_id']
         print("prompt id", prompt_id) 
+        #outputs = self._get_outputs(ws, prompt_id)
         outputs = self._get_outputs(ws, prompt_id)
         print("comfyui outputs", outputs)
         output = outputs.get(str(tool_.comfyui_output_node_id))
         print("final", output)
+        if not output:
+            raise Exception(f"No output found at node {str(tool_.comfyui_output_node_id)}") 
         return output
     
     def _is_server_running(self):
@@ -95,50 +100,69 @@ class ComfyUI:
             return json.loads(response.read())
 
     def _get_outputs(self, ws, prompt_id):
-        print("comfgo start")
-        ws.settimeout(60) 
-        try:
-            while True:
-                try:
-                    out = ws.recv()
-                    # print("comfgo, recv time=", time.time())
-                    if isinstance(out, str):
-                        message = json.loads(out)
-                        if message["type"] == "executing":
-                            data = message["data"]
-                            if data.get("prompt_id") == prompt_id:
-                                if data["node"] is None:
-                                    break
-                    else:
-                        continue
-                except websocket.WebSocketTimeoutException:
-                    print("comfgo, WebSocket timeout, retrying...")
-                    continue
-        except (websocket.WebSocketConnectionClosedException, websocket.WebSocketException) as e:
-            print(f"comfgo, WebSocket error: {e}")
-            raise Exception("WebSocket connection error")
+        print("comfy start")
+        
+        # ws.settimeout(60) 
+        # try:
+        #     while True:
+        #         try:
+        #             out = ws.recv()
+        #             # print("comfgo, recv time=", time.time())
+        #             if isinstance(out, str):
+        #                 message = json.loads(out)
+        #                 if message["type"] == "executing":
+        #                     data = message["data"]
+        #                     if data.get("prompt_id") == prompt_id:
+        #                         if data["node"] is None:
+        #                             break
+        #             else:
+        #                 continue
+        #         except websocket.WebSocketTimeoutException:
+        #             print("comfgo, WebSocket timeout, retrying...")
+        #             continue
+        # except (websocket.WebSocketConnectionClosedException, websocket.WebSocketException) as e:
+        #     print(f"comfgo, WebSocket error: {e}")
+        #     raise Exception("WebSocket connection error")
 
-        outputs = {}
-        history = self._get_history(prompt_id)[prompt_id]
-        for _ in history['outputs']:
-            for node_id in history['outputs']:
-                node_output = history['outputs'][node_id]
-                if 'images' in node_output:
-                    outputs[node_id] = [
-                        os.path.join("output", image['subfolder'], image['filename'])
-                        for image in node_output['images']
-                    ]
-                elif 'gifs' in node_output:
-                    outputs[node_id] = [
-                        os.path.join("output", video['subfolder'], video['filename'])
-                        for video in node_output['gifs']
-                    ]
-        print("comfgo end")
-        print("comfgo, outputs", outputs)
-        return outputs
-    
+        while True:
+            outputs = {}
+            history = self._get_history(prompt_id)
+            if prompt_id not in history:
+                time.sleep(2)
+                continue
+            history = history[prompt_id]                        
+            status = history["status"]
+            status_str = status.get("status_str")
+            if status_str == "error":
+                messages = status.get("messages")
+                errors = [                    
+                    f"ComfyUI Error: {v.get('node_type')} {v.get('exception_type')}, {v.get('exception_message')}"
+                    for k, v in messages if k == "execution_error"
+                ]
+                error_str = ", ".join(errors)
+                print("error", error_str)
+                raise Exception(error_str)
+            
+            for _ in history['outputs']:
+                for node_id in history['outputs']:
+                    node_output = history['outputs'][node_id]
+                    if 'images' in node_output:
+                        outputs[node_id] = [
+                            os.path.join("output", image['subfolder'], image['filename'])
+                            for image in node_output['images']
+                        ]
+                    elif 'gifs' in node_output:
+                        outputs[node_id] = [
+                            os.path.join("output", video['subfolder'], video['filename'])
+                            for video in node_output['gifs']
+                        ]
+            
+            print("comfy outputs", outputs)
 
-
+            if not outputs:
+                raise Exception("No outputs found")
+            
+            return outputs            
 
 
 def install_comfyui():
@@ -217,6 +241,7 @@ def test_workflow():
     if not output:
        raise Exception("No output from test")
     print("test output", output)
+    return output
 
 
 def inject_embedding_mentions(text, embedding_name):
@@ -234,14 +259,14 @@ def transport_lora(
     loras_folder: str,
     embeddings_folder: str,
 ):
-    print("tl, download lora", lora_url)
+    print("tl download lora", lora_url)
     if not re.match(r'^https?://', lora_url):
         raise ValueError(f"Lora URL Invalid: {lora_url}")
     
     lora_filename = lora_url.split("/")[-1]    
     name = lora_filename.split(".")[0]
     destination_folder = os.path.join(downloads_folder, name)
-    print("tl, destination folder", destination_folder)
+    print("tl destination folder", destination_folder)
 
     if os.path.exists(destination_folder):
         print("Lora bundle already extracted. Skipping.")
@@ -430,8 +455,8 @@ class EdenComfyUI(ComfyUI):
             args
         )
         print(output)
-        if 'error' in output:
-            return output
+        # if 'error' in output:
+        #     return output
         urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
         return urls
 
@@ -442,17 +467,25 @@ class EdenComfyUI(ComfyUI):
     @modal.method()
     def api(self, task: Dict):
         task = Task(**task)
-        # task.status = "running"
-        task.update({"status": "running"})
-        output = self._run(task.args)
         
-        # how to handle failures???
+        start_time = datetime.utcnow()
+        queue_time = (start_time - task.createdAt).total_seconds()
+
+        task.update({
+            "status": "running",
+            "performance": {"queueTime": queue_time}
+        })
         
+        try:
+            output = self._run(task.args)
+            task_update = {"status": "completed", "result": output}
+        except Exception as e:
+            task_update = {"status": "failed", "error": str(e)}
         
-        # task.result = output
-        # task.status = "completed"
-        task.update({"status": "completed", "result": output})
-        # task.save()
+        run_time = datetime.utcnow() - start_time
+        task_update["performance.runTime"] = run_time.total_seconds()
+
+        task.update(task_update)
 
 
 if modal.is_local():
@@ -465,7 +498,8 @@ if modal.is_local():
     args = parser.parse_args()
 
     import tool
-    workflows = tool.get_tools("../workflows", exclude=["_dev"])
+    workflows = tool.get_tools("../workflows", exclude=["_dev"]) | tool.get_tools("../private_workflows")
+    # workflows = {"txt2img": workflows["txt2img"], "SD3": workflows["SD3"]}
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
@@ -480,14 +514,17 @@ if modal.is_local():
             print("Aborting deployment.")
             raise SystemExit
 
-else:
+else:    
     workflows = [
         "txt2img", "txt2img2", "SD3", "face_styler",
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", 
-        "moodmix", "inpaint", "blend", "background_removal",
-        "private_workflows/vton", "private_workflows/remix", "private_workflows/beeple_ai",
+        "moodmix", "inpaint", "background_removal",
     ]
+    private_workflows = [
+        "xhibit/vton", "xhibit/remix", "beeple_ai",
+    ]
+    workflows = workflows + private_workflows
 
 
 downloads_vol = modal.Volume.from_name(
@@ -505,7 +542,10 @@ app = modal.App(
 )
 
 for workflow_name in workflows: 
-    workflow_dir = pathlib.Path("../workflows") / workflow_name
+    workflows_root = pathlib.Path("../workflows")
+    if workflow_name in ["xhibit/vton", "xhibit/remix", "beeple_ai"]:
+        workflows_root = pathlib.Path("../private_workflows")
+    workflow_dir = workflows_root / workflow_name
     
     image = (
         modal.Image.debian_slim(python_version="3.11")
@@ -536,7 +576,8 @@ for workflow_name in workflows:
     
     globals()[workflow_name] = app.cls(
         gpu=gpu,
-        allow_concurrent_inputs=5,
+        # allow_concurrent_inputs=5,
+        concurrency_limit=3,
         image=image,
         volumes={"/data": downloads_vol},
         timeout=1800,
