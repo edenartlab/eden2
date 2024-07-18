@@ -14,7 +14,7 @@ from agent import Agent, get_default_agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
+workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "beeple_ai", "vid2vid_sd15", "img2vid_museV"])
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools
 

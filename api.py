@@ -1,11 +1,10 @@
 import os
-import argparse
+import modal
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
-import modal
 
 COMFYUI_PROD   = "comfyui"
 COMFYUI_STAGE  = "comfyui-dev"
@@ -16,20 +15,6 @@ env = os.getenv("ENV", "STAGE").lower()
 if env not in ["prod", "stage"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = APP_NAME_PROD if env == "prod" else APP_NAME_STAGE
-
-# os.environ["ENV"] = "STAGE"
-
-# if modal.is_local():
-#     parser = argparse.ArgumentParser(description="Serve or deploy Tools API to Modal")
-#     subparsers = parser.add_subparsers(dest="method", required=True)
-#     parser_serve = subparsers.add_parser("serve", help="Serve Tools API")
-#     parser_serve.add_argument("--production", action='store_true', help="Serve production (otherwise staging)")
-#     parser_deploy = subparsers.add_parser("deploy", help="Deploy Tools API to Modal")
-#     parser_deploy.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
-#     args = parser.parse_args()
-#     if args.production:
-#         app_name = APP_NAME_PROD
-#         os.environ["ENVIRONMENT"] = "PROD"
         
 import s3
 import auth

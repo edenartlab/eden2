@@ -164,7 +164,8 @@ class Tool(BaseModel):
         return args
 
     def test_args(self):
-        args = json.loads(open(f"../workflows/{self.key}/test.json", "r").read())
+        root_dir = "../workflows" if self.key not in ["xhibit/vton", "xhibit/remix", "beeple_ai"] else "../private_workflows"  # todo: make this more robust
+        args = json.loads(open(f"{root_dir}/{self.key}/test.json", "r").read())
         return self.prepare_args(args)
     
 
