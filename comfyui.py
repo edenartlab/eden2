@@ -486,7 +486,7 @@ else:
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", 
         "moodmix", "inpaint", "blend", "background_removal",
-        "xhibit/vton", "xhibit/remix", "xhibit/beeple_ai",
+        "private_workflows/vton", "private_workflows/remix", "private_workflows/beeple_ai",
     ]
 
 
