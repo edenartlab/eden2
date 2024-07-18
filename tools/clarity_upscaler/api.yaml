@@ -17,8 +17,8 @@ parameters:
   minimum: 0
   maximum: 1000000
 - name: dynamic
-  label: Seconds
-  description: Duration in seconds
+  label: Dynamic Range
+  description: Set high dynamic range (HDR)
   type: float
   default: 6
   minimum: 3
@@ -28,7 +28,7 @@ parameters:
   label: Creativity strength
   description: How creative the AI can be in upscaling new content
   type: float
-  default: 0.35
+  default: 0.2
   minimum: 0
   maximum: 1
   step: 0.01
