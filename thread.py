@@ -3,6 +3,7 @@ import asyncio
 import json
 import instructor
 import openai
+from openai import AsyncOpenAI
 from bson import ObjectId
 from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
@@ -180,102 +181,22 @@ class Thread(MongoBaseModel):
         user_message: UserMessage,
     ):
         # local for prints
-        verbose = True
+        verbose = False
         self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
         #if verbose: print(f'Line 186: System message: {system_message}')
 
+        ## calling prompt_tools to get the tools response + whatever else
         response = await prompt(
             self.get_chat_messages(system_message=system_message),
             tools=[t.tool_schema() for t in self.tools.values()]
         )
-        #### original msg
-        #### output looks like this:
-        '''
-        Line 193: AI response: ChatCompletionMessage(content=None, role='assistant', function_call=None, tool_calls=[ChatCompletionMessageToolCall(id='call_rBQ3doIsGHMT0LIU0FgO3ltw', function=Function(arguments='{"prompt":"A man standing in a field of ghost orchids at twilight, creating a dark and surreal atmosphere. The scene is bathed in soft, eerie moonlight, casting long shadows and giving the orchids an ethereal glow. The man, dressed in a simple, dark outfit, appears contemplative as he looks at the delicate flowers.","negative_prompt":"bright, sunny, cheerful","width":1024,"height":768,"seed":null,"lora":null,"lora_strength":0,"denoise":0.3}', name='txt2img2'), type='function')])
-        '''
+        message = response.choices[0].message
+        if verbose: print(f'Line 193: AI response: {message}') #this is the prompt + the function parameters and the function name
 
-        # message = response.choices[0].message
-        # if verbose: print(f'Line 193: AI response: {message}') #this is the prompt + the function parameters and the function name
-
-        ### reasoning version
-        # reasoning + action loop for determining the tool to use
-        tool_choice_prompt = """
-        Thought: I need to determine which tool to use for the user's request.
-        Action: Choose a tool from the available tools.
-        Action Input: "Which tool should I use for this request?"
-        """
-        tool_response = await prompt(
-            self.get_chat_messages(system_message=system_message + tool_choice_prompt),
-            tools=[t.tool_schema() for t in self.tools.values()]
-        )
-        print(tool_response)
-        chosen_tool = tool_response.choices[0].message.tool_calls[0].function.name
-        if verbose: print(f'Line 193: Chosen tool: {chosen_tool}')
-
-        # reasoning + action loop for generating the prompt
-        prompt_choice_prompt = f"""
-        Thought: I need to generate a prompt given the user request ({response}) for the chosen tool ({chosen_tool}).
-        Action: Generate a prompt based on the user's request.
-        Action Input: "What should the prompt be?"
-        """
-        print(f"Prompt going into reasoning loop: {prompt_choice_prompt}")
-        prompt_response = await prompt(
-            self.get_chat_messages(system_message=prompt_choice_prompt),
-            tools=[t.tool_schema() for t in self.tools.values()]
-        )
-        generated_prompt = prompt_response.choices[0].message.content
-        if verbose: print(f'Line 197: Generated prompt: {generated_prompt}')
-
-        # reasoning + action loop for generating the negative prompt
-        negative_prompt_choice_prompt = f"""
-        Thought: I need to generate a negative prompt given the user request ({response}) for the chosen tool ({chosen_tool}).
-        Action: Generate a negative prompt based on the user's request.
-        Action Input: "What should the negative prompt be?"
-        """
-        negative_prompt_response = await prompt(
-            self.get_chat_messages(system_message=negative_prompt_choice_prompt),
-            tools=[t.tool_schema() for t in self.tools.values()]
-        )
-        generated_negative_prompt = negative_prompt_response.choices[0].message.content
-        if verbose: print(f'Line 201: Generated negative prompt: {generated_negative_prompt}')
-
-        # reasoning + action loop for generating the parameters
-        parameters_choice_prompt = f"""
-        Thought: I need to generate parameters given the user request ({response}) for the chosen tool ({chosen_tool}).
-        Action: Generate parameters based on the user's request and the given tool.
-        Action Input: "What should the parameters be?"
-        """
-        parameters_response = await prompt(
-            self.get_chat_messages(parameters_choice_prompt),
-            tools=[t.tool_schema() for t in self.tools.values()]
-        )
-        generated_parameters = json.loads(parameters_response.choices[0].message.content)
-        if verbose: print(f'Line 205: Generated parameters: {generated_parameters}')
-
-        # combine the generated information into the final format
-        final_message = {
-            "role": "assistant",
-            "tool_calls": [
-                {
-                    "id": "call_rBQ3doIsGHMT0LIU0FgO3ltw",
-                    "function": {
-                        "name": chosen_tool,
-                        "arguments": json.dumps({
-                            "prompt": generated_prompt,
-                            "negative_prompt": generated_negative_prompt,
-                            **generated_parameters
-                        })
-                    },
-                    "type": "function"
-                }
-            ]
-        }
-        if verbose: print(f'Line 213: Final message: {final_message}')
-        message = final_message #temporary
-
-
+        
         ## adding a trycatch breakout for fixing
+        ## gather all the data to actually call the tool the LLM decides to use
         try: tool_calls = message.tool_calls
         except: 
             print(f'reasoning loop format was not correct. output: \n {message}')
@@ -353,15 +274,118 @@ class Thread(MongoBaseModel):
         yield tool_message
 
 ## update logic here
+## reasonably, this should be renamed to tools_prompt for clarity?
 async def prompt(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
     model: str = "gpt-4-turbo"
-) -> ChatMessage: 
+) -> ChatMessage:
+
+    ## basically open this up to reason about tool selection
+    ## then have it reason about picking the parameters
+    ## process: 
+    ## while loop to come up with required fields (prompt, negative prompt, parameters)
+    ## instructor to pull it into the right format
+    ## pass into existing tools call to go onwards...?
+
+
+    ### REASONING LOOP
+    ## break down the tools into a list of tools, and the parameters for each tool
+    def get_tool_list(tools):
+        tool_list = []
+        for item in tools:
+            function_data = item.get("function", {})
+            name = function_data.get("name", "")
+            description = function_data.get("description", "")
+            tool_list.append(f"{name}: {description}")
+        return "\n".join(tool_list)
+    
+    def get_tool_parameters(tool_name, tools):
+        for item in tools:
+            function_data = item.get("function", {})
+            if function_data.get("name") == tool_name:
+                return function_data.get("parameters", {})
+        print(f'tool name:{tool_name}')
+        print(f"if you're seeing this, it means that we didn't find the the parameters for {tool_name} lol")
+        return None
+    
+    def extract_result(text):
+        result_pattern = r"Result: (.+?)\n"
+        result = re.findall(result_pattern, text)
+        return result
+    
+    step_data = get_tool_list(tools)
+    steps_completed = []
+    chosen_tool_data = {}
+
+    sys_reasoning_prompt =  f'''
+                You are an expert reasoning engine that determines a tool to use, the parameters for that tool, and the prompt for the tool.
+                You will be given a user message and additional context. You will need to determine which tool to use, the prompt and negative prompt for the tool, and the parameters for that tool.
+                You will strictly utilize the following format in each response:
+                Thought: ...
+                Result: ...
+                
+                Here are the steps you need to follow:
+                1. Think about the tool you need to fulfil the user's request. Desired result format: tool name
+                2. Think about the parameters for the tool, and fill them all out. Desired result format: filled out parameters dictionary.
+                
+                If a step has been completed, you will see it at the bottom of the prompt as follows:
+                Step n [Completed]: ...
+                You should continue from the first step that is not completed. Use the context that is provided you, as well as the results of the previous steps, to inform your decision.
+                
+                Here is the context:
+                {step_data}
+                {steps_completed}
+                '''
+
+    client = AsyncOpenAI()
+
+    #print(f'what is messages:\n{messages[-1]['content']}\n')
+    while True:
+
+        response = await client.chat.completions.create(
+            model="gpt-4",
+            messages = [
+                { "role": "system", "content": sys_reasoning_prompt },
+                { "role": "user", "content": messages[-1]['content']},
+            ])
+        response_text = response.choices[0].message.content
+        #print(f"response_text: {response_text}")
+        result = extract_result(response_text)
+        steps_completed.append(f"Step {str(len(steps_completed) + 1)} [Completed]: {result}")
+        if len(steps_completed) == 1:
+            chosen_tool_data['tool_name'] = result #store the tool name that we're going to call
+            step_data = get_tool_parameters(result, tools)
+            if step_data == None:
+                print(f"tool choice result wasn't in right format: {result}, so couldn't get parameters for the tool")
+                break
+        if len(steps_completed) == 2:
+            chosen_tool_data['tool_parameters'] = result
+            break
+
+
+    #######################################
+    ### FORMAT NATURAL LANGUAGE OUTPUT INTO THE RIGHT FORMAT
+    print(f"coming into formatting, chosen tool data should be a dict of the tool_name and the tool_parameters:\n{chosen_tool_data}")
+    # client = instructor.from_openai(
+    #     openai.AsyncOpenAI(),
+    #     mode=instructor.Mode.JSON)
+    
+
+
+
+    #######################################
+    ### TOOLS CALL
     client = instructor.from_openai(
         openai.AsyncOpenAI(), 
         mode=instructor.Mode.TOOLS
     )
+    # print('----------------')
+    # print('tools_prompt input data:')
+    # print(f'tools: {json.dumps(tools, indent=4)}\n') 
+    # print(f'messages: {json.dumps(messages, indent=4)} \n')
+    # print('----------------')
+
     response = await client.chat.completions.create(
         model=model,
         response_model=None,
@@ -370,6 +394,10 @@ async def prompt(
         max_retries=2,
     )
     # todo: deal with tool hallucination
+    from pprint import pformat
+    print('response from tool call:')
+    print(pformat(response, indent=4))
+    print('----------------')
     return response
 
 
@@ -388,20 +416,20 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
 
 
 async def interactive_chat():
-    print('starting')
+    #print('starting')
     user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
-    print('getting eve')
+    #print('getting eve')
     agent = get_default_agent() # eve
-    print("got eve")
+    #print("got eve")
     tools = get_tools("../workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
-    print("got tools")
-    print('b4 thread')
+    #print("got tools")
+    #print('b4 thread')
     thread = Thread(
         name="my_test_thread", 
         user=user,
         tools=tools
     )
-    print('after thread')
+    #print('after thread')
     
     while True:
         try:
