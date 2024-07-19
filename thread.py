@@ -26,7 +26,9 @@ class ChatMessage(BaseModel):
         data = self.model_dump()
         data["createdAt"] = self.createdAt
         return data
-
+    
+## class thinkmessage
+## save it to db, don't send it to openai, show users but not run as part of anything else
 
 class SystemMessage(ChatMessage):
     role: Literal["system"] = "system"
@@ -105,6 +107,12 @@ class AssistantMessage(ChatMessage):
             tool_call_str = ""
         return f"\033[93m\033[1mAI\t\033[22m{content_str}{tool_call_str}\033[0m"
 
+class GhostMessage(ChatMessage):
+    role: Literal["ghost"] = "ghost"
+    content: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = Field({}, description="Preset settings, metadata, or context information")
+
+
 
 class ToolMessage(ChatMessage):
     role: Literal["tool"] = "tool"
@@ -171,21 +179,116 @@ class Thread(MongoBaseModel):
         agent: Agent,
         user_message: UserMessage,
     ):
+        # local for prints
+        verbose = True
         self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
+        #if verbose: print(f'Line 186: System message: {system_message}')
+
         response = await prompt(
             self.get_chat_messages(system_message=system_message),
             tools=[t.tool_schema() for t in self.tools.values()]
         )
-        message = response.choices[0].message
-        tool_calls = message.tool_calls
+        #### original msg
+        #### output looks like this:
+        '''
+        Line 193: AI response: ChatCompletionMessage(content=None, role='assistant', function_call=None, tool_calls=[ChatCompletionMessageToolCall(id='call_rBQ3doIsGHMT0LIU0FgO3ltw', function=Function(arguments='{"prompt":"A man standing in a field of ghost orchids at twilight, creating a dark and surreal atmosphere. The scene is bathed in soft, eerie moonlight, casting long shadows and giving the orchids an ethereal glow. The man, dressed in a simple, dark outfit, appears contemplative as he looks at the delicate flowers.","negative_prompt":"bright, sunny, cheerful","width":1024,"height":768,"seed":null,"lora":null,"lora_strength":0,"denoise":0.3}', name='txt2img2'), type='function')])
+        '''
+
+        # message = response.choices[0].message
+        # if verbose: print(f'Line 193: AI response: {message}') #this is the prompt + the function parameters and the function name
+
+        ### reasoning version
+        # reasoning + action loop for determining the tool to use
+        tool_choice_prompt = """
+        Thought: I need to determine which tool to use for the user's request.
+        Action: Choose a tool from the available tools.
+        Action Input: "Which tool should I use for this request?"
+        """
+        tool_response = await prompt(
+            self.get_chat_messages(system_message=system_message + tool_choice_prompt),
+            tools=[t.tool_schema() for t in self.tools.values()]
+        )
+        print(tool_response)
+        chosen_tool = tool_response.choices[0].message.tool_calls[0].function.name
+        if verbose: print(f'Line 193: Chosen tool: {chosen_tool}')
+
+        # reasoning + action loop for generating the prompt
+        prompt_choice_prompt = f"""
+        Thought: I need to generate a prompt given the user request ({response}) for the chosen tool ({chosen_tool}).
+        Action: Generate a prompt based on the user's request.
+        Action Input: "What should the prompt be?"
+        """
+        print(f"Prompt going into reasoning loop: {prompt_choice_prompt}")
+        prompt_response = await prompt(
+            self.get_chat_messages(system_message=prompt_choice_prompt),
+            tools=[t.tool_schema() for t in self.tools.values()]
+        )
+        generated_prompt = prompt_response.choices[0].message.content
+        if verbose: print(f'Line 197: Generated prompt: {generated_prompt}')
+
+        # reasoning + action loop for generating the negative prompt
+        negative_prompt_choice_prompt = f"""
+        Thought: I need to generate a negative prompt given the user request ({response}) for the chosen tool ({chosen_tool}).
+        Action: Generate a negative prompt based on the user's request.
+        Action Input: "What should the negative prompt be?"
+        """
+        negative_prompt_response = await prompt(
+            self.get_chat_messages(system_message=negative_prompt_choice_prompt),
+            tools=[t.tool_schema() for t in self.tools.values()]
+        )
+        generated_negative_prompt = negative_prompt_response.choices[0].message.content
+        if verbose: print(f'Line 201: Generated negative prompt: {generated_negative_prompt}')
+
+        # reasoning + action loop for generating the parameters
+        parameters_choice_prompt = f"""
+        Thought: I need to generate parameters given the user request ({response}) for the chosen tool ({chosen_tool}).
+        Action: Generate parameters based on the user's request and the given tool.
+        Action Input: "What should the parameters be?"
+        """
+        parameters_response = await prompt(
+            self.get_chat_messages(parameters_choice_prompt),
+            tools=[t.tool_schema() for t in self.tools.values()]
+        )
+        generated_parameters = json.loads(parameters_response.choices[0].message.content)
+        if verbose: print(f'Line 205: Generated parameters: {generated_parameters}')
+
+        # combine the generated information into the final format
+        final_message = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_rBQ3doIsGHMT0LIU0FgO3ltw",
+                    "function": {
+                        "name": chosen_tool,
+                        "arguments": json.dumps({
+                            "prompt": generated_prompt,
+                            "negative_prompt": generated_negative_prompt,
+                            **generated_parameters
+                        })
+                    },
+                    "type": "function"
+                }
+            ]
+        }
+        if verbose: print(f'Line 213: Final message: {final_message}')
+        message = final_message #temporary
+
+
+        ## adding a trycatch breakout for fixing
+        try: tool_calls = message.tool_calls
+        except: 
+            print(f'reasoning loop format was not correct. output: \n {message}')
+            exit()
+
         if not tool_calls:
             assistant_message = AssistantMessage(**message.model_dump())
             self.add_message(assistant_message)
+            if verbose: print(f'Line 199: No tool calls, assistant message: {assistant_message}')
             yield assistant_message
             return  # no tool calls, we're done
 
-        print("tool calls", tool_calls[0])
+        if verbose: print(f'Line 203: Tool calls: {tool_calls[0]}')
         args = json.loads(tool_calls[0].function.arguments)
         tool_name = tool_calls[0].function.name
         tool = self.tools.get(tool_name)
@@ -197,9 +300,9 @@ class Thread(MongoBaseModel):
             extra_args = user_message.metadata.get('settings', {})
             args = {k: v for k, v in args.items() if v is not None}
             args.update(extra_args)
-            print("args", args)
+            if verbose: print(f'Line 215: Args: {args}')
             updated_args = tool.get_base_model(**args).model_dump()
-            print("updated ars", updated_args)
+            if verbose: print(f'Line 217: Updated args: {updated_args}')
 
         except ValidationError as err:
             assistant_message = AssistantMessage(**message.model_dump())
@@ -207,7 +310,7 @@ class Thread(MongoBaseModel):
 
             error_details = "\n".join([f" - {e['loc'][0]}: {e['msg']}" for e in err.errors()])
             error_message = f"{tool_name}: {args} failed with errors:\n{error_details}"
-            print("error message", error_message)
+            if verbose: print(f'Line 225: Error message: {error_message}')
             tool_message = ToolMessage(
                 name=tool_calls[0].function.name,
                 tool_call_id=tool_calls[0].id,
@@ -224,7 +327,7 @@ class Thread(MongoBaseModel):
         
         # todo: actually handle multiple tool calls
         if len(message.tool_calls) > 1:
-            print("Multiple tool calls found, only using the first one", message.tool_calls)
+            if verbose: print(f'Line 242: Multiple tool calls found, only using the first one: {message.tool_calls}')
             message.tool_calls = [message.tool_calls[0]]
         
         message.tool_calls[0].function.arguments = json.dumps(updated_args)
@@ -234,6 +337,7 @@ class Thread(MongoBaseModel):
         result = await tool.async_run(
             args=updated_args
         )
+        if verbose: print(f'Line 252: Tool result: {result}')
 
         if isinstance(result, list):
             result = ", ".join(result)
@@ -245,9 +349,10 @@ class Thread(MongoBaseModel):
         )
 
         self.add_message(assistant_message, tool_message)
+        if verbose: print(f'Line 264: Final tool message: {tool_message}')
         yield tool_message
 
-
+## update logic here
 async def prompt(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
@@ -283,15 +388,20 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
 
 
 async def interactive_chat():
+    print('starting')
     user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
+    print('getting eve')
     agent = get_default_agent() # eve
+    print("got eve")
     tools = get_tools("../workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
-
+    print("got tools")
+    print('b4 thread')
     thread = Thread(
         name="my_test_thread", 
         user=user,
         tools=tools
     )
+    print('after thread')
     
     while True:
         try:

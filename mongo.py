@@ -11,8 +11,10 @@ from pymongo import MongoClient
 load_dotenv()
 env = os.getenv("ENV", "STAGE").lower()
 mongo_url = os.getenv("MONGO_URI")
+print('cehcking .env load: ', os.getenv("MONGO_URI"))
 
 client = MongoClient(mongo_url)
+print('mongo url: ', mongo_url)
 db_name = "eden-prod" if env == "prod" else "eden-stg"
 db = client[db_name]
 
