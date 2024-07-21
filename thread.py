@@ -14,9 +14,11 @@ from agent import Agent, get_default_agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "beeple_ai", "vid2vid_sd15", "img2vid_museV"])
+# workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "beeple_ai", "vid2vid_sd15", "img2vid_museV"])
+workflows = get_tools("../workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
+private_workflows = get_tools("../workflows", exclude=["beeple_ai", "xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
-default_tools = workflows | extra_tools
+default_tools = workflows | extra_tools | private_workflows
 
 
 class ChatMessage(BaseModel):
@@ -109,8 +111,8 @@ class AssistantMessage(ChatMessage):
 
 class ToolMessage(ChatMessage):
     role: Literal["tool"] = "tool"
-    name: Optional[str] = Field(..., description="The name of the tool")
-    content: Optional[str] = Field(None, description="A chat message to send back to the user. If you are using a tool, say which one. If you are not using a tool, just chat back to the user, don't parrot back their message.")
+    name: str = Field(..., description="The name of the tool")
+    content: str = Field(None, description="A chat message to send back to the user. If you are using a tool, say which one. If you are not using a tool, just chat back to the user, don't parrot back their message.")
     tool_call_id: Optional[str] = Field(None, description="The id of the tool call")
 
     def chat_message(self):
@@ -141,6 +143,9 @@ class Thread(MongoBaseModel):
             "tool": ToolMessage
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
+        
+        # todo: should tools always be defaults or saved to thread
+        self.tools = default_tools
 
     @classmethod
     def from_id(self, document_id: str):
@@ -174,26 +179,52 @@ class Thread(MongoBaseModel):
     ):
         self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
-        response = await prompt(
-            self.get_chat_messages(system_message=system_message),
-            tools=[t.tool_schema() for t in self.tools.values()]
-        )
-        message = response.choices[0].message
-        tool_calls = message.tool_calls
-        if not tool_calls:
-            assistant_message = AssistantMessage(**message.model_dump())
-            self.add_message(assistant_message)
-            yield assistant_message
-            return  # no tool calls, we're done
+        
+        """
+        This block tries three times to generate a valid response.
+        An invalid response is one that calls a hallucinated tool.
+        A valid response calls a valid tool or no tool.        
+        """
+        valid_response = False
+        num_attempts = 0
+        while not valid_response and num_attempts < 3:
+            response = await prompt(
+                self.get_chat_messages(system_message=system_message),
+                tools=[t.tool_schema() for t in self.tools.values()]
+            )
+            message = response.choices[0].message
+            tool_calls = message.tool_calls
+            if not tool_calls:
+                """
+                No tool calls, so just return the assistant message and terminate.
+                """
+                assistant_message = AssistantMessage(**message.model_dump())
+                self.add_message(assistant_message)
+                yield assistant_message
+                return
 
-        print("tool calls", tool_calls[0])
-        args = json.loads(tool_calls[0].function.arguments)
-        tool_name = tool_calls[0].function.name
-        tool = self.tools.get(tool_name)
+            print("tool calls", tool_calls[0])
+            args = json.loads(tool_calls[0].function.arguments)
+            tool_name = tool_calls[0].function.name
+            tool = self.tools.get(tool_name)
 
-        if tool is None:
-            raise Exception(f"Tool {tool_name} not found")
+            if tool:
+                valid_response = True
+            else:
+                num_attempts += 1
+                if num_attempts == 3:
+                    assistant_message = AssistantMessage(
+                        content="Sorry, failed to find a suitable tool. Please try to modify your request or try again later."
+                    )
+                    self.add_message(assistant_message)
+                    yield assistant_message
+                    return
 
+        """
+        The rest of the function is for handling an assistant message that calls a tool.
+        This try-except block first checks if the tool parameters are valid.
+        If they are not, it generates a helpful response explaining the problem.
+        """
         try:
             extra_args = user_message.metadata.get('settings', {})
             args = {k: v for k, v in args.items() if v is not None}
@@ -203,6 +234,10 @@ class Thread(MongoBaseModel):
             print("updated ars", updated_args)
 
         except ValidationError as err:
+            """
+            This exception only happens when the tool call parameters are invalid.
+            We generate a helpful error message for the user indicating the invalid parameters.
+            """
             assistant_message = AssistantMessage(**message.model_dump())
             yield assistant_message
 
@@ -223,7 +258,11 @@ class Thread(MongoBaseModel):
             yield tool_message
             return
         
-        # todo: actually handle multiple tool calls
+        """
+        The tool call is valid, so we can proceed with the tool call.
+        Occasionally, multiple tool calls are made. Right now we only handle one.
+        Todo: actually handle multiple tool calls
+        """
         if len(message.tool_calls) > 1:
             print("Multiple tool calls found, only using the first one", message.tool_calls)
             message.tool_calls = [message.tool_calls[0]]
@@ -232,13 +271,23 @@ class Thread(MongoBaseModel):
         assistant_message = AssistantMessage(**message.model_dump())
         yield assistant_message
         
+        # run the tool
         result = await tool.async_run(
             args=updated_args
         )
 
+        # if the tool fails to run, return an error message and do not save the assistant or tool messages
+        if not result:
+            assistant_message = AssistantMessage(
+                content="Sorry, the tool failed to run. Please try again or modify your prompt."
+            )
+            yield assistant_message
+            return
+
         if isinstance(result, list):
             result = ", ".join(result)
 
+        # tool message contains the result of the tool call
         tool_message = ToolMessage(
             name=tool_calls[0].function.name,
             tool_call_id=tool_calls[0].id,
