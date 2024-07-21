@@ -6,6 +6,7 @@ import mimetypes
 import magic
 import requests
 import tempfile
+from pydub import AudioSegment
 from typing import Iterator
 from PIL import Image
 
@@ -26,7 +27,7 @@ s3 = boto3.client(
 )
 
 
-def upload_file_from_url(url, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
+def upload_file_from_url(url, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     with requests.get(url, stream=True) as r:
@@ -36,22 +37,22 @@ def upload_file_from_url(url, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
                 tmp_file.write(chunk)
             tmp_file.flush()
             tmp_file.seek(0)
-            return upload_file(tmp_file.name, png_to_jpg=png_to_jpg, bucket_name=bucket_name)
+            return upload_file(tmp_file.name, png_to_jpg=png_to_jpg, webp=webp, bucket_name=bucket_name)
 
 
-def upload_file(file_path, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
+def upload_file(file_path, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
     """Uploads a file to an S3 bucket and returns the file URL."""
     
     with open(file_path, 'rb') as file:
         buffer = file.read()
 
-    file_url = upload_buffer(buffer, png_to_jpg, bucket_name)
+    file_url = upload_buffer(buffer, png_to_jpg, webp, bucket_name)
     print(f"==> Uploaded: {file_url}")
     
     return file_url
 
 
-def upload_buffer(buffer, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
+def upload_buffer(buffer, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
     if isinstance(buffer, Iterator):
@@ -67,7 +68,14 @@ def upload_buffer(buffer, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
     file_ext = mimetypes.guess_extension(mime_type)
 
     # Convert PNG to JPG if requested
-    if png_to_jpg and file_ext == '.png':
+    if webp and file_ext != '.webp':
+        image = Image.open(io.BytesIO(buffer))
+        output = io.BytesIO()
+        image.save(output, 'WEBP', quality=95)
+        buffer = output.getvalue()
+        file_ext = '.webp'
+        mime_type = 'image/webp'
+    elif png_to_jpg and file_ext == '.png':
         image = Image.open(io.BytesIO(buffer))
         output = io.BytesIO()
         image.convert('RGB').save(output, 'JPEG', quality=95)
@@ -92,3 +100,9 @@ def upload_buffer(buffer, png_to_jpg=False, bucket_name=AWS_BUCKET_NAME):
     
     return file_url
 
+
+def upload_audio_segment(audio: AudioSegment, bucket_name=AWS_BUCKET_NAME):
+    buffer = io.BytesIO()
+    audio.export(buffer, format="mp3")
+    output = upload_buffer(buffer, bucket_name=bucket_name)
+    return output
