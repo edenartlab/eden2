@@ -285,7 +285,7 @@ class Thread(MongoBaseModel):
             return
 
         if isinstance(result, list):
-            result = ", ".join(result)
+            result = ", ".join([r['url'] for r in result])
 
         # tool message contains the result of the tool call
         tool_message = ToolMessage(

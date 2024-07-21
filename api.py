@@ -131,16 +131,25 @@ def replicate_process_eden(output, task, trainer=False):
             )
             model.save()
         
+            task.result = [{
+                "url": file_url,
+                "thumbnail": thumbnail_url,
+                "metadata": metadata,
+                "mediaAttributes": media_attributes,
+                "model": model.id
+            }]
+            
         else:
             media_attributes, thumbnail = utils.get_media_attributes(file_url)
             thumbnail_url = s3.upload_buffer(utils.PIL_to_bytes(thumbnail), webp=True) if thumbnail else None
 
-        task.result = [{
-            "url": file_url,
-            "thumbnail": thumbnail_url,
-            "metadata": metadata,
-            "mediaAttributes": media_attributes
-        }]
+            task.result = [{
+                "url": file_url,
+                "thumbnail": thumbnail_url,
+                "metadata": metadata,
+                "mediaAttributes": media_attributes
+            }]
+
         task.status = "completed"
     except Exception as e:
         task.status = "failed"
