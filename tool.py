@@ -77,8 +77,8 @@ class Tool(BaseModel):
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
     output_type: ParameterType = Field(None, description="Output type from the tool")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
+    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API", exclude=True)
     parameters: List[ToolParameter]
-    mock: SkipJsonSchema[bool] = Field(False, description="Use mock outputs for the tool", exclude=True)
 
     def __init__(self, data, key):
         super().__init__(**data, key=key)
@@ -167,14 +167,6 @@ class Tool(BaseModel):
         root_dir = "../workflows" if self.key not in ["xhibit/vton", "xhibit/remix", "beeple_ai"] else "../private_workflows"  # todo: make this more robust
         args = json.loads(open(f"{root_dir}/{self.key}/test.json", "r").read())
         return self.prepare_args(args)
-    
-
-    def submit(self, task: Task):
-        task.args = self.prepare_args(task.args)
-        from tools import reel
-        result = reel(task)
-        print(result)
-        raise Exception("Not implemented")
 
 
 def create_tool_base_model(tool: Tool):
@@ -315,19 +307,19 @@ class ModalTool(Tool):
 
     def submit(self, task: Task):
         task.args = self.prepare_args(task.args)
-        func = modal.Function.lookup("handlers", "submit")
-        job = func.spawn(self.key, task.to_mongo())
+        function = modal.Function.lookup("handlers", "submit")
+        job = function.spawn(self.key, task.to_mongo())
         return job.object_id
 
     def run(self, args: Dict):
         return asyncio.run(self.async_run(args))
 
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, mock=False):
         args = self.prepare_args(args)
-        if self.mock:
+        if mock:
             return mock_image(args)
-        func = modal.Function.lookup("handlers", "run")
-        result = await func.remote.aio(self.key, args)
+        function = modal.Function.lookup("handlers", "run")
+        result = await function.remote.aio(self.key, args)
         return result
     
     def cancel(self, task: Task):
@@ -359,12 +351,12 @@ class ComfyUITool(Tool):
     def run(self, args: Dict, app_name=DEFAULT_APP_NAME):
         return asyncio.run(self.async_run(args, app_name))
 
-    async def async_run(self, args: Dict, app_name=DEFAULT_APP_NAME):
+    async def async_run(self, args: Dict, mock=False, app_name=DEFAULT_APP_NAME):
         args = self.prepare_args(args)
-        if self.mock:
+        if mock:
             return mock_image(args)
         cls = modal.Cls.lookup(app_name, self.key)
-        result = await cls().execute.remote.aio(args)
+        result = await cls().run.remote.aio(args)
         return result
     
     def cancel(self, task: Task):
@@ -376,7 +368,7 @@ class ComfyUITool(Tool):
 
 class ReplicateTool(Tool):
     model: str
-    output_handler: str = "create"
+    output_handler: str = "normal"
 
     def _format_args_for_replicate(self, args):
         new_args = args.copy()
@@ -385,18 +377,17 @@ class ReplicateTool(Tool):
                 new_args[param.name] = "|".join([str(p) for p in args[param.name]])
         return new_args
 
-    def _get_webhook_url(self, endpoint: str = ""):
+    def _get_webhook_url(self):
         env = "tools" if os.getenv("ENV").lower() == "prod" else "tools-dev"
-        dev = "-dev" if os.getenv("MODAL_SERVE") else ""
-        webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/{endpoint}"
+        dev = "-dev" if os.getenv("MODAL_SERVE") == "1" else ""
+        webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
         return webhook_url
     
     def _create_prediction(self, args: dict, webhook=True):
         import replicate
         user, model = self.model.split('/', 1)
         model, version = model.split(':', 1)
-        endpoint = f"update/{self.output_handler}" 
-        webhook_url = self._get_webhook_url(endpoint) if webhook else None
+        webhook_url = self._get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
         
         if version == "deployment":
@@ -426,10 +417,10 @@ class ReplicateTool(Tool):
     def run(self, args: Dict):
         return asyncio.run(self.async_run(args))
 
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, mock=False):
         args = self.prepare_args(args)
         args = self._format_args_for_replicate(args)
-        if self.mock:
+        if mock:
             return mock_image(args)
         prediction = self._create_prediction(args, webhook=False)
         prediction.wait()        

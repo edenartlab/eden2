@@ -1,11 +1,12 @@
 import asyncio
-
 import modal
-from tools import reel
+from datetime import datetime
+from tools import reel, story
 from models import Task
 
 handlers = {
-    "reel": reel
+    "reel": reel,
+    "story": story
 }
 
 app = modal.App(
@@ -22,35 +23,59 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
-    # .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
-    .pip_install("pyyaml", "elevenlabs", "openai", "instructor", "Pillow", "pydub", 
+    .pip_install("pyyaml", "elevenlabs", "openai", 
+                 "instructor", "Pillow", "pydub", 
                  "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
     .pip_install("bson").pip_install("pymongo")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
 )
 
-async def _execute(tool_name: str, args: dict):
+
+async def _execute(tool_name: str, args: dict, user: str = None):
     handler = handlers[tool_name]
-    output = await handler(args)
-    return output
+    result = await handler(args, user)
+    return result
+        
 
 @app.function(image=image, timeout=1800)
-async def run(tool_name: str, args: dict):
-    result = await _execute(tool_name, args)
+async def run(tool_name: str, args: dict, user: str = None):
+    result = await _execute(tool_name, args, user)
     return result
+
 
 @app.function(image=image, timeout=1800)
 async def submit(tool_name: str, task: Task):
     task = Task(**task)
-    print(task)
-    task.update({"status": "running"})
+    
+    start_time = datetime.utcnow()
+    queue_time = (start_time - task.createdAt).total_seconds()
+    
+    task.update({
+        "status": "running",
+        "performance": {"queueTime": queue_time}
+    })
+
     try:
-        output = await _execute(tool_name, task.args)
-        task.update({"status": "completed", "result": output})
+        output, metadata = await _execute(
+            tool_name, task.args, task.user
+        )
+        task_update = {
+            "status": "completed", 
+            "result": [{
+                "url": output,
+                "metadata": metadata
+            }]
+        }
+
     except Exception as e:
         print("Task failed", e)
-        task.update({"status": "failed", "error": str(e)})
+        task_update = {"status": "failed", "error": str(e)}
+
+    run_time = datetime.utcnow() - start_time
+    task_update["performance.runTime"] = run_time.total_seconds()
+
+    task.update(task_update)
 
     
 @app.local_entrypoint()
@@ -68,12 +93,15 @@ def main():
 
 if __name__ == "__main__":
     async def run_example_local():
-        handler = handlers["reel"]
-        output = await handler({
-            "prompt": "A simulation of Mars colliding with Earth",
-            "narrator": True,
-            "music": True,
-            "min_duration": 10
-        })
+        output = await _execute(
+            tool_name="story",
+            args={
+                "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
+                "narrator": True,
+                "music": True,
+                "min_duration": 10
+            },
+            user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
+        )
         print(output)
     asyncio.run(run_example_local())

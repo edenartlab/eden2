@@ -13,6 +13,7 @@ import argparse
 import websocket
 import subprocess
 import urllib.request
+from PIL import Image
 from bson import ObjectId
 from urllib.error import URLError
 from datetime import datetime
@@ -99,31 +100,7 @@ class ComfyUI:
         with urllib.request.urlopen("http://{}/history/{}".format(self.server_address, prompt_id)) as response:
             return json.loads(response.read())
 
-    def _get_outputs(self, ws, prompt_id):
-        print("comfy start")
-        
-        # ws.settimeout(60) 
-        # try:
-        #     while True:
-        #         try:
-        #             out = ws.recv()
-        #             # print("comfgo, recv time=", time.time())
-        #             if isinstance(out, str):
-        #                 message = json.loads(out)
-        #                 if message["type"] == "executing":
-        #                     data = message["data"]
-        #                     if data.get("prompt_id") == prompt_id:
-        #                         if data["node"] is None:
-        #                             break
-        #             else:
-        #                 continue
-        #         except websocket.WebSocketTimeoutException:
-        #             print("comfgo, WebSocket timeout, retrying...")
-        #             continue
-        # except (websocket.WebSocketConnectionClosedException, websocket.WebSocketException) as e:
-        #     print(f"comfgo, WebSocket error: {e}")
-        #     raise Exception("WebSocket connection error")
-
+    def _get_outputs(self, ws, prompt_id):        
         while True:
             outputs = {}
             history = self._get_history(prompt_id)
@@ -359,9 +336,6 @@ def inject_args_into_workflow(workflow, tool_, args):
             ] if urls else None
         
         elif param.type == tool.ParameterType.LORA:
-            
-
-            print("PARAM NAME", param.name)
             lora_id = args.get(param.name)
             print("LORA ID", lora_id)
             if not lora_id:
@@ -378,7 +352,7 @@ def inject_args_into_workflow(workflow, tool_, args):
                 raise Exception(f"Lora {lora_id} has no checkpoint")
             
             # lora_url = args.get(param.name)
-            print("LORA UR!!!", lora_url)
+            print("LORA URL 2", lora_url)
             # if lora_url:
             lora_filename, embedding_trigger = transport_lora(
                 lora_url, 
@@ -442,27 +416,34 @@ class EdenComfyUI(ComfyUI):
     @modal.enter()
     def start(self):
         super().start()
-
-    # @modal.web_server(8188, startup_timeout=300)
-    # def ui(self):
-    #     self._spawn_server()
     
-    def _run(self, args: Dict):
+    def _execute(self, args: Dict):
         output = super().api(
             workflow_name, 
             "/root/workflow_api.json", 
             "/root", 
             args
         )
-        print(output)
-        # if 'error' in output:
-        #     return output
-        urls = [s3.upload_file(o, png_to_jpg=True) for o in output]
-        return urls
+
+        results = []
+        for o in output:
+            media_attributes, thumbnail = utils.get_media_attributes(o)
+            url = s3.upload_file(o)
+            thumbnail = utils.PIL_to_bytes(thumbnail)
+            thumbnail_url = s3.upload_buffer(thumbnail, webp=True)
+            results.append({
+                "url": url,
+                "thumbnail": thumbnail_url,
+                "metadata": None,
+                "mediaAttributes": media_attributes
+            })
+        
+        print("THE RESULTS ARE", results)
+        return results
 
     @modal.method()
-    def execute(self, args: Dict):
-        return self._run(args)
+    def run(self, args: Dict):
+        return self._execute(args)
 
     @modal.method()
     def api(self, task: Dict):
@@ -477,9 +458,17 @@ class EdenComfyUI(ComfyUI):
         })
         
         try:
-            output = self._run(task.args)
-            task_update = {"status": "completed", "result": output}
+            output = self._execute(task.args)
+            task_update = {
+                "status": "completed", 
+                "result": [{
+                    "url": url,
+                    "metadata": None
+                } for url in output]
+            }
+        
         except Exception as e:
+            print("Task failed", e)
             task_update = {"status": "failed", "error": str(e)}
         
         run_time = datetime.utcnow() - start_time
@@ -499,7 +488,6 @@ if modal.is_local():
 
     import tool
     workflows = tool.get_tools("../workflows", exclude=["_dev"]) | tool.get_tools("../private_workflows")
-    # workflows = {"txt2img": workflows["txt2img"], "SD3": workflows["SD3"]}
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
@@ -516,7 +504,7 @@ if modal.is_local():
 
 else:    
     workflows = [
-        "txt2img", "txt2img2", "SD3", "face_styler", "controlnet", "remix", "animate_3D",
+        "txt2img", "txt2img2", "SD3", "face_styler", "controlnet", "remix", "animate_3D", 
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", 
         "moodmix", "inpaint", "background_removal",
@@ -549,11 +537,11 @@ for workflow_name in workflows:
     
     image = (
         modal.Image.debian_slim(python_version="3.11")
-        .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1")
+        .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
         .pip_install("httpx", "tqdm", "websocket-client", "gitpython", "boto3",
                      "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
                      "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-                     "torchaudio", "bson")#, "bson", "pymongo")
+                     "torchaudio", "pydub", "moviepy", "accelerate")
         .pip_install("bson").pip_install("pymongo") 
         .copy_local_file(workflow_dir / "snapshot.json", "/root/snapshot.json")
         .run_function(install_comfyui)

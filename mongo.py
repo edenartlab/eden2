@@ -22,6 +22,7 @@ users = db["users"]
 api_keys = db["apikeys"]
 models = db["models"]
 tasks = db["tasks2"]
+characters = db["characters"]
 
 
 class MongoBaseModel(BaseModel):

@@ -2,6 +2,7 @@ import os
 import re
 import time
 import math
+import magic
 import httpx
 import base64
 import random
@@ -11,12 +12,68 @@ import requests
 import tempfile
 import subprocess
 import numpy as np
+from moviepy.editor import VideoFileClip
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import s3
+
+
+def get_media_attributes(file_path):
+    def process_thumbnail(thumbnail):
+        width, height = thumbnail.size
+        aspect_ratio = width / height
+        if height > 512:
+            tw, th = int(512 * aspect_ratio), 512
+            thumbnail = thumbnail.resize((tw, th))
+        return thumbnail, width, height, aspect_ratio
+    
+    url = file_path.startswith('http://') or file_path.startswith('https://')
+    if url:
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        file_path = download_file(file_path, temp_file.name, overwrite=True)
+
+    mime_type = magic.from_file(file_path, mime=True)
+    media_attributes = {
+        "mimeType": mime_type,
+    }
+
+    if 'image' in mime_type:
+        image = Image.open(file_path)
+        thumbnail = image.copy()
+        thumbnail, width, height, aspect_ratio = process_thumbnail(thumbnail)
+        media_attributes.update({
+            "width": width,
+            "height": height,
+            "aspectRatio": aspect_ratio
+        })
+
+    elif 'video' in mime_type:
+        video = VideoFileClip(file_path)
+        thumbnail = Image.fromarray(video.get_frame(0).astype('uint8'), 'RGB')
+        thumbnail, width, height, aspect_ratio = process_thumbnail(thumbnail)
+        media_attributes.update({
+            "width": width,
+            "height": height,
+            "aspectRatio": aspect_ratio,
+            "duration": video.duration
+        })
+
+    elif 'audio' in mime_type:
+        thumbnail = None
+        media_attributes.update({
+            "duration": get_media_duration(file_path)
+        })
+
+    if url:
+        os.remove(file_path)
+
+    print("THE MEDIA ATTRIBUTES ARE", media_attributes)
+    print("THE THUMBNAIL IS", thumbnail)
+
+    return media_attributes, thumbnail
 
 
 def download_file(url, local_filepath, overwrite=False):
@@ -78,44 +135,15 @@ def mock_image(args):
     wrapped_text = textwrap.fill(str(args), width=50)
     draw.text((5, 5), wrapped_text, fill="black", font=font)    
     image = image.resize((512, 512), Image.LANCZOS)
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    buffer.seek(0)
-    buffer_content = buffer.read()
-    url = s3.upload_buffer(buffer_content, png_to_jpg=True)
+    buffer = PIL_to_bytes(image)
+    url = s3.upload_buffer(buffer, png_to_jpg=True)
     return [url]
 
 
-def get_video_duration(video_file):
+def get_media_duration(video_file):
     cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        video_file,
-    ]
-    duration = subprocess.check_output(cmd).decode().strip()
-    return float(duration)
-
-
-def get_font(font_name, font_size):
-    font_path = os.path.join(os.path.dirname(__file__), "fonts", font_name)
-    font = ImageFont.truetype(font_path, font_size)
-    return font
-
-
-def get_video_duration(video_file):
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
         video_file,
     ]
     duration = subprocess.check_output(cmd).decode().strip()
@@ -239,7 +267,7 @@ def create_dialogue_thumbnail(image1_url, image2_url, width, height, ext="WEBP")
 
 def concatenate_videos(video_files, output_file, fps=30):
     converted_videos = []
-    for i, video in enumerate(video_files):
+    for video in video_files:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp:
             output_video = temp.name
             convert_command = [

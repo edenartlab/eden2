@@ -8,6 +8,7 @@ class Model(MongoBaseModel):
     user: ObjectId
     slug: str = None
     args: Dict[str, Any]
+    task: ObjectId
     public: bool = False
     checkpoint: str
     thumbnail: str
