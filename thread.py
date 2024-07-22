@@ -6,14 +6,14 @@ import openai
 from openai import AsyncOpenAI
 from bson import ObjectId
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, conint, confloat
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 from pprint import pformat
 
 from agent import Agent, get_default_agent
-from tool import Tool, get_tools
+from tool import Tool, get_tools, create_tool_base_model
 from mongo import MongoBaseModel, threads
 
 workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix"])
@@ -282,6 +282,14 @@ async def prompt(
     model: str = "gpt-4-turbo"
 ) -> ChatMessage:
     
+    def get_tool_by_name(tool_name, tools):
+        for item in tools:
+            function_data = item.get("function", {})
+            if function_data.get("name") == tool_name:
+                return item
+        print(f"if you're seeing this, it means that we didn't find the the tool for {tool_name} lol")
+        return None
+    
     def get_tool_list(tools):
         tool_list = []
         for item in tools:
@@ -314,44 +322,92 @@ async def prompt(
             tool_names.append(name)
         return tool_names
     
-    def extract_tool(text):
-        tool_pattern = r"Tool:\s*(\S+)"
-        tool = re.findall(tool_pattern, text)
-        return tool
+    def dict_to_tool(tool_dict):
+        return Tool(data=tool_dict, key=tool_dict.get("key"))
+    
+    def tool_to_model(schema: Dict[str, Any]):
+        print("Schema:", schema)  # Debug: Print the entire schema
+        
+        properties = schema.get('properties', {})
+        print("Properties:", properties)  # Debug: Print the properties
+
+        required_fields = schema.get('required', [])
+        print("Required fields:", required_fields)  # Debug: Print the required fields
+
+        fields = {}
+        for field_name, field_props in properties.items():
+            print(f"Processing field: {field_name} with properties: {field_props}")  # Debug: Print the field name and its properties
+            
+            if 'anyOf' in field_props:
+                types = tuple(f['type'] for f in field_props['anyOf'] if 'type' in f)
+                if len(types) == 1:
+                    field_type = types[0]
+                elif len(types) > 1:
+                    # Handle multiple types if necessary
+                    field_type = Union[*types]
+                else:
+                    field_type = Any
+                print(f"Field type updated to anyOf: {field_type}")  # Debug: Print the updated field type for anyOf
+            else:
+                field_type = field_props.get('type', Any)
+                print(f"Field type: {field_type}")  # Debug: Print the initial field type
+
+            if field_type == 'string':
+                field_type = Optional[str]
+            elif field_type == 'integer':
+                field_type = conint(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
+            elif field_type == 'number':
+                field_type = confloat(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
+            elif field_type == 'null':
+                field_type = None
+            else:
+                field_type = Any
+            print(f"Final field type: {field_type}")  # Debug: Print the final field type
+
+            field_default = Field(None, description=field_props.get('description', ''), title=field_props.get('title', ''))
+            print(f"Field default: {field_default}")  # Debug: Print the field default value
+            
+            if field_name not in required_fields:
+                field_type = Optional[field_type]
+                print(f"Field {field_name} is optional")  # Debug: Print if the field is optional
+
+            fields[field_name] = (field_type, field_default)
+        
+        print("Fields dictionary:", fields)  # Debug: Print the fields dictionary
+        
+        return type('DynamicModel', (BaseModel,), fields)
     
     # ############################################################################################################################################################
-    ## basically open this up to reason about tool selection
-    ## then have it reason about picking the parameters
-    ## process: 
-    ## while loop to come up with required fields (prompt, negative prompt, parameters)
-    ## instructor to pull it into the right format
-    ## pass into existing tools call to go onwards...?
-    ### REASONING LOOP
-    ## break down the tools into a list of tools, and the parameters for each tool
-
-    # sys_reasoning_prompt =  f'''
-    #             You are an expert reasoning engine that determines a tool to use, the parameters for that tool, and the prompt for the tool.
-    #             You will be given a user message and additional context. You will need to determine which tool to use, the prompt and negative prompt for the tool, and the parameters for that tool.
-    #             You will strictly utilize the following format in each response:
-    #             Thought: ...
-    #             Result: ...
-                
-    #             Here are the steps you need to follow:
-    #             1. Think about the tool you need to fulfil the user's request. Desired result format: tool name
-    #             2. Think about the parameters for the tool, and fill them all out. Desired result format: filled out parameters dictionary.
-                
-    #             If a step has been completed, you will see it at the bottom of the prompt as follows:
-    #             Step n [Completed]: ...
-    #             You should continue from the first step that is not completed. Use the context that is provided you, as well as the results of the previous steps, to inform your decision.
-                
-    #             Here is the context:
-    #             {step_data}
-    #             {steps_completed}
-    #             '''
     
-    step_data = [get_tool_list(tools)]
-    steps_completed = []
-    chosen_tool_data = {}
+    sys_hydration_prompt =  f'''
+                Your job is to take the user's request, and create a detailed prompt that captures the idea they are trying to convey. The following guidelines outline how to make a good prompt:
+
+                Prompts are specific, detailed, concise, and visually descriptive, avoiding unnecessary verbosity and abstract, generic terms.
+                Prompts generally have at least the following elements:
+                ● Primary subject (i.e., person, character, animal, object, ...), e.g "Renaissance noblewoman", "alien starship". Should appear early in prompt.
+                ● Action of the subject, e.g. "holding an ancient book", "orbiting a distant planet", if there is no main subject, a good context description will do here (what is going on in the scene?).
+                Good prompts often have several stylistic modifiers near the end of the prompt. For example, they may contain:
+                ● Background, environment or context surrounding the subject, e.g. "in a dimly lit Gothic castle", "in a futuristic 22nd century space station".
+                ● Secondary items that enhance the subject or story. e.g. "wearing an intricate lace collar", "standing next to a large, ancient tree".
+                ● Color schemes, e.g. "shades of deep red and gold", "monochrome palette with stark contrasts", "monochrome", ...
+                ● Style or method of rendering, e.g. "reminiscent of Vermeer's lighting techniques", "film noir", "cubism", ...
+                ● Mood or atmospheric quality e.g. "atmosphere of mystery", "serene mood".
+                ● Lighting conditions e.g. "bathed in soft, natural window light", "dramatic shadows under a spotlight".
+                ● Perspective or or viewpoint, e.g. "bird's eye view", "from a low angle", "fisheye", ..
+                ● Textures or materials, e.g. "textures of rich velvet and rough stone".
+                ● Time Period, e.g. "Victorian Era", "futuristic 22nd century".
+                ● Cultural elements, e.g. "inspired by Norse mythology", "traditional Japanese setting".
+                ● Artistic medium, e.g. "watercolor painting", "crisp digital Unreal Engine rendering", "8K UHD professional photo", "cartoon drawing", ...
+
+                Prompts often end with trigger words that improve images in a general way, e.g. "High Resolution", "HD", "sharp details", "masterpiece", "stunning composition", ...
+                If the prompt contains a request to render text, enclose the text in quotes, e.g. A Sign with the text “Peace”.
+                If the user gives you a short, general, or visually vague prompt, you should augment their prompt by imagining richer details, following the prompt guide. If a user gives a long, detailed, or well-thought out composition, or requests to have their prompt strictly adhered to without revisions or embellishment, you should adhere to or repeat their exact prompt. The goal is to be authentic to the user's request, but to help them get better results when they are new, unsure, or lazy.
+                In addition, default to using a high resolution of at least 1 megapixel for the image. Use landscape aspect ratio for prompts that are wide or more landscape-oriented, and portrait aspect ratio for tall things. When using portrait aspect ratio, do not exceed 1:1.5 aspect ratio. Only do square if the user requests it. Use your best judgment.
+                Your prompt should not have a leading sentence of 'create an ...', the user should be able to copy paste the prompt verbatim into a field called prompt.
+                You will strictly follow the following format in each response:
+                Thought:
+                Prompt: ...
+                '''
 
     sys_tool_prompt =  f'''
                 You are an expert reasoning engine that determines a tool to use.
@@ -360,88 +416,100 @@ async def prompt(
                 Thought: ...
                 Tool: toolname
 
-                Here is the context:
-                {step_data[-1]}
+                Here are the tools you can select from (you cannot select anything that isn't here):
+                {get_tool_list(tools)}
                 '''
     sys_param_prompt =  f'''
                 You are an expert reasoning engine that determines the parameters for a tool.
-                You will be given a user message and additional context.
+                You will be given a user prompt and additional context.
                 You will strictly utilize the following format in each response:
                 Thought: ...
                 Parameters: parameters as JSON
 
-                Here is the context:
-                {step_data[-1]}
+                Here is the prompt, the tool name, and it's parameters:
                 '''
+    ### the hydrated prompt, the tool name, and the tool's parameters are passed at runtime
 
-    # thinking loop 1.0 and associated functions
-    client = AsyncOpenAI()
-    #print(f'what is messages:\n{messages[-1]['content']}\n')
-    curr_sys_prompt = [sys_tool_prompt]
 
-    while True:
-        #print(f'------ within reasoning loop-----')
-        #print('--------')
-        #print(f'system prompt in use:\n{curr_sys_prompt[-1]}\n')
-        #print(f'step data in use:\n{step_data[-1]}\n')
-        #print('--------')
-        response = await client.chat.completions.create(
-            model="gpt-4",
-            messages = [
-                { "role": "system", "content": curr_sys_prompt[-1] },
+    ### Reasoning 2.0
+
+
+    ### STEP 0: PROMPT HYDRATION
+    client = instructor.from_openai(
+        openai.AsyncOpenAI(),
+        mode=instructor.Mode.JSON)
+    class HydratedPrompt(BaseModel):
+        thought: str
+        prompt: str
+    
+    # extract prompt
+    response = await client.chat.completions.create(
+        model=model,
+        response_model=HydratedPrompt,
+        messages = [
+                { "role": "system", "content": sys_hydration_prompt },
                 { "role": "user", "content": messages[-1]['content']},
-            ])
-        response_text = response.choices[0].message.content
+            ],
+        max_retries=2,
+    )
+    hydrated_prompt = response.prompt
+    print(f"hydrated prompt:\n{hydrated_prompt}\n")
 
-        # step 1
-        # select tool to use
-        if len(steps_completed) == 0:
-            print('----step1----')
-            #print(f"response from first pass: \n {response_text}") ### the format of this isn't great - either make it strict or parse out the tool name, because it doesn't follow the format
-            #print(f'extracted tool from response_text: {extract_tool(response_text)}')
-            result = extract_tool(response_text)[0]
-            #print(f'resulting tool chosen: {result}\n')
-            #print('-----------')
-            steps_completed.append(f"Step {str(len(steps_completed) + 1)} Completed")
-
-        # step 2
-        # after tool chosen, set up loop for tool parameter selection
-        if len(steps_completed) == 1:
-            print('----step2----')
-            chosen_tool_data['tool_name'] = result #store the tool name that we're going to call
-            # get parameters to inject into param prompt
-            step_data.append(get_tool_parameters(result, tools)) #this doesn't work - due to variable scope?
-            #print(f'parameters for chosen tool: {step_data}')
-            #old_prompt = curr_sys_prompt
-            #curr_sys_prompt = sys_param_prompt
-            #print(f'checking if system prompt changed:\n{curr_sys_prompt == old_prompt}')
-            curr_sys_prompt.append(sys_param_prompt)
-            steps_completed.append(f"Step {str(len(steps_completed) + 1)} Completed")
-            if step_data == None:
-                print(f"tool choice result wasn't in right format: {result}, so couldn't get parameters for the tool")
-                break
-
-        # step 3
-        ## break out after both completed
-        elif len(steps_completed) == 2:
-            print('----step3----')
-            print(f"messages from param select:\n{[
-                { "role": "system", "content": curr_sys_prompt[-1] },
+    ### STEP 1: SELECT TOOL AND PARAMETERS
+    class ChosenTool(BaseModel):
+        tool: str
+    
+    # extract tool choice
+    response = await client.chat.completions.create(
+        model=model,
+        response_model=ChosenTool,
+        messages = [
+                { "role": "system", "content": sys_tool_prompt },
                 { "role": "user", "content": messages[-1]['content']},
-            ]}\n")
-            print(f'output of parameter selection:\n{response_text}')
-            #chosen_tool_data['tool_parameters'] = result
-            print('--------')
-            break
-    print('------ end reasoning loop -----')
+            ],
+        max_retries=2,
+    )
+
+    # get chosen tool model for parameter creation
+    chosen_tool = response.tool
+    print(f"chosen tool:\n{chosen_tool}\n")
+    #print(f'tools:\n{tools}\n')
+    chosen_tool_dict = get_tool_by_name(chosen_tool, tools)
+    if chosen_tool_dict is None:
+        raise ValueError(f"Tool {chosen_tool} not found in the provided tools list")
+    #chosen_tool_object = dict_to_tool(chosen_tool_dict)
+    chosen_tool_model = create_tool_base_model(default_tools[chosen_tool])
+    print(f"type of chosen tool object:\n{type(chosen_tool_model)}\n")
+    # chosen_tool_model= chosen_tool_object.get_base_model(prompt="hello")
+   
+
+    print(f"response model:\n{chosen_tool_model}\n")
+    # populate values using prompt context
+
+    print('starting parameter selection')
+    response = await client.chat.completions.create(
+        model=model,
+        response_model=chosen_tool_model,
+        messages = [
+                { "role": "system", "content": f"{sys_param_prompt}\n{hydrated_prompt}\n{chosen_tool}\n{get_tool_parameters(chosen_tool,tools)}" },
+                { "role": "user", "content": messages[-1]['content']},
+            ],
+        max_retries=0,
+    )
+    print(f"param selection response:\n{response}\n")
+
+    
+    ### STEP 3: CONVERT OUTPUT INTO OPENAI TOOL CALL FORMAT
+
+    # combine prompt, tool, parameters, into tools call
 
 
-    # ### FORMAT REASONING OUTPUT INTO THE RIGHT FORMAT
-    # print(f"coming into formatting, chosen tool data should be a dict of the tool_name and the tool_parameters:\n{chosen_tool_data}")
-    # # client = instructor.from_openai(
-    # #     openai.AsyncOpenAI(),
-    # #     mode=instructor.Mode.JSON)
-    # ############################################################################################################################################################
+    # return formatted tool call
+
+
+    
+
+    ############################################################################################################################################################
     
 
 
@@ -505,7 +573,8 @@ async def interactive_chat():
     
     while True:
         try:
-            message_input = input("\033[92m\033[1mUser:\t")
+            #message_input = input("\033[92m\033[1mUser:\t")
+            message_input = 'samurai dog in japanese temple'
             if message_input.lower() == 'escape':
                 break
             
