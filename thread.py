@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, HttpUrl, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
+from pprint import pformat
 
 from agent import Agent, get_default_agent
 from tool import Tool, get_tools
@@ -280,17 +281,7 @@ async def prompt(
     tools: List[dict] = None,
     model: str = "gpt-4-turbo"
 ) -> ChatMessage:
-
-    ## basically open this up to reason about tool selection
-    ## then have it reason about picking the parameters
-    ## process: 
-    ## while loop to come up with required fields (prompt, negative prompt, parameters)
-    ## instructor to pull it into the right format
-    ## pass into existing tools call to go onwards...?
-
-
-    ### REASONING LOOP
-    ## break down the tools into a list of tools, and the parameters for each tool
+    
     def get_tool_list(tools):
         tool_list = []
         for item in tools:
@@ -298,84 +289,165 @@ async def prompt(
             name = function_data.get("name", "")
             description = function_data.get("description", "")
             tool_list.append(f"{name}: {description}")
+        #print("tool list:")
+        #print(pformat(tool_list, indent=4))
         return "\n".join(tool_list)
     
     def get_tool_parameters(tool_name, tools):
+        # print('--------gettoolparams--------')
+        # print(f'finding tool parameters for {tool_name}')
         for item in tools:
             function_data = item.get("function", {})
+            # print(f'comparing {function_data.get("name")} to {tool_name}')
             if function_data.get("name") == tool_name:
                 return function_data.get("parameters", {})
-        print(f'tool name:{tool_name}')
+        # print(f'tool name:{tool_name}')
         print(f"if you're seeing this, it means that we didn't find the the parameters for {tool_name} lol")
+        # print('--------end gettoolparams--------')
         return None
     
-    def extract_result(text):
-        result_pattern = r"Result: (.+?)\n"
-        result = re.findall(result_pattern, text)
-        return result
+    def get_tool_names(tools):
+        tool_names = []
+        for item in tools:
+            function_data = item.get("function", {})
+            name = function_data.get("name", "")
+            tool_names.append(name)
+        return tool_names
     
-    step_data = get_tool_list(tools)
+    def extract_tool(text):
+        tool_pattern = r"Tool:\s*(\S+)"
+        tool = re.findall(tool_pattern, text)
+        return tool
+    
+    # ############################################################################################################################################################
+    ## basically open this up to reason about tool selection
+    ## then have it reason about picking the parameters
+    ## process: 
+    ## while loop to come up with required fields (prompt, negative prompt, parameters)
+    ## instructor to pull it into the right format
+    ## pass into existing tools call to go onwards...?
+    ### REASONING LOOP
+    ## break down the tools into a list of tools, and the parameters for each tool
+
+    # sys_reasoning_prompt =  f'''
+    #             You are an expert reasoning engine that determines a tool to use, the parameters for that tool, and the prompt for the tool.
+    #             You will be given a user message and additional context. You will need to determine which tool to use, the prompt and negative prompt for the tool, and the parameters for that tool.
+    #             You will strictly utilize the following format in each response:
+    #             Thought: ...
+    #             Result: ...
+                
+    #             Here are the steps you need to follow:
+    #             1. Think about the tool you need to fulfil the user's request. Desired result format: tool name
+    #             2. Think about the parameters for the tool, and fill them all out. Desired result format: filled out parameters dictionary.
+                
+    #             If a step has been completed, you will see it at the bottom of the prompt as follows:
+    #             Step n [Completed]: ...
+    #             You should continue from the first step that is not completed. Use the context that is provided you, as well as the results of the previous steps, to inform your decision.
+                
+    #             Here is the context:
+    #             {step_data}
+    #             {steps_completed}
+    #             '''
+    
+    step_data = [get_tool_list(tools)]
     steps_completed = []
     chosen_tool_data = {}
 
-    sys_reasoning_prompt =  f'''
-                You are an expert reasoning engine that determines a tool to use, the parameters for that tool, and the prompt for the tool.
-                You will be given a user message and additional context. You will need to determine which tool to use, the prompt and negative prompt for the tool, and the parameters for that tool.
+    sys_tool_prompt =  f'''
+                You are an expert reasoning engine that determines a tool to use.
+                You will be given a user message and additional context.
+                You will strictly follow the following format in each response:
+                Thought: ...
+                Tool: toolname
+
+                Here is the context:
+                {step_data[-1]}
+                '''
+    sys_param_prompt =  f'''
+                You are an expert reasoning engine that determines the parameters for a tool.
+                You will be given a user message and additional context.
                 You will strictly utilize the following format in each response:
                 Thought: ...
-                Result: ...
-                
-                Here are the steps you need to follow:
-                1. Think about the tool you need to fulfil the user's request. Desired result format: tool name
-                2. Think about the parameters for the tool, and fill them all out. Desired result format: filled out parameters dictionary.
-                
-                If a step has been completed, you will see it at the bottom of the prompt as follows:
-                Step n [Completed]: ...
-                You should continue from the first step that is not completed. Use the context that is provided you, as well as the results of the previous steps, to inform your decision.
-                
+                Parameters: parameters as JSON
+
                 Here is the context:
-                {step_data}
-                {steps_completed}
+                {step_data[-1]}
                 '''
 
+    # thinking loop 1.0 and associated functions
     client = AsyncOpenAI()
-
     #print(f'what is messages:\n{messages[-1]['content']}\n')
-    while True:
+    curr_sys_prompt = [sys_tool_prompt]
 
+    while True:
+        #print(f'------ within reasoning loop-----')
+        #print('--------')
+        #print(f'system prompt in use:\n{curr_sys_prompt[-1]}\n')
+        #print(f'step data in use:\n{step_data[-1]}\n')
+        #print('--------')
         response = await client.chat.completions.create(
             model="gpt-4",
             messages = [
-                { "role": "system", "content": sys_reasoning_prompt },
+                { "role": "system", "content": curr_sys_prompt[-1] },
                 { "role": "user", "content": messages[-1]['content']},
             ])
         response_text = response.choices[0].message.content
-        #print(f"response_text: {response_text}")
-        result = extract_result(response_text)
-        steps_completed.append(f"Step {str(len(steps_completed) + 1)} [Completed]: {result}")
+
+        # step 1
+        # select tool to use
+        if len(steps_completed) == 0:
+            print('----step1----')
+            #print(f"response from first pass: \n {response_text}") ### the format of this isn't great - either make it strict or parse out the tool name, because it doesn't follow the format
+            #print(f'extracted tool from response_text: {extract_tool(response_text)}')
+            result = extract_tool(response_text)[0]
+            #print(f'resulting tool chosen: {result}\n')
+            #print('-----------')
+            steps_completed.append(f"Step {str(len(steps_completed) + 1)} Completed")
+
+        # step 2
+        # after tool chosen, set up loop for tool parameter selection
         if len(steps_completed) == 1:
+            print('----step2----')
             chosen_tool_data['tool_name'] = result #store the tool name that we're going to call
-            step_data = get_tool_parameters(result, tools)
+            # get parameters to inject into param prompt
+            step_data.append(get_tool_parameters(result, tools)) #this doesn't work - due to variable scope?
+            #print(f'parameters for chosen tool: {step_data}')
+            #old_prompt = curr_sys_prompt
+            #curr_sys_prompt = sys_param_prompt
+            #print(f'checking if system prompt changed:\n{curr_sys_prompt == old_prompt}')
+            curr_sys_prompt.append(sys_param_prompt)
+            steps_completed.append(f"Step {str(len(steps_completed) + 1)} Completed")
             if step_data == None:
                 print(f"tool choice result wasn't in right format: {result}, so couldn't get parameters for the tool")
                 break
-        if len(steps_completed) == 2:
-            chosen_tool_data['tool_parameters'] = result
+
+        # step 3
+        ## break out after both completed
+        elif len(steps_completed) == 2:
+            print('----step3----')
+            print(f"messages from param select:\n{[
+                { "role": "system", "content": curr_sys_prompt[-1] },
+                { "role": "user", "content": messages[-1]['content']},
+            ]}\n")
+            print(f'output of parameter selection:\n{response_text}')
+            #chosen_tool_data['tool_parameters'] = result
+            print('--------')
             break
+    print('------ end reasoning loop -----')
 
 
-    #######################################
-    ### FORMAT NATURAL LANGUAGE OUTPUT INTO THE RIGHT FORMAT
-    print(f"coming into formatting, chosen tool data should be a dict of the tool_name and the tool_parameters:\n{chosen_tool_data}")
-    # client = instructor.from_openai(
-    #     openai.AsyncOpenAI(),
-    #     mode=instructor.Mode.JSON)
+    # ### FORMAT REASONING OUTPUT INTO THE RIGHT FORMAT
+    # print(f"coming into formatting, chosen tool data should be a dict of the tool_name and the tool_parameters:\n{chosen_tool_data}")
+    # # client = instructor.from_openai(
+    # #     openai.AsyncOpenAI(),
+    # #     mode=instructor.Mode.JSON)
+    # ############################################################################################################################################################
     
 
 
 
     #######################################
-    ### TOOLS CALL
+    ### ORIGINAL TOOLS CALL
     client = instructor.from_openai(
         openai.AsyncOpenAI(), 
         mode=instructor.Mode.TOOLS
@@ -394,11 +466,11 @@ async def prompt(
         max_retries=2,
     )
     # todo: deal with tool hallucination
-    from pprint import pformat
-    print('response from tool call:')
-    print(pformat(response, indent=4))
-    print('----------------')
+    # print('response from tool call:')
+    # print(pformat(response, indent=4))
+    # print('----------------')
     return response
+    #######################################
 
 
 def get_thread(name: str, user: dict, create_if_missing: bool = False):
