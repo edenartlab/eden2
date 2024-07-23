@@ -6,7 +6,7 @@ import openai
 from openai import AsyncOpenAI
 from bson import ObjectId
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, conint, confloat
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, conint, confloat, Json
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
@@ -325,57 +325,69 @@ async def prompt(
     def dict_to_tool(tool_dict):
         return Tool(data=tool_dict, key=tool_dict.get("key"))
     
-    def tool_to_model(schema: Dict[str, Any]):
-        print("Schema:", schema)  # Debug: Print the entire schema
-        
-        properties = schema.get('properties', {})
-        print("Properties:", properties)  # Debug: Print the properties
-
-        required_fields = schema.get('required', [])
-        print("Required fields:", required_fields)  # Debug: Print the required fields
-
-        fields = {}
-        for field_name, field_props in properties.items():
-            print(f"Processing field: {field_name} with properties: {field_props}")  # Debug: Print the field name and its properties
-            
-            if 'anyOf' in field_props:
-                types = tuple(f['type'] for f in field_props['anyOf'] if 'type' in f)
-                if len(types) == 1:
-                    field_type = types[0]
-                elif len(types) > 1:
-                    # Handle multiple types if necessary
-                    field_type = Union[*types]
+    # Ensure required fields are populated
+    def ensure_required_fields(params, required_fields):
+        for field in required_fields:
+            if field not in params or params[field] is None:
+                if field == 'seed':
+                    params[field] = 0  # Default seed value
+                elif field == 'lora_strength':
+                    params[field] = 0.5  # Default lora_strength value
                 else:
-                    field_type = Any
-                print(f"Field type updated to anyOf: {field_type}")  # Debug: Print the updated field type for anyOf
-            else:
-                field_type = field_props.get('type', Any)
-                print(f"Field type: {field_type}")  # Debug: Print the initial field type
+                    raise ValueError(f"Missing required field: {field}")
+        return params
+    
+    # def tool_to_model(schema: Dict[str, Any]):
+    #     print("Schema:", schema)  # Debug: Print the entire schema
+        
+    #     properties = schema.get('properties', {})
+    #     print("Properties:", properties)  # Debug: Print the properties
 
-            if field_type == 'string':
-                field_type = Optional[str]
-            elif field_type == 'integer':
-                field_type = conint(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
-            elif field_type == 'number':
-                field_type = confloat(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
-            elif field_type == 'null':
-                field_type = None
-            else:
-                field_type = Any
-            print(f"Final field type: {field_type}")  # Debug: Print the final field type
+    #     required_fields = schema.get('required', [])
+    #     print("Required fields:", required_fields)  # Debug: Print the required fields
 
-            field_default = Field(None, description=field_props.get('description', ''), title=field_props.get('title', ''))
-            print(f"Field default: {field_default}")  # Debug: Print the field default value
+    #     fields = {}
+    #     for field_name, field_props in properties.items():
+    #         print(f"Processing field: {field_name} with properties: {field_props}")  # Debug: Print the field name and its properties
             
-            if field_name not in required_fields:
-                field_type = Optional[field_type]
-                print(f"Field {field_name} is optional")  # Debug: Print if the field is optional
+    #         if 'anyOf' in field_props:
+    #             types = tuple(f['type'] for f in field_props['anyOf'] if 'type' in f)
+    #             if len(types) == 1:
+    #                 field_type = types[0]
+    #             elif len(types) > 1:
+    #                 # Handle multiple types if necessary
+    #                 field_type = Union[*types]
+    #             else:
+    #                 field_type = Any
+    #             print(f"Field type updated to anyOf: {field_type}")  # Debug: Print the updated field type for anyOf
+    #         else:
+    #             field_type = field_props.get('type', Any)
+    #             print(f"Field type: {field_type}")  # Debug: Print the initial field type
 
-            fields[field_name] = (field_type, field_default)
+    #         if field_type == 'string':
+    #             field_type = Optional[str]
+    #         elif field_type == 'integer':
+    #             field_type = conint(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
+    #         elif field_type == 'number':
+    #             field_type = confloat(ge=field_props.get('minimum', None), le=field_props.get('maximum', None))
+    #         elif field_type == 'null':
+    #             field_type = None
+    #         else:
+    #             field_type = Any
+    #         print(f"Final field type: {field_type}")  # Debug: Print the final field type
+
+    #         field_default = Field(None, description=field_props.get('description', ''), title=field_props.get('title', ''))
+    #         print(f"Field default: {field_default}")  # Debug: Print the field default value
+            
+    #         if field_name not in required_fields:
+    #             field_type = Optional[field_type]
+    #             print(f"Field {field_name} is optional")  # Debug: Print if the field is optional
+
+    #         fields[field_name] = (field_type, field_default)
         
-        print("Fields dictionary:", fields)  # Debug: Print the fields dictionary
+    #     print("Fields dictionary:", fields)  # Debug: Print the fields dictionary
         
-        return type('DynamicModel', (BaseModel,), fields)
+    #     return type('DynamicModel', (BaseModel,), fields)
     
     # ############################################################################################################################################################
     
@@ -479,30 +491,40 @@ async def prompt(
         raise ValueError(f"Tool {chosen_tool} not found in the provided tools list")
     #chosen_tool_object = dict_to_tool(chosen_tool_dict)
     chosen_tool_model = create_tool_base_model(default_tools[chosen_tool])
-    print(f"type of chosen tool object:\n{type(chosen_tool_model)}\n")
-    # chosen_tool_model= chosen_tool_object.get_base_model(prompt="hello")
-   
+    print(f"type of chosen tool model:\n{type(chosen_tool_model)}\n")
+    print(f"type of hydrated prompt model:\n{type(HydratedPrompt)}\n")   
 
     print(f"response model:\n{chosen_tool_model}\n")
     # populate values using prompt context
 
+    class tester_model(BaseModel):
+        prompt: str
+        dimensions: str
+
     print('starting parameter selection')
+    print(f'chosen tool:\n{chosen_tool}\n')
+    chosen_tool_params = get_tool_parameters(chosen_tool, tools)
+    # Ensure required fields are populated
+    chosen_tool_params = ensure_required_fields(chosen_tool_params, chosen_tool_params.get('required', []))
+    print(f'chosen tool params:\n{chosen_tool_params}\n')
+    #print(f"inputted system msg:\n{sys_param_prompt}\n{hydrated_prompt}\n")
     response = await client.chat.completions.create(
         model=model,
         response_model=chosen_tool_model,
+        #response_model=tester_model,
         messages = [
-                { "role": "system", "content": f"{sys_param_prompt}\n{hydrated_prompt}\n{chosen_tool}\n{get_tool_parameters(chosen_tool,tools)}" },
-                { "role": "user", "content": messages[-1]['content']},
+                #{ "role": "system", "content": f"{sys_param_prompt}\n{hydrated_prompt}\n{chosen_tool}\n{get_tool_parameters(chosen_tool,tools)}" },
+                {"role": "system", "content": f"{sys_param_prompt}\n{hydrated_prompt}"},
+                #{ "role": "user", "content": messages[-1]['content']},
             ],
         max_retries=0,
     )
     print(f"param selection response:\n{response}\n")
 
-    
+
     ### STEP 3: CONVERT OUTPUT INTO OPENAI TOOL CALL FORMAT
 
     # combine prompt, tool, parameters, into tools call
-
 
     # return formatted tool call
 
