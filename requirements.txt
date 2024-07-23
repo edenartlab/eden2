@@ -13,3 +13,4 @@ requests
 python-magic
 python-dotenv
 Pillow
+moviepy
