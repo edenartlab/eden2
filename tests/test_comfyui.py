@@ -8,6 +8,8 @@ import requests
 from datetime import datetime
 # from concurrent.futures import ThreadPoolExecutor
 
+from tool import get_tools
+
 parser = argparse.ArgumentParser(description="Test all ComfyUI workflows")
 parser.add_argument("--workflows", type=str, help="Which workflows to deploy (comma-separated)", default=None)
 parser.add_argument("--production", action='store_true', help="Deploy to production (otherwise staging)")
@@ -17,8 +19,8 @@ args = parser.parse_args()
 if args.production:
     os.environ["ENV"] = "PROD"
 
-from tools import get_tools
 workflows = get_tools("../workflows")
+workflows.update(get_tools("../private_workflows"))
 if args.workflows:
     workflows = {k: workflows[k] for k in args.workflows.split(",")}
 
@@ -27,7 +29,7 @@ async def test_tool(workflow_name):
         tool = workflows[workflow_name]
         result = await tool.async_run(tool.test_args())
         print(workflow_name, result)
-        return {"output":result}
+        return {"output": result}
     except Exception as e:
         return {"error": f"{e}"}
 

@@ -31,9 +31,8 @@ asyncio.run(test_tool())
 
 # mock execute a tool
 async def run_mock_tool():
-    txt2img.mock = True
     args = txt2img.test_args()
-    result = await txt2img.run("txt2img", args)
+    result = await txt2img.run("txt2img", args, mock=True)
     print(result)
 
 asyncio.run(run_mock_tool())
