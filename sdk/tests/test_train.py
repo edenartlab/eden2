@@ -15,14 +15,9 @@ result = client.create("lora_trainer", {
         "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1716502852/user_uploads/fvgtfar6ivjlnxx86kp4.jpg",
         "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1716502856/user_uploads/ovpw8eub0kwjshqiwfcy.jpg"
     ],
-    "sd_model_version": "sdxl",
+    "sd_model_version": "sd15",
     "concept_mode": "face",
-    "max_train_steps": 200
+    "max_train_steps": 700
 })
 
 print(result)
-
-# print(config)
-# response = eden_client.train(config)
-# print(response)
-
