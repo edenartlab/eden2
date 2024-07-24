@@ -2,7 +2,7 @@ name: LoRA trainer
 description: Finetune a finetuned model on top of Stable Diffusion
 output_type: lora
 handler: replicate
-output_handler: train
+output_handler: trainer
 model: edenartlab/lora-trainer:deployment
 parameters:
 - name: name

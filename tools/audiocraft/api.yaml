@@ -2,6 +2,7 @@ name: Audiocraft
 description: Generate music from text prompt
 output_type: audio
 handler: replicate
+output_handler: eden
 model: edenartlab/audiocraft:c8681e518429d9ab930defb73593360726b4df6c3000525fc30fa1fca2c05f53
 parameters:
 - name: text_input

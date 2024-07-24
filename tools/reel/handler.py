@@ -2,6 +2,7 @@ import sys
 sys.path.append("../..")
 from io import BytesIO
 from pydub import AudioSegment
+from pydub.utils import ratio_to_db
 from pydantic import BaseModel, Field
 from openai import OpenAI
 from typing import List, Optional, Literal
@@ -12,6 +13,11 @@ import s3
 import voice
 import tool
 import utils
+
+
+import modal
+
+import asyncio
 
 
 client = instructor.from_openai(OpenAI())
@@ -89,87 +95,116 @@ def write_reel(
     return reel
     
 
-# modal.exception.InputCancellation
-async def reel(args: dict):
-    prompt = args.get("prompt")
-    narrator = args.get("narrator")
-    music = args.get("music")
-    music_prompt = (args.get("music_prompt") or "").strip()
-    min_duration = args.get("min_duration")
-    width = args.get("width")
-    height = args.get("height")
-    
-    characters = extract_characters(prompt)
+async def reel(args: dict, user: str = None):
 
-    if narrator:
-        characters.append(Character(name="narrator", description="The narrator of the reel is a voiceover artist who provides some narration for the reel"))
-    
-    voices = {
-        c.name: voice.select_random_voice(c.description) 
-        for c in characters
-    }
+    try:
 
-    story = write_reel(prompt, characters, music, music_prompt)
-    
-    duration = min_duration
+        print("RUN A REEL!!!")
 
-    print("characters", characters)
-    print("voices", voices)
-    print("story", story)
+        prompt = args.get("prompt")
+        narrator = args.get("narrator")
+        music = args.get("music")
+        music_prompt = (args.get("music_prompt") or "").strip()
+        min_duration = args.get("min_duration")
+        width = args.get("width")
+        height = args.get("height")
+        speech_boost = 5
+        
+        characters = extract_characters(prompt)
 
-    speech_audio = None
-    music_audio = None
+        if narrator:
+            characters.append(Character(name="narrator", description="The narrator of the reel is a voiceover artist who provides some narration for the reel"))
+        
+        print("characters", characters)
 
-    # generate speech
-    if story.speech:
-        speech_audio = voice.run(
-            text=story.speech,
-            voice_id=voices[story.speaker]
-        )
-        print("generated speech", story.speech)
-        speech_audio = AudioSegment.from_file(BytesIO(speech_audio))
-        silence1 = AudioSegment.silent(duration=2000)
-        silence2 = AudioSegment.silent(duration=3000)
-        speech_audio = silence1 + speech_audio + silence2
-        duration = max(duration, len(speech_audio) / 1000)
-    
-    # generate music
-    if music and story.music_prompt:
-        audiocraft = tool.load_tool("tools/audiocraft")
-        music = await audiocraft.async_run({
-            "text_input": story.music_prompt,
-            "model_name": "facebook/musicgen-large",
-            "duration_seconds": int(duration)
+        voices = {
+            c.name: voice.select_random_voice(c.description) 
+            for c in characters
+        }
+
+        story = write_reel(prompt, characters, music, music_prompt)
+
+        print("story", story)
+        
+        duration = min_duration
+
+        print("characters", characters)
+        print("voices", voices)
+        print("story", story)
+
+        metadata = {
+            "reel": story.model_dump(),
+            "characters": [c.model_dump() for c in characters],
+        }
+
+        speech_audio = None
+        music_audio = None
+
+        # generate speech
+        if story.speech:
+            speech_audio = voice.run(
+                text=story.speech,
+                voice_id=voices[story.speaker]
+            )
+            print("generated speech", story.speech)
+            speech_audio = AudioSegment.from_file(BytesIO(speech_audio))
+            silence1 = AudioSegment.silent(duration=2000)
+            silence2 = AudioSegment.silent(duration=3000)
+            speech_audio = silence1 + speech_audio + silence2
+            duration = max(duration, len(speech_audio) / 1000)
+            metadata["speech"] = s3.upload_audio_segment(speech_audio)
+            
+        # generate music
+        if music and story.music_prompt:
+            audiocraft = tool.load_tool("tools/audiocraft")
+            music = await audiocraft.async_run({
+                "text_input": story.music_prompt,
+                "model_name": "facebook/musicgen-large",
+                "duration_seconds": int(duration)
+            })
+            print("generated music", story.music_prompt)
+            music_bytes = requests.get(music[0]['files'][0]).content
+            music_audio = AudioSegment.from_file(BytesIO(music_bytes))
+            metadata["music"] = s3.upload_audio_segment(music_audio)
+
+        # mix audio
+        audio = None
+        if speech_audio and music_audio:
+            diff_db = ratio_to_db(speech_audio.rms / music_audio.rms)
+            music_audio = music_audio + diff_db
+            speech_audio = speech_audio + speech_boost
+            audio = music_audio.overlay(speech_audio)        
+        elif speech_audio:
+            audio = speech_audio
+        elif music_audio:
+            audio = music_audio
+
+        txt2vid = tool.load_tool("../workflows/txt2vid")
+        video = await txt2vid.async_run({
+            "prompt": story.image_prompt,
+            "n_frames": 128,
+            "width": width,
+            "height": height
         })
-        print("generated music", story.music_prompt)
-        music_bytes = requests.get(music[0]['files'][0]).content
-        music_audio = AudioSegment.from_file(BytesIO(music_bytes))
+        output_url = video[0]
+        print("txt2vid", output_url)
 
-    # mix audio
-    audio = None
-    if speech_audio and music:        
-        audio = music_audio.overlay(speech_audio)        
-    elif speech_audio:
-        audio = speech_audio
-    elif music:
-        audio = music_audio
+        if audio:
+            buffer = BytesIO()
+            audio.export(buffer, format="mp3")
+            output = utils.combine_audio_video(buffer, output_url)
+            output_url = s3.upload_file(output)
 
-    txt2vid = tool.load_tool("../workflows/txt2vid")
-    video = await txt2vid.async_run({
-        "prompt": story.image_prompt,
-        "n_frames": 128,
-        "width": width,
-        "height": height
-    })
-    output_url = video[0]
-    print("txt2vid", output_url)
+        print("output_url", output_url)
+        print("metadata", metadata)
 
-    if audio:
-        buffer = BytesIO()
-        audio.export(buffer, format="mp3")
-        output = utils.combine_audio_video(buffer, output_url)
-        output_url = s3.upload_file(output)
+        return [output_url], metadata
 
-    print("output_url", output_url)
 
-    return [output_url]
+    except asyncio.CancelledError as e:
+        print("asyncio CancelledError")
+        print(e)
+    except Exception as e:
+        print("normal error")
+        print(e)
+        
