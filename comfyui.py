@@ -458,13 +458,10 @@ class EdenComfyUI(ComfyUI):
         })
         
         try:
-            output = self._execute(task.args)
+            result = self._execute(task.args)
             task_update = {
                 "status": "completed", 
-                "result": [{
-                    "url": url,
-                    "metadata": None
-                } for url in output]
+                "result": result
             }
         
         except Exception as e:
