@@ -18,7 +18,12 @@ from mongo import MongoBaseModel, threads
 workflows = get_tools("../workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
 private_workflows = get_tools("../workflows", exclude=["beeple_ai", "xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
-default_tools = workflows | extra_tools | private_workflows
+#default_tools = workflows | extra_tools | private_workflows
+default_tools = workflows
+default_tools = {
+    "txt2img": default_tools["txt2img"], "txt2vid": default_tools["txt2vid"]
+}
+
 
 
 class ChatMessage(BaseModel):
@@ -51,11 +56,14 @@ class UserMessage(ChatMessage):
     content: str = Field(..., description="A chat message")
     metadata: Optional[Dict[str, Any]] = Field({}, description="Preset settings, metadata, or context information")
     attachments: Optional[List[HttpUrl]] = Field([], description="Attached files included")
+    #attachment_dict: Optional[Dict[str, str]] = Field({}, description="Mapping of shortform keys to filenames")
+
 
     def __init__(self, **data):
         super().__init__(**data)
         if self.name:
             self.name = ''.join(re.findall(r'[a-zA-Z0-9_-]+', self.name))
+        print(f"UserMessage created: {self}")
 
     def to_mongo(self):
         data = super().to_mongo()
@@ -133,6 +141,8 @@ class Thread(MongoBaseModel):
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]] = []
     metadata: Optional[Dict[str, str]] = Field({}, description="Preset settings, metadata, or context information")
     tools: Dict[str, Tool] = Field(default_tools, description="Tools available to the user")
+    attachment_dict: Optional[Dict[str, str]] = Field({}, description="Mapping of shortform keys to filenames")
+
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -146,6 +156,8 @@ class Thread(MongoBaseModel):
         
         # todo: should tools always be defaults or saved to thread
         self.tools = default_tools
+        self.attachment_dict = kwargs.get('attachment_dict', {})
+        print(f"attachment_dict: {self.attachment_dict}")
 
     @classmethod
     def from_id(self, document_id: str):
@@ -179,6 +191,14 @@ class Thread(MongoBaseModel):
     ):
         self.add_message(user_message)  
         system_message = agent.get_system_message(self.tools)
+
+
+        # Swap filenames with shortform keys
+        for shortform_key, filename in self.attachment_dict.items():
+            user_message.content = user_message.content.replace(filename, shortform_key)
+        print(f"Content before sending to LLM: {user_message.content}")
+
+
         
         """
         This block tries three times to generate a valid response.
@@ -230,9 +250,16 @@ class Thread(MongoBaseModel):
             args = {k: v for k, v in args.items() if v is not None}
             args.update(extra_args)
             print("args", args)
-            updated_args = tool.get_base_model(**args).model_dump()
-            print("updated ars", updated_args)
 
+            # Swap shortform keys back to filenames
+            for shortform_key, filename in self.attachment_dict.items():
+                for k, v in args.items():
+                    if isinstance(v, str) and shortform_key in v:
+                        args[k] = v.replace(shortform_key, filename)
+
+            print(f"Args after swapping back filenames: {args}")
+            updated_args = tool.get_base_model(**args).model_dump()
+    
         except ValidationError as err:
             """
             This exception only happens when the tool call parameters are invalid.
@@ -340,20 +367,28 @@ async def interactive_chat():
     thread = Thread(
         name="my_test_thread", 
         user=user,
-        tools=tools
+        tools=tools,
+        attachment_dict={}
     )
     
     while True:
         try:
-            message_input = input("\033[92m\033[1mUser:\t")
+            #message_input = input("\033[92m\033[1mUser:\t")
+            # short url
+            message_input = 'hi eve can you make an image inspired by this image? dont ask me for further instructions, just make it. \[https://i.pinimg.com/474x/e7/27/4a/e7274afc008b1844fb62dca01544c11a.jpg\]'
+            # long url
+            # message_input = 'generate an image of a samurai cat in a japanese temple. dont ask me for further instructions, use your imagination'
             if message_input.lower() == 'escape':
                 break
             
-            content, metadata, attachments = preprocess_message(message_input)
+            content, metadata, attachments, new_attachment_dict = preprocess_message(message_input)
+            thread.attachment_dict.update(new_attachment_dict)  # Update the thread's attachment_dict
+            
             user_message = UserMessage(
                 content=content,
                 metadata=metadata,
-                attachments=attachments
+                attachments=attachments,
+                #attachment_dict=attachment_dict,
             )
             print("\033[93m\033[1m")
             async for msg in thread.prompt(agent, user_message):
@@ -362,16 +397,93 @@ async def interactive_chat():
         except KeyboardInterrupt:
             break
 
+# def preprocess_message(message):
+#     metadata_pattern = r'{.?}'
+#     attachments_pattern = r'[.?]'
+#     metadata_match = re.search(metadata_pattern, message)
+#     attachments_matches = re.findall(r'[(.*?)]', message)
+    
+
+
+
+#     #---
+#     attachments_match_list = list(attachments_match.groups())
+#     print(f"attachments_match_list: {attachments_match_list}")
+#     #---
+
+#     # no attachment found
+#     # if not attachments_match:
+#     #     print('no attachment')
+#     metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
+#     #attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+#     attachments = []
+#     if attachments_match:
+#         try:
+#             attachments = json.loads(attachments_match.group(0))
+#             print(f"attachment successfully laoded from json")
+#         except json.JSONDecodeError:
+#             attachments = []  # or handle the error as needed
+#             print(f"attachment failed to load from json")
+#     else:
+#         attachments = []
+#     clean_message = re.sub(metadata_pattern, '', message)
+#     clean_message = re.sub(attachments_pattern, '', clean_message).strip()
+
+
+#     ## move this out of here to where it's actually done
+#     # Generate shortform keys for attachments
+#     attachment_dict = {}
+#     for i, attachment in enumerate(attachments):
+#         shortform_key = f"file_{i}"
+#         attachment_dict[shortform_key] = attachment
+
+#     print(f"Preprocessed message: {clean_message}")
+#     print(f"Metadata: {metadata}")
+#     print(f"Attachments: {attachments}")
+#     print(f"Attachments Dict: {attachment_dict}")
+
+#     return clean_message, metadata, attachments, attachment_dict
+
 def preprocess_message(message):
-    metadata_pattern = r'\{.*?\}'
-    attachments_pattern = r'\[.*?\]'
+    metadata_pattern = r'{.?}'
+    attachments_pattern = r'\[(.*?)\]'
     metadata_match = re.search(metadata_pattern, message)
-    attachments_match = re.search(attachments_pattern, message)
+    attachments_matches = re.findall(attachments_pattern, message)
+
     metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+
+    attachments = []
+    for match in attachments_matches:
+        urls = match.split(',')
+        attachments.extend([url.strip() for url in urls])
+
     clean_message = re.sub(metadata_pattern, '', message)
     clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-    return clean_message, metadata, attachments
+    print("clean message", clean_message)
+    print("metadata", metadata)
+    print("attachments", attachments)
+
+    # move this out of here to where it's actually done
+    # Generate shortform keys for attachments
+    attachment_dict = {}
+    for i, attachment in enumerate(attachments):
+        shortform_key = f"file_{i}"
+        attachment_dict[shortform_key] = attachment
+
+    print(f"Preprocessed message: {clean_message}")
+    print(f"Metadata: {metadata}")
+    print(f"Attachments: {attachments}")
+    print(f"Attachments Dict: {attachment_dict}")
+
+
+    '''
+    fix the file extension format
+    '''
+
+
+    return clean_message, metadata, attachments, attachment_dict
+
+
 
 if __name__ == "__main__":
     import asyncio

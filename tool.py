@@ -4,6 +4,7 @@ import json
 import random
 import asyncio
 import modal
+import re
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
@@ -225,6 +226,16 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         raise ValueError(f"Tool {name} not found at {api_path}")
     if name is None:
         name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
+    #checking error for this 400 i keep getting:
+#     '''
+#     File "/opt/homebrew/lib/python3.11/site-packages/openai/_base_client.py", line 1610, in _request
+#     raise self._make_status_error_from_response(err.response) from None
+# openai.BadRequestError: Error code: 400
+# {'error': {'message': "Invalid 'tools[3].function.name': string does not match pattern.
+# Expected a string that matches the pattern '^[a-zA-Z0-9_-]+$'.", 'type': 'invalid_request_error', 'param': 'tools[3].function.name', 'code': 'invalid_value'}}
+#     '''
+#     if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+#         raise ValueError(f"Invalid tool name '{name}'. Tool names must match the pattern '^[a-zA-Z0-9_-]+$'.")
     try:
         data = yaml.safe_load(open(api_path, "r"))
     except yaml.YAMLError as e:
