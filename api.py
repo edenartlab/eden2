@@ -27,7 +27,7 @@ from tool import get_tools
 from models import tasks
 
 
-tools = get_tools("../workflows") | get_tools("tools") | get_tools("../private_workflows")
+tools = get_tools("../workflows/public_workflows") | get_tools("tools") | get_tools("../workflows/private_workflows")
 print("Tools", tools)
 
 
@@ -296,8 +296,8 @@ image = (
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
                  "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub")
-    .copy_local_dir("../workflows", remote_path="/workflows")
-    .copy_local_dir("../private_workflows", remote_path="/private_workflows")
+    .copy_local_dir("../workflows/public_workflows", remote_path="/public_workflows")
+    .copy_local_dir("../workflows/private_workflows", remote_path="/private_workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
     .env({"ENV": "PROD" if app_name == APP_NAME_PROD else "STAGE"})
     .env({"MODAL_SERVE": "1" if os.getenv("MODAL_SERVE") else "0"})
