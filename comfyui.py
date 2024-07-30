@@ -458,10 +458,13 @@ class EdenComfyUI(ComfyUI):
         })
         
         try:
-            result = self._execute(task.args)
+            output = self._execute(task.args)
             task_update = {
                 "status": "completed", 
-                "result": result
+                "result": [{
+                    "url": url,
+                    "metadata": None
+                } for url in output]
             }
         
         except Exception as e:
@@ -484,7 +487,8 @@ if modal.is_local():
     args = parser.parse_args()
 
     import tool
-    workflows = tool.get_tools("../workflows", exclude=["_dev"]) | tool.get_tools("../private_workflows")
+    #workflows = tool.get_tools("../workflows", exclude=["_dev"]) | tool.get_tools("../private_workflows")
+    workflows = tool.get_tools("../workflows/public_workflows", exclude=["_dev"]) | tool.get_tools("../workflows/private_workflows")
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
@@ -507,7 +511,7 @@ else:
         "moodmix", "inpaint", "background_removal",
     ]
     private_workflows = [
-        "xhibit/vton", "xhibit/remix", "beeple_ai",
+        "private_workflows/xhibit/vton", "private_workflows/xhibit/remix", "private_workflows/beeple_ai",
     ]
     workflows = workflows + private_workflows
 
@@ -528,9 +532,10 @@ app = modal.App(
 
 for workflow_name in workflows: 
     workflows_root = pathlib.Path("../workflows")
-    if workflow_name in ["xhibit/vton", "xhibit/remix", "beeple_ai"]:
-        workflows_root = pathlib.Path("../private_workflows")
-    workflow_dir = workflows_root / workflow_name
+    if workflow_name.startswith("private_workflows/"):
+        workflow_dir = workflows_root / workflow_name
+    else:
+        workflow_dir = workflows_root / "public_workflows" / workflow_name
     
     image = (
         modal.Image.debian_slim(python_version="3.11")
