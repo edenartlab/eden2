@@ -87,10 +87,14 @@ class Tool(BaseModel):
         base_model = create_tool_base_model(self)
         return base_model(**kwargs)
 
-    def summary(self, include_params=True):
+    def summary(self, include_params=True, include_requirements=False):
         summary = f'"{self.key}" :: {self.name} - {self.description}.'
         if self.tip:
             summary += f" {self.tip}."
+        if include_requirements:
+            required_params = [f"{p.label} ({p.type})" for p in self.parameters if p.required]
+            if required_params:
+                summary += f" Required inputs: {', '.join(required_params)}."
         if include_params:
             summary += f'\n\n{self.parameters_summary()}'
         return summary
@@ -126,11 +130,17 @@ class Tool(BaseModel):
             data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
         return data
 
-    def tool_schema(self):
+    def anthropic_tool_schema(self):
+        tool_model = create_tool_base_model(self)
+        schema = openai_schema(tool_model).anthropic_schema
+        schema["input_schema"].pop("description") # duplicate
+        return schema
+
+    def openai_tool_schema(self):
         tool_model = create_tool_base_model(self)
         return {
             "type": "function",
-            "function": openai_schema(tool_model).openai_schema  #anthropic_schema
+            "function": openai_schema(tool_model).openai_schema
         }
 
     def prepare_args(self, user_args, save_files=False):
@@ -251,10 +261,10 @@ def get_tools(tools_folder: str, exclude: List[str] = []):
     return tools
 
 
-def get_tools_summary(tools: List[Tool]):    
+def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
     tools_summary = ""
     for tool in tools.values():
-        tools_summary += f"{tool.summary(include_params=False)}\n"
+        tools_summary += f"{tool.summary(include_params=include_params, include_requirements=include_requirements)}\n"
     return tools_summary
 
 

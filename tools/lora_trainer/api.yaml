@@ -20,14 +20,14 @@ parameters:
   label: Base Model
   description: Base Stable Diffusion model to finetune from
   type: string
-  choices: ["sdxl", "sd15"]
-  default: "sdxl"
+  choices: [sdxl, sd15]
+  default: sdxl
 - name: concept_mode
   label: Concept
   description: Type of LoRA
   type: string
-  choices: ["face", "object", "style"]
-  default: "style"
+  choices: [face, object, style]
+  default: style
 - name: max_train_steps
   label: Training steps
   description: Maximum number of training steps to loop through your training dataset
