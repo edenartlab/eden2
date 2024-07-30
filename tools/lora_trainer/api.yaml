@@ -40,9 +40,9 @@ parameters:
   label: Resolution
   description: Square pixel resolution which your images will be resized to for training
   type: int
-  default: 960
-  minimum: 768
-  maximum: 1024
+  default: 512
+  minimum: 512
+  maximum: 640
   step: 1
 - name: seed
   label: Seed
