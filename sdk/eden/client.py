@@ -7,7 +7,7 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-STAGE = True
+STAGE = False
 
 if STAGE:
     DEFAULT_API_URL = "staging.api.eden.art"
@@ -15,6 +15,7 @@ if STAGE:
 else:
     DEFAULT_API_URL = "api.eden.art"
     DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
+    
     
 
 class EdenClient:

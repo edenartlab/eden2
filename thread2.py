@@ -469,5 +469,6 @@ def preprocess_message(message):
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(interactive_chat("make a picture of a dog eating a salad, and also at the same time,and convert this attached image to a video"))
+    # asyncio.run(interactive_chat("make a picture of a dog eating a salad, and also at the same time,and convert this attached image to a video"))
+    asyncio.run(interactive_chat())
 
