@@ -7,7 +7,7 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-STAGE = True
+STAGE = False
 
 if STAGE:
     DEFAULT_API_URL = "staging.api.eden.art"
