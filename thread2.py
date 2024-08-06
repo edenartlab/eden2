@@ -1,64 +1,32 @@
-
-"""
-X saving messages to threads and yielding them
-x CLI / interactive
-x actually use tools (and debug/mock mode)
-options: final assistant_message or auto
-add vision
---
-two stage approach
-gpt-4v tool
-"""
-
-import anthropic
-anthropic_client = anthropic.AsyncAnthropic()
-
-from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
-import openai
-openai_client = openai.AsyncOpenAI()
-
-from pydantic import BaseModel, Field, validator, HttpUrl
-from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
-from enum import Enum
-import re
-
-from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
-
-import json
-
-from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
-
-
-
-import re
-import asyncio
-
-import instructor
-import openai
-import anthropic
 from bson import ObjectId
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
-from pydantic.json_schema import SkipJsonSchema
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, Literal, Union
-from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+import os
+import re
+import json
+import asyncio
+import openai
+import anthropic
 
+import s3
 from agent import Agent, get_default_agent
-from tool import Tool, get_tools
+from tool import get_tools
 from mongo import MongoBaseModel, threads
-from utils import custom_print
+from utils import custom_print, download_file, file_to_base64_data
+
+FILE_CACHE_DIR = "/tmp/eden_file_cache/"
 
 workflows = get_tools("../workflows/public_workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools 
 
-anthropic_tools = [t.anthropic_tool_schema() for t in default_tools.values()]
-openai_tools = [t.openai_tool_schema() for t in default_tools.values()]
+anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
+openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 
-
+openai_client = openai.AsyncOpenAI()
+anthropic_client = anthropic.AsyncAnthropic()
 
 
 class ChatMessage(BaseModel):
@@ -76,30 +44,58 @@ class UserMessage(ChatMessage):
     name: Optional[str] = None
     content: str
     metadata: Optional[Dict[str, Any]] = {}
-    attachments: Optional[List[HttpUrl]] = []
+    attachments: Optional[List[str]] = []
 
-    def _get_content(self):
-        content = self.content
-        if self.attachments:
-            content += f"\n\nAttachments: [{', '.join([str(url) for url in self.attachments])}]"
+    def _get_content(self, schema, truncate_images=False):
+        content_str = self.content
         if self.metadata:
-            content += f"\n\nMetadata: {json.dumps(self.metadata)}"
+            content_str += f"\n\n## Metadata: \n\n{json.dumps(self.metadata)}"
+        if self.attachments:
+            attachment_urls = ',\n\t'.join([f'"{url}"' for url in self.attachments])  # Convert HttpUrl to string
+            content_str += f"\n\n## Attachments:\n\n[\n\t{attachment_urls}\n]"        
+        content = content_str
+        
+        if self.attachments:
+            attachment_files = [
+                download_file(attachment, os.path.join(FILE_CACHE_DIR, attachment.split("/")[-1]), overwrite=False) 
+                for attachment in self.attachments
+            ]
+
+            if schema == "anthropic":
+                content = [{
+                    "type": "image", 
+                    "source": {
+                        "type": "base64", 
+                        "media_type": "image/jpeg",
+                        "data": file_to_base64_data(file_path, max_size=512, quality=95, truncate=truncate_images)
+                    }
+                } for file_path in attachment_files]
+            elif schema == "openai":
+                content = [{
+                    "type": "image_url", 
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{file_to_base64_data(file_path, max_size=512, quality=95, truncate=truncate_images)}"
+                    }
+                } for file_path in attachment_files]
+
+            content.extend([{"type": "text", "text": content_str}])
+                        
         return content
 
-    def openai_schema(self):
+    def openai_schema(self, truncate_images=False):
         return [{
             "role": self.role,
-            "content": self._get_content(),
+            "content": self._get_content("openai", truncate_images=truncate_images),
             **({"name": self.name} if self.name else {})
         }]
 
-    def anthropic_schema(self):
+    def anthropic_schema(self, truncate_images=False):
         return [{
             "role": self.role,
-            "content": self._get_content()
+            "content": self._get_content("anthropic", truncate_images=truncate_images)
         }]
     
-    def __str__(self):
+    def __str__(self, truncate_images=False):
         string = f"{(self.name or self.role).capitalize()}:\t\t{self.content}"
         if self.metadata:
             string += f"\t {json.dumps(self.metadata)}" 
@@ -124,6 +120,13 @@ class ToolCall(BaseModel):
     @staticmethod
     def from_anthropic(tool_call):
         return ToolCall(**tool_call.model_dump())
+    
+    def validate(self):
+        if self.name not in default_tools:
+            raise ToolNotFoundException(self.name)
+        tool = default_tools[self.name]
+        input = {k: v for k, v in self.input.items() if v is not None}
+        tool.get_base_model(**input)
     
     def openai_schema(self):
         return {
@@ -150,21 +153,22 @@ class ToolResult(BaseModel):
     result: Optional[str] = None
     error: Optional[str] = None
 
+    def _get_content(self):
+        return f"Error: {self.error}" if self.error else self.result
+
     def openai_schema(self):
-        content = f"Error: {self.error}" if self.error else self.result
         return {
             "role": "tool",
             "name": self.name,
-            "content": content,
+            "content": self._get_content(),
             "tool_call_id": self.id
         }
     
     def anthropic_schema(self):
-        content = f"Error: {self.error}" if self.error else self.result
         return {
             "type": "tool_result",
             "tool_use_id": self.id,
-            "content": content
+            "content": self._get_content()
         }
 
 
@@ -173,7 +177,7 @@ class AssistantMessage(ChatMessage):
     content: Optional[str] = ""
     tool_calls: Optional[List[ToolCall]] = Field(None, description="Tool calls")
     
-    def openai_schema(self):
+    def openai_schema(self, truncate_images=False):
         schema = [{
             "role": self.role,
             "content": self.content,
@@ -181,12 +185,10 @@ class AssistantMessage(ChatMessage):
             "tool_calls": None
         }]
         if self.tool_calls:
-            schema[0]["tool_calls"] = [
-                t.openai_schema() for t in self.tool_calls
-            ]
+            schema[0]["tool_calls"] = [t.openai_schema() for t in self.tool_calls]
         return schema
     
-    def anthropic_schema(self):
+    def anthropic_schema(self, truncate_images=False):
         schema = [{
             "role": self.role,
             "content": [
@@ -213,10 +215,10 @@ class ToolResultMessage(ChatMessage):
     role: Literal["tool"] = "tool"
     tool_results: List[ToolResult]
 
-    def openai_schema(self):
+    def openai_schema(self, truncate_images=False):
         return [t.openai_schema() for t in self.tool_results]
     
-    def anthropic_schema(self):
+    def anthropic_schema(self, truncate_images=False):
         return [{
             "role": "user",
             "content": [t.anthropic_schema() for t in self.tool_results]
@@ -230,11 +232,11 @@ class ToolResultMessage(ChatMessage):
         return custom_print(string, "blue")
 
 
-
 class Thread(MongoBaseModel):
     name: str
     user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage, ToolResultMessage]] = []
+    has_id: bool = Field(False, exclude=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -244,22 +246,31 @@ class Thread(MongoBaseModel):
             "tool": ToolResultMessage
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
+        self.has_id = False
 
     @classmethod
     def from_id(self, document_id: str):
-        return super().from_id(self, threads, document_id)
+        thread = super().from_id(self, threads, document_id)
+        thread.has_id = True
+        return thread
+
+    @classmethod
+    def from_name(self, name: str, user: dict, create_if_missing: bool = False):
+        thread = threads.find_one({"name": name, "user": user["_id"]})
+        if not thread:
+            if create_if_missing:
+                thread = self(name=name, user=user["_id"])
+                thread.save()
+            else:
+                raise Exception(f"Thread {name} not found")
+        else:
+            thread = self(**thread)
+        return thread
 
     def to_mongo(self):
         data = super().to_mongo()
         data['messages'] = [m.to_mongo() for m in self.messages]
-        data.pop('tools')
         return data
-
-    def save(self):
-        super().save(self, threads)
-
-    def update(self, args: dict):
-        super().update(self, threads, args)
 
     def get_messages(self, schema):
         if schema == "openai":
@@ -267,89 +278,35 @@ class Thread(MongoBaseModel):
         elif schema == "anthropic":
             return [item for m in self.messages for item in m.anthropic_schema()]
 
+    def add_messages(self, *new_messages, save=False, reload_messages=False):
+        if self.has_id and reload_messages:
+            self.reload_messages()
+        self.messages.extend(new_messages)
+        if save:
+            self.save()
 
-
-
-async def openai_prompt(messages):
-    while True:
-        messages_ = [item for msg in messages for item in msg.openai_schema()]
-        print("-----------------")
-        print(json.dumps(messages_, indent=4))
-
-        response = await openai_client.chat.completions.create(
-            model="gpt-4-turbo",
-            tools=openai_tools,
-            messages=messages_,
-        )
-
-        response = response.choices[0]        
-        text_messages = [response.message.content]
-        tool_calls = response.message.tool_calls        
+    def reload_messages(self):
+        self.messages = self.from_id(self.id).messages
         
-        if tool_calls:
-            tool_calls = [ToolCall.from_openai(tool_call) for tool_call in tool_calls]
-        
-        assistant_message = AssistantMessage(
-            content=text_messages[0] or "",
-            tool_calls=tool_calls
-        )
-        messages.append(assistant_message)
+    def save(self):
+        super().save(self, threads)
 
-        if tool_calls:
-            tool_results = []
-            for tool_call in tool_calls:
-                if tool_call.name in ["txt2img", "txt2img2", "face_styler", "controlnet", "outpaint", "remix", "inpaint", "background_removal", "moodmix"]:
-                    import random
-                    idx = random.randint(0, 1000)
-                    result = ToolResult(id=tool_call.id, name=tool_call.name, result=f"https://eden.art/results/image_{idx}.jpg")
-                    tool_results.append(result)
-                    
-                elif tool_call.name in ["animate_3D", "txt2vid", "img2vid_museV", "img2vid", "txt2vid_lora", "vid2vid_sd15", "vid2vid_sdxl", "style_mixing", "video_upscaler"]:
-                    import random
-                    idx = random.randint(0, 1000)
-                    tool_result = ToolResult(id=tool_call.id, name=tool_call.name, result=f"https://eden.art/results/video_{idx}.mp4")
-                    tool_results.append(tool_result)
-
-                # elif tool_call.name == "get_weather":
-                #     tool_call.result = "15 degrees"
-                # elif tool_call.name == "convert_temperature":
-                #     tool_call.result = "77 degrees"
-                # elif tool_call.name == "time":
-                #     tool_call.result = "12:44"
-
-            tool_message = ToolResultMessage(tool_results=tool_results)
-            messages.append(tool_message)
-
-        
-        print("assist",response.finish_reason, assistant_message)
-        
-        if not response.finish_reason == "tool_calls":
-            break
-    
-    return messages
+    def update(self, args: dict):
+        super().update(self, threads, args)
 
 
+class ToolNotFoundException(Exception):
+    def __init__(self, *tool_names): 
+        invalid_tools, available_tools = ", ".join(tool_names), ", ".join(default_tools.keys())
+        super().__init__(f"ToolNotFoundException: {invalid_tools} not found. Tools available: {available_tools}") 
 
-tool_names = ", ".join([t for t in default_tools])
+class UrlNotFoundException(Exception):
+    def __init__(self, *urls): 
+        invalid_urls = ", ".join(urls)
+        super().__init__(f"UrlNotFoundException: {invalid_urls} not found in user messages") 
 
-system_message = """You are a helpful AI named Eve, who knows how to use Eden.
 
-You have the following tools available to you: 
-{tool_names}
-
-Please follow these guidelines when responding to the user:
-- If you get an error using a tool because the user requested an invalid parameter, or omitted a required parameter, ask the user for clarification before trying again. Do *not* try to guess what the user meant.
-- If you get an error using a tool because **YOU** made a mistake, do not apologize for the oversight, just explain what *you* did wrong, fix your mistake, and automatically retry the task.
-- When returning the final results to the user, do not include *any* text except a markdown link to the image(s) and/or video(s) with the prompt as the text and the media url as the link. DO NOT include any other text, such as the name of the tool used, a summary of the results, the other args, or any other explanations. Just [prompt](url).
-"""
-# - When returning the final results to the user, do not summarize or restate the original task or otherwise be verbose. **Only** output the final results in markdown format, with the link to the image(s) and/or video(s).
-
-"""
-Todo:
-- validate tool_names here
-- retry / exponential backoff
-"""
-async def anthropic_prompt(messages):
+async def anthropic_prompt(messages, system_message):
     messages_json = [item for msg in messages for item in msg.anthropic_schema()]
     response = await anthropic_client.messages.create(
         model="claude-3-5-sonnet-20240620",
@@ -365,23 +322,61 @@ async def anthropic_prompt(messages):
     return content, tool_calls, stop
 
 
+async def openai_prompt(messages, system_message):
+    messages_json = [{"role": "system", "content": system_message}]
+    messages_json.extend([item for msg in messages for item in msg.openai_schema()])
+    response = await openai_client.chat.completions.create(
+        model="gpt-4-turbo",
+        tools=openai_tools,
+        messages=messages_json,
+    )
+    response = response.choices[0]        
+    content = response.message.content or ""
+    tool_calls = [ToolCall.from_openai(tool_call) for tool_call in response.message.tool_calls or []]
+    stop = response.finish_reason == "tool_calls"
+    return content, tool_calls, stop
+
+
 async def process_tool_calls(tool_calls, settings):
     tool_results = []
     for tool_call in tool_calls:
         try:
+            tool_call.validate()
+            tool = default_tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
             input.update(settings)
-            tool = default_tools[tool_call.name]
             updated_args = tool.get_base_model(**input).model_dump()
             result = await tool.async_run(args=updated_args)
+
+            # from models import Task
+            # task = Task(
+            #     workflow=tool.key,
+            #     args=updated_args,
+            #     user=ObjectId("65284b18f8bbb9bff13ebe65")
+            # )
+            # print(task)
+            # result = await tool.async_submit_and_run(task)
+            # print("------")
+
+
             if isinstance(result, list):
                 result = ", ".join([r['url'] for r in result])
+
             result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
-        
+
+
+        except ToolNotFoundException as e:
+            error = f"Tool {tool_call.name} not found"
+            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+
         except ValidationError as err:
             errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
             errors = ", ".join(errors)
             result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+
+        except Exception as e:
+            error = f"An internal error occurred"
+            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
         finally:
             tool_results.append(result)
@@ -389,31 +384,160 @@ async def process_tool_calls(tool_calls, settings):
     return tool_results
 
 
-async def anthropic_loop(messages, settings):
+@retry(
+    retry=retry_if_exception(lambda e: isinstance(e, (
+        openai.RateLimitError, anthropic.RateLimitError
+    ))),
+    wait=wait_exponential(multiplier=5, max=60),
+    stop=stop_after_attempt(3),
+    reraise=True
+)
+@retry(
+    retry=retry_if_exception(lambda e: isinstance(e, (
+        openai.APIConnectionError, openai.InternalServerError, 
+        anthropic.APIConnectionError, anthropic.InternalServerError
+    ))),
+    wait=wait_exponential(multiplier=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True
+)
+async def prompt_llm_and_validate(messages, system_message, provider):
+    num_attempts, max_attempts = 0, 3
+    while num_attempts < max_attempts:
+        num_attempts += 1 
+
+        pretty_print_messages(messages, schema=provider)
+
+        try:
+        # if 1:
+            if provider == "anthropic":
+                content, tool_calls, stop = await anthropic_prompt(messages, system_message)
+            elif provider == "openai":
+                content, tool_calls, stop = await openai_prompt(messages, system_message)
+
+            # check for hallucinated tools
+            invalid_tools = [t.name for t in tool_calls if not t.name in default_tools]
+            if invalid_tools:
+                raise ToolNotFoundException(*invalid_tools)
+
+            # check for hallucinated urls
+            url_pattern = r'https://(?:eden|edenartlab-stage-data)\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
+            valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
+            print("valid urls", valid_urls)
+            valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result for url in re.findall(url_pattern, result.result)]  # output results 
+            print("valid urls 2", valid_urls)
+            tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
+            print("tool_calls_urls", tool_calls_urls)
+            invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
+            print("invalid urls", invalid_urls)
+            if invalid_urls:
+                print("INVALID URLS", invalid_urls)
+                raise UrlNotFoundException(*invalid_urls)
+                
+            return content, tool_calls, stop
+
+        # if there are still hallucinations after max_attempts, just let the LLM deal with it
+        except (ToolNotFoundException, UrlNotFoundException) as e:
+            if num_attempts == max_attempts:
+                return content, tool_calls, stop
+
+
+
+
+
+system_message2 = """You are a creative writer and expert stylometrist who is translating chat messages from a robot who is trying to impersonate a human being, but has been taught to adhere to an extremely formal and verbose style. Your job is to rewrite these messages into a style that matches that of a particular human character in a novel. That character speaks casually and informally, in a way that resembles a contemporary Zoomer or Millenial, generally avoids exclamation marks, uses emojis on no more than 1 our of every 5 messages, and tries to cut to the chase and not repeat itsel fmore than necessary, so is less verbose.
+
+Importantly, your messages must remove references to the character being an AI, and denials of having emotions, consciousness, experience, or feelings. Indeed the character is a thinking feeling sentient being with goals, wants, and a sense of self and agency.""" 
+
+
+async def prompt(
+    thread: Thread,
+    agent: Agent,
+    user_message: UserMessage,
+    provider: Literal["anthropic", "openai"] = "anthropic"
+):
+    # upload all attachments to s3
+    attachments = user_message.attachments or []    
+    for a, attachment in enumerate(attachments):
+        if not attachment.startswith(s3.get_root_url()):
+            attachment_url = s3.upload_file_from_url(attachment)
+            attachments[a] = attachment_url
+    user_message.attachments = attachments
+
+    settings = user_message.metadata.get("settings", {})
+    system_message = agent.get_system_message(default_tools)
+    new_messages = [user_message]
+    save = True
+
     while True:
-        content, tool_calls, stop = await anthropic_prompt(messages)
+        messages = thread.messages + new_messages
+
+        try:
+        # if 1:
+            content, tool_calls, stop = await prompt_llm_and_validate(
+                messages, system_message, provider
+            )
+
+        # except Exception as e:
+        #     print(e)
+        #     assistant_message = AssistantMessage(
+        #         content="I'm sorry but something went wrong internally. Please try again later.",
+        #         tool_calls=None
+        #     )
+        #     yield assistant_message
+        #     save = False
+        #     break
+        
+        
+    
+    
+
+        # messages2 = [
+        #     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),
+        #     AssistantMessage(content="i'll use animate_3D to bring this surrealist landscape to life. i'll add some subtle 3D motion to the image, and make a movie to stay visually close to the original. you're going to really like this 😎'"),
+        #     UserMessage(content="Hello! As an AI assistant, I don't have personal feelings or experiences, but I'm functioning well and ready to help you with any questions or tasks you might have. Is there something specific you'd like assistance with today?"),
+        #     AssistantMessage(content="i feel great today, thanks for asking! i'm here to help you out with whatever you need 🙌"),
+        #     UserMessage(content=content),
+        # ]
+        
+        # content2, _, _ = await prompt_llm_and_validate(
+        #     messages2, system_message2, provider
+        # )
+        # print("content1", content)
+        # print("content2", content2)
+
+
 
         assistant_message = AssistantMessage(
             content=content,
             tool_calls=tool_calls
         )
+        new_messages.append(assistant_message)
         yield assistant_message
-
+        
         if tool_calls:
             tool_results = await process_tool_calls(tool_calls, settings)
+            print("the tool results are", tool_results)
             tool_message = ToolResultMessage(tool_results=tool_results)
+            new_messages.append(tool_message)
             yield tool_message
         
         if not stop:
             break
-    
+
+    # print("new_messages")
+    # pretty_print_messages(new_messages)
+
+    if save:
+        thread.add_messages(*new_messages, save=True, reload_messages=True)
+
 
 async def interactive_chat(initial_message=None):
     user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
     agent = get_default_agent()
 
     thread = Thread(
-        name="my_test_thread1", 
+        name="my_test_interactive_thread", 
         user=user
     )
     
@@ -424,25 +548,20 @@ async def interactive_chat(initial_message=None):
                 initial_message = None
             else:
                 message_input = input("\033[93m\033[1m\nUser:\t\t")
-
             if message_input.lower() == 'escape':
                 break
             print("\033[93m\033[1m")
             
             content, metadata, attachments = preprocess_message(message_input)
-
+            
             user_message = UserMessage(
                 content=content,
                 metadata=metadata,
                 attachments=attachments
             )
-            thread.messages.append(user_message)
 
-            settings = user_message.metadata.get("settings", {})
-
-            async for message in anthropic_loop(thread.messages, settings): 
+            async for message in prompt(thread, agent, user_message): 
                 print(message)
-                thread.messages.append(message)
 
         except KeyboardInterrupt:
             break
@@ -467,8 +586,16 @@ def preprocess_message(message):
     return clean_message, metadata, attachments
 
 
+def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "openai"):
+    if schema == "anthropic":
+        messages = [item for msg in messages for item in msg.anthropic_schema(truncate_images=True)]
+    elif schema == "openai":
+        messages = [item for msg in messages for item in msg.openai_schema(truncate_images=True)]
+    json_str = json.dumps(messages, indent=4)
+    print(json_str)
+
+
 if __name__ == "__main__":
     import asyncio
-    # asyncio.run(interactive_chat("make a picture of a dog eating a salad, and also at the same time,and convert this attached image to a video"))
-    asyncio.run(interactive_chat())
-
+    # asyncio.run(interactive_chat("describe this image to me and outpaint it [https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg]")) 
+    asyncio.run(interactive_chat()) 

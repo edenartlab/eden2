@@ -7,9 +7,8 @@ import anthropic
 from bson import ObjectId
 from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
-from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
-from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
 from agent import Agent, get_default_agent
 from tool import Tool, get_tools

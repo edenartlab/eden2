@@ -37,11 +37,11 @@ class Model(MongoBaseModel):
 class Task(MongoBaseModel):
     workflow: str
     args: Dict[str, Any]
+    user: ObjectId
     handler_id: Optional[str] = None
     status: str = "pending"
     error: Optional[str] = None
     result: Optional[Any] = None
-    user: ObjectId
 
     def __init__(self, **data):
         if isinstance(data.get('user'), str):

@@ -70,9 +70,6 @@ def get_media_attributes(file_path):
     if url:
         os.remove(file_path)
 
-    print("THE MEDIA ATTRIBUTES ARE", media_attributes)
-    print("THE THUMBNAIL IS", thumbnail)
-
     return media_attributes, thumbnail
 
 
@@ -178,12 +175,17 @@ def PIL_to_bytes(image, ext="JPEG", quality=95):
     return img_byte_arr.getvalue()
 
 
-def url_to_image_data(url, max_size=(512, 512)):
-    img = download_image_to_PIL(url)
+def file_to_base64_data(file_path, max_size, quality=95, truncate=False):
+    img = Image.open(file_path).convert('RGB')
+    if isinstance(max_size, (int, float)):
+        w, h = img.size
+        ratio = min(1.0, ((max_size ** 2) / (w * h)) ** 0.5)
+        max_size = int(w * ratio), int(h * ratio)
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
-    img_bytes = PIL_to_bytes(img, ext="JPEG", quality=95)
+    img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")
-    data = f"data:image/jpeg;base64,{data}"
+    if truncate:
+        data = data[:64]+"..."
     return data
 
 
@@ -304,7 +306,6 @@ def mix_video_audio(video_path, audio_path, output_path):
         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-ac", "2",
         output_path,
     ]
-    print(cmd)
     subprocess.run(cmd, check=True)
 
 
@@ -448,3 +449,17 @@ def video_textbox(
     clip.write_videofile(output_file.name, fps=30, codec="libx264", audio_codec="aac")
 
     return output_file.name
+
+
+def custom_print(string, color):
+    colors = {
+        "red": "\033[91m",
+        "green": "\033[92m",
+        "yellow": "\033[93m",
+        "blue": "\033[94m",
+        "magenta": "\033[95m",
+        "cyan": "\033[96m",
+        "white": "\033[97m"
+    }
+    return f"{colors[color]}{string}\033[0m"
+    

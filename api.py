@@ -21,7 +21,7 @@ import auth
 import utils
 from mongo import agents, threads
 from agent import Agent, DEFAULT_AGENT_ID
-from thread import Thread, UserMessage, get_thread
+from thread2 import Thread, UserMessage, prompt
 from models import Model, Task
 from tool import get_tools
 from models import tasks
@@ -38,7 +38,7 @@ async def get_or_create_thread(
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = get_thread(thread_name, user, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user, create_if_missing=True)
     return {"thread_id": str(thread.id)}
 
 
@@ -108,7 +108,7 @@ def replicate_process_normal(output, task):
         task.error = str(e)
 
 
-def replicate_process_eden(output, task, trainer=False):
+def replicate_process_eden(output, task, save_model=False):
     try:
         output = output[-1]
         if not output or "files" not in output:
@@ -117,7 +117,7 @@ def replicate_process_eden(output, task, trainer=False):
         file_url = s3.upload_file_from_url(output["files"][0])
         metadata = output.get("attributes")
 
-        if trainer:
+        if save_model:
             media_attributes = {"type": "application/x-tar"}
             thumbnail_url = s3.upload_file_from_url(output["thumbnails"][0], webp=True)
         
@@ -151,6 +151,7 @@ def replicate_process_eden(output, task, trainer=False):
             }]
 
         task.status = "completed"
+    
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
@@ -193,7 +194,7 @@ async def replicate_update(request: Request):
         if tool.output_handler == "eden":
             replicate_process_eden(output, task)
         elif tool.output_handler == "trainer":
-            replicate_process_eden(output, task, trainer=True)
+            replicate_process_eden(output, task, save_model=True)
         else:
             replicate_process_normal(output, task)
         
@@ -223,7 +224,7 @@ async def chat(data, user):
     else:
         thread = Thread()
 
-    async for response in thread.prompt(agent, request.message):
+    async for response in prompt(thread, agent, request.message):
         yield {
             "message": response.model_dump_json()
         }
