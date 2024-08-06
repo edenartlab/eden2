@@ -464,34 +464,36 @@ async def prompt(
             attachments[a] = attachment_url
     user_message.attachments = attachments
 
+    save = True
     settings = user_message.metadata.get("settings", {})
     system_message = agent.get_system_message(default_tools)
+
+    # get message buffer starting from the 5th last UserMessage
+    user_messages = [i for i, msg in enumerate(thread.messages) if isinstance(msg, UserMessage)]
+    start_index = user_messages[-5] if len(user_messages) >= 5 else 0
+    thread_messages = thread.messages[start_index:]
     new_messages = [user_message]
-    save = True
+    print("FIRST MSG", thread_messages[0])
 
     while True:
-        messages = thread.messages + new_messages
+        messages = thread_messages + new_messages
 
         try:
-        # if 1:
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider
             )
 
-        # except Exception as e:
-        #     print(e)
-        #     assistant_message = AssistantMessage(
-        #         content="I'm sorry but something went wrong internally. Please try again later.",
-        #         tool_calls=None
-        #     )
-        #     yield assistant_message
-        #     save = False
-        #     break
-        
+        except Exception as e:
+            print(e)
+            assistant_message = AssistantMessage(
+                content="I'm sorry but something went wrong internally. Please try again later.",
+                tool_calls=None
+            )
+            yield assistant_message
+            save = False
+            break
         
     
-    
-
         # messages2 = [
         #     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),
         #     AssistantMessage(content="i'll use animate_3D to bring this surrealist landscape to life. i'll add some subtle 3D motion to the image, and make a movie to stay visually close to the original. you're going to really like this 😎'"),
