@@ -14,7 +14,8 @@ from agent import Agent, get_default_agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-workflows = get_tools("../workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
+workflows = get_tools("../workflows/public_workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
+private_workflows = get_tools("../workflows/private_workflows", exclude=["beeple_ai", "xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools 
 
@@ -351,7 +352,7 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
 async def interactive_chat():
     user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
     agent = get_default_agent() # eve
-    tools = get_tools("../workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
+    tools = get_tools("../workflows/public_workflows", exclude=["xhibit/remix", "xhibit/vton", "blend"])
 
     thread = Thread(
         name="my_test_thread", 

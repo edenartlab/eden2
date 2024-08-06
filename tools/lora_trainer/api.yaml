@@ -44,8 +44,8 @@ parameters:
   tip: Do not change this unless you are specifically instructed to.
   type: int
   default: 512
-  minimum: 256
-  maximum: 1024
+  minimum: 512
+  maximum: 640
   step: 1
 - name: seed
   label: Seed
