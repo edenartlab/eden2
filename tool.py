@@ -63,6 +63,7 @@ class ToolParameter(BaseModel):
     tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
     required: bool = Field(False, description="Indicates if the field is mandatory")
+    hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
     default: Optional[Any] = Field(None, description="Default value")
     minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
     maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
@@ -130,14 +131,14 @@ class Tool(BaseModel):
             data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
         return data
 
-    def anthropic_tool_schema(self):
-        tool_model = create_tool_base_model(self)
+    def anthropic_tool_schema(self, remove_hidden_fields=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
         schema = openai_schema(tool_model).anthropic_schema
-        schema["input_schema"].pop("description") # duplicate
+        schema["input_schema"].pop("description")  # duplicated
         return schema
 
-    def openai_tool_schema(self):
-        tool_model = create_tool_base_model(self)
+    def openai_tool_schema(self, remove_hidden_fields=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
         return {
             "type": "function",
             "function": openai_schema(tool_model).openai_schema
@@ -174,14 +175,14 @@ class Tool(BaseModel):
         return args
 
     def test_args(self):
-        root_dir = "../workflows" if self.key not in ["xhibit/vton", "xhibit/remix", "beeple_ai"] else "../private_workflows"  # todo: make this more robust
+        root_dir = "../workflows/public_workflows" if self.key not in ["xhibit/vton", "xhibit/remix", "beeple_ai"] else "../workflows/private_workflows"  # todo: make this more robust
         args = json.loads(open(f"{root_dir}/{self.key}/test.json", "r").read())
         return self.prepare_args(args)
 
 
-def create_tool_base_model(tool: Tool):
+def create_tool_base_model(tool: Tool, remove_hidden_fields=False):
     fields = {
-        param.name: get_field_type_and_kwargs(param) 
+        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields)
         for param in tool.parameters
     }
     ToolBaseModel = create_model(tool.key, **fields)
@@ -189,7 +190,10 @@ def create_tool_base_model(tool: Tool):
     return ToolBaseModel
 
 
-def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
+def get_field_type_and_kwargs(
+    param: ToolParameter,
+    remove_hidden_fields: bool = False
+) -> (Type, Dict[str, Any]):
     field_kwargs = {
         'description': param.description,
     }
@@ -225,6 +229,9 @@ def get_field_type_and_kwargs(param: ToolParameter) -> (Type, Dict[str, Any]):
     if param.choices is not None:
         field_kwargs['choices'] = param.choices
         field_type = Literal[*param.choices]
+
+    if remove_hidden_fields and param.hide_from_agent:
+        field_type = SkipJsonSchema[field_type]
     
     return (field_type, Field(**field_kwargs))
 
@@ -357,7 +364,7 @@ class ComfyUITool(Tool):
         cls = modal.Cls.lookup(app_name, self.key)
         job = cls().api.spawn(task.to_mongo())
         return job.object_id
-
+    
     def run(self, args: Dict, app_name=DEFAULT_APP_NAME):
         return asyncio.run(self.async_run(args, app_name))
 
@@ -369,6 +376,19 @@ class ComfyUITool(Tool):
         result = await cls().run.remote.aio(args)
         return result
     
+    # async def async_submit_and_run(self, task: Task, app_name=DEFAULT_APP_NAME):
+    #     job_id = self.submit(task, app_name)
+    #     fc = modal.functions.FunctionCall.from_id(str(job_id))
+    #     # function_call = modal.functions.FunctionCall.from_id(task.handler_id)
+    #     print("function_call", fc)
+    #     # try:
+    #     result = fc.get(timeout=0)
+    #     print(result)
+        # except TimeoutError:
+            #return fastapi.responses.JSONResponse(content="", status_code=202)
+            # return "Timeout"
+        # return result
+
     def cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         fc.cancel()
@@ -433,9 +453,13 @@ class ReplicateTool(Tool):
         if mock:
             return mock_image(args)
         prediction = self._create_prediction(args, webhook=False)
-        prediction.wait()        
-        result = list(prediction.output)
-        return result
+        prediction.wait()
+        if self.output_handler == "eden":
+            return [{"url": prediction.output[-1]["files"][0]}]
+        elif self.output_handler == "trainer":
+            return [{"url": prediction.output[-1]["thumbnails"][0]}]
+        else:
+            return [{"url": url for url in prediction.output}]
     
     def cancel(self, task: Task):
         import replicate
