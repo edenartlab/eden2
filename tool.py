@@ -124,7 +124,8 @@ class Tool(BaseModel):
             "key": self.key,
             "name": self.name,
             "description": self.description,
-            "outputType": self.output_type
+            "outputType": self.output_type,
+            "private": self.private
         } 
         if include_params:
             data["tip"] = self.tip
