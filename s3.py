@@ -27,6 +27,10 @@ s3 = boto3.client(
 )
 
 
+def get_root_url(bucket_name=AWS_BUCKET_NAME):
+    return f"https://{bucket_name}.s3.us-east-1.amazonaws.com/"
+    
+    
 def upload_file_from_url(url, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
@@ -46,9 +50,7 @@ def upload_file(file_path, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_
     with open(file_path, 'rb') as file:
         buffer = file.read()
 
-    file_url = upload_buffer(buffer, png_to_jpg, webp, bucket_name)
-    print(f"==> Uploaded: {file_url}")
-    
+    file_url = upload_buffer(buffer, png_to_jpg, webp, bucket_name)    
     return file_url
 
 
@@ -96,7 +98,7 @@ def upload_buffer(buffer, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_N
 
     # Generate and return file URL
     file_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
-    print(f"Uploaded: {file_url}")
+    print(f"==> Uploaded: {file_url}")
     
     return file_url
 

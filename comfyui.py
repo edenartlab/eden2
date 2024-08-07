@@ -484,7 +484,7 @@ if modal.is_local():
     args = parser.parse_args()
 
     import tool
-    workflows = tool.get_tools("../workflows", exclude=["_dev"]) | tool.get_tools("../private_workflows")
+    workflows = tool.get_tools("../workflows/public_workflows", exclude=["_dev"]) | tool.get_tools("../workflows/private_workflows")
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
@@ -503,7 +503,7 @@ else:
     workflows = [
         "txt2img", "txt2img2", "SD3", "face_styler", "controlnet", "remix", "animate_3D", 
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
-        "style_mixing", "video_upscaler", 
+        "style_mixing", "video_upscaler", "controlnet", "outpaint", "remix",
         "moodmix", "inpaint", "background_removal",
     ]
     private_workflows = [
@@ -527,9 +527,9 @@ app = modal.App(
 )
 
 for workflow_name in workflows: 
-    workflows_root = pathlib.Path("../workflows")
+    workflows_root = pathlib.Path("../workflows/public_workflows")
     if workflow_name in ["xhibit/vton", "xhibit/remix", "beeple_ai"]:
-        workflows_root = pathlib.Path("../private_workflows")
+        workflows_root = pathlib.Path("../workflows/private_workflows")
     workflow_dir = workflows_root / workflow_name
     
     image = (

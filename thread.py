@@ -3,22 +3,21 @@ import asyncio
 import json
 import instructor
 import openai
+import anthropic
 from bson import ObjectId
 from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
-from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
-from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionFunctionCallOptionParam
 
 from agent import Agent, get_default_agent
 from tool import Tool, get_tools
 from mongo import MongoBaseModel, threads
 
-# workflows = get_tools("../workflows", exclude=["xhibit/vton", "xhibit/remix", "beeple_ai", "vid2vid_sd15", "img2vid_museV"])
 workflows = get_tools("../workflows/public_workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
 private_workflows = get_tools("../workflows/private_workflows", exclude=["beeple_ai", "xhibit/vton", "xhibit/remix"])
 extra_tools = get_tools("tools")
-default_tools = workflows | extra_tools | private_workflows
+default_tools = workflows | extra_tools 
 
 
 class ChatMessage(BaseModel):
@@ -47,7 +46,7 @@ class SystemMessage(ChatMessage):
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
-    name: Optional[str] = Field(None, description="The name of the tool")
+    name: Optional[str] = Field(None, description="The name of the user")
     content: str = Field(..., description="A chat message")
     metadata: Optional[Dict[str, Any]] = Field({}, description="Preset settings, metadata, or context information")
     attachments: Optional[List[HttpUrl]] = Field([], description="Attached files included")
@@ -89,7 +88,7 @@ class AssistantMessage(ChatMessage):
     role: Literal["assistant"] = "assistant"
     content: Optional[str] = "You are an expert at using Eden."
     function_call: Optional[ChatCompletionFunctionCallOptionParam] = None
-    tool_calls: Optional[List[ChatCompletionMessageToolCall]] = Field([], description="Available tools")
+    tool_calls: Optional[List[ChatCompletionMessageToolCall]] = Field(None, description="Available tools")
 
     def chat_message(self):
         return {
@@ -107,6 +106,20 @@ class AssistantMessage(ChatMessage):
         else:
             tool_call_str = ""
         return f"\033[93m\033[1mAI\t\033[22m{content_str}{tool_call_str}\033[0m"
+
+
+class AssistantThought(ChatMessage):
+    role: Literal["assistant"] = "assistant"
+    content: str
+
+    def chat_message(self):
+        return {
+            "role": self.role,
+            "content": f"Thought: {self.content}",
+        }
+
+    def __str__(self):
+        return f"\033[94m\033[1m{self.role.capitalize()}\t\033[22mThought: {self.content}\033[0m"
 
 
 class ToolMessage(ChatMessage):
@@ -130,7 +143,7 @@ class ToolMessage(ChatMessage):
 class Thread(MongoBaseModel):
     name: str
     user: ObjectId
-    messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]] = []
+    messages: List[Union[SystemMessage, UserMessage, AssistantMessage, AssistantThought, ToolMessage]] = []
     metadata: Optional[Dict[str, str]] = Field({}, description="Preset settings, metadata, or context information")
     tools: Dict[str, Tool] = Field(default_tools, description="Tools available to the user")
 
@@ -163,9 +176,12 @@ class Thread(MongoBaseModel):
     def update(self, args: dict):
         super().update(self, threads, args)
 
-    def get_chat_messages(self, system_message: str = None):
-        system_message = SystemMessage(content=system_message)
-        messages = [system_message, *self.messages]
+    def get_chat_messages(self, system_message: str = None, include_thoughts=False):
+        system_message = SystemMessage(content=system_message)        
+        messages = self.messages if include_thoughts else [
+            m for m in self.messages if not isinstance(m, AssistantThought)
+        ] 
+        messages = [system_message, *messages]
         return [m.chat_message() for m in messages]
 
     def add_message(self, *messages: ChatMessage):
@@ -298,6 +314,8 @@ class Thread(MongoBaseModel):
         yield tool_message
 
 
+
+
 async def prompt(
     messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
     tools: List[dict] = None,
@@ -331,7 +349,6 @@ def get_thread(name: str, user: dict, create_if_missing: bool = False):
     return thread
 
 
-
 async def interactive_chat():
     user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
     agent = get_default_agent() # eve
@@ -345,7 +362,7 @@ async def interactive_chat():
     
     while True:
         try:
-            message_input = input("\033[92m\033[1mUser:\t")
+            message_input = "this is a thing [http://nhl.com]" #input("\033[92m\033[1mUser:\t")
             if message_input.lower() == 'escape':
                 break
             
@@ -366,13 +383,63 @@ def preprocess_message(message):
     metadata_pattern = r'\{.*?\}'
     attachments_pattern = r'\[.*?\]'
     metadata_match = re.search(metadata_pattern, message)
-    attachments_match = re.search(attachments_pattern, message)
+    attachments_matches = re.findall(r'\[(.*?)\]', message)
+    
     metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+    
+    attachments = []
+    for match in attachments_matches:
+        urls = match.split(',')
+        attachments.extend([url.strip() for url in urls])
+    
     clean_message = re.sub(metadata_pattern, '', message)
     clean_message = re.sub(attachments_pattern, '', clean_message).strip()
+    print("clean message", clean_message)
+    print("metadata", metadata)
+    print("attachments", attachments)   
     return clean_message, metadata, attachments
+
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(interactive_chat())
+
+
+
+
+
+# async_create?
+async def anthropic_prompt(
+    messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
+    response_model = BaseModel,
+    model: str = "claude-3-5-sonnet-20240620"
+) -> ChatMessage: 
+    client = instructor.from_anthropic(
+        anthropic.Anthropic(),
+    )
+    response = client.messages.create(
+        model=model,
+        response_model=response_model,
+        messages=messages,
+        max_tokens=1024,
+        max_retries=5,
+    )
+    return response
+
+
+async def openai_prompt(
+    messages: List[Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]],
+    response_model = BaseModel,
+    model: str = "gpt-4-turbo"
+) -> ChatMessage: 
+    client = instructor.from_openai(
+        openai.AsyncOpenAI(), 
+        mode=instructor.Mode.TOOLS
+    )
+    response = await client.chat.completions.create(
+        model=model,
+        response_model=response_model,
+        messages=messages,
+        max_retries=5,
+    )
+    return response
