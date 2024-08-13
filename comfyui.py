@@ -509,6 +509,7 @@ else:
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", 
         "moodmix", "inpaint", "background_removal",
+        "flux"
     ]
     private_workflows = [
         "private_workflows/xhibit/vton", "private_workflows/xhibit/remix", "private_workflows/beeple_ai",
