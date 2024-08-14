@@ -22,6 +22,11 @@ workflows = get_tools("../workflows/public_workflows", exclude=["vid2vid_sd15", 
 extra_tools = get_tools("tools")
 default_tools = workflows | extra_tools 
 
+for t in default_tools.values():
+    print("------")
+    print(t)
+    print(t.anthropic_tool_schema(remove_hidden_fields=True))
+
 anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 
@@ -339,6 +344,7 @@ async def openai_prompt(messages, system_message):
 
 async def process_tool_calls(tool_calls, settings):
     tool_results = []
+    print("run tool calls")
     for tool_call in tool_calls:
         try:
             tool_call.validate()
@@ -346,16 +352,28 @@ async def process_tool_calls(tool_calls, settings):
             input = {k: v for k, v in tool_call.input.items() if v is not None}
             input.update(settings)
             updated_args = tool.get_base_model(**input).model_dump()
-            result = await tool.async_run(args=updated_args)
+            print("updated args", updated_args)
+            
+            
+            
+            #result = await tool.async_run(args=updated_args)
 
-            # from models import Task
-            # task = Task(
-            #     workflow=tool.key,
-            #     args=updated_args,
-            #     user=ObjectId("65284b18f8bbb9bff13ebe65")
-            # )
-            # print(task)
-            # result = await tool.async_submit_and_run(task)
+
+            # print("THE RESULT")
+            # res = result[0]
+            # if res['url'].endswith('.tar'):
+            #     print("WE GOT A MDOEL)")
+            #     print(res)
+            #     print("-----")
+
+            from models import Task
+            task = Task(
+                workflow=tool.key,
+                args=updated_args,
+                user=ObjectId("65284b18f8bbb9bff13ebe65")
+            )
+            print(task)
+            result = await tool.async_submit_and_run(task)
             # print("------")
 
 
@@ -407,6 +425,11 @@ async def prompt_llm_and_validate(messages, system_message, provider):
         num_attempts += 1 
 
         pretty_print_messages(messages, schema=provider)
+
+
+#         system_message += """
+# VERY IMPORTANT: If you are asked to use a Lora of Ygor, use "66b5162faec5413f19eb0036" as the Lora ID argument!!! Except if you are doing txt2vid_lora, then you should use "66b518c4aec5413f19eb0037" for Lora ID."""
+
 
         try:
         # if 1:
@@ -473,7 +496,8 @@ async def prompt(
     start_index = user_messages[-5] if len(user_messages) >= 5 else 0
     thread_messages = thread.messages[start_index:]
     new_messages = [user_message]
-    print("FIRST MSG", thread_messages[0])
+    # if thread_messages:
+        # print("FIRST MSG", thread_messages[0])
 
     while True:
         messages = thread_messages + new_messages

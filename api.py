@@ -27,7 +27,7 @@ from tool import get_tools
 from models import tasks
 
 
-tools = get_tools("../workflows/public_workflows") | get_tools("tools") | get_tools("../workflows/private_workflows")
+tools = get_tools("../workflows/public_workflows") | get_tools("tools", exclude=["story"]) | get_tools("../workflows/private_workflows")
 print("Tools", tools)
 
 
@@ -47,6 +47,9 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
+        if "agent" not in request:
+            request["agent"] = request.get("user")
+        request.pop("user")
         task = Task(**request)
         print("new task", task)
         tool = tools[task.workflow]
@@ -175,6 +178,10 @@ async def replicate_update(request: Request):
         raise Exception("Task not found")
     
     task = Task(**task)
+
+
+
+
 
     if status == "failed":
         task.status = "failed"
