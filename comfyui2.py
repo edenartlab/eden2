@@ -27,7 +27,7 @@ GPUs = {
 prod_env = os.getenv("APP", "STAGE").lower()
 env_name = os.getenv("ENV").lower()
 
-available_envs = ["txt2img", "video"]
+available_envs = ["txt2img", "video", "audio", "flux"]
 if env_name not in available_envs:
     raise Exception(f"Invalid environment: {env_name}. Available options: {', '.join(available_envs)}")
 if prod_env not in ["prod", "stage"]:
