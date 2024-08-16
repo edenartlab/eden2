@@ -18,8 +18,9 @@ parameters:
   required: true
   min_length: 1
 - name: sd_model_version
-  label: Base Model
+  label: Base SD Model
   description: Base Stable Diffusion model to finetune from
+  tip: Almost always, we want to train and SDXL LoRa. Only when we want to make animatediff animations do we need an sd15 lora.
   type: string
   choices: [sdxl, sd15]
   default: sdxl
@@ -32,21 +33,21 @@ parameters:
 - name: max_train_steps
   label: Training steps
   description: Maximum number of training steps to loop through your training dataset
-  tip: This should be left at the default 400 when SDXL is the base model, unless the user *specifically* instructs you otherwise. If the base model is SD1.5, then you should *change* this to 900, again unless the user specifically requests something else.
+  tip: This should be left at the default 300 when SDXL is the base model, unless the user *specifically* instructs you otherwise. If the base model is SD15, then you should *change* this to 800, again unless the user specifically requests something else.
   type: int
-  default: 400
+  default: 350
   minimum: 100
-  maximum: 1500
-  step: 1
+  maximum: 1200
+  step: 10
 - name: resolution
   label: Resolution
-  description: Square pixel resolution which your images will be resized to for training
-  tip: Do not change this unless you are specifically instructed to.
+  description: Target resolution which your images will be resized to for training
+  tip: Do not change this unless you are specifically instructed to. Highly recommended to train at 512 for optimal speed and at 768 for best quality.
   type: int
   default: 512
   minimum: 512
-  maximum: 640
-  step: 1
+  maximum: 768
+  step: 128
 - name: seed
   label: Seed
   description: Set random seed for reproducibility. If blank, will be set randomly.
