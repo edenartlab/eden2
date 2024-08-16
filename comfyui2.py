@@ -25,11 +25,9 @@ GPUs = {
 }
 
 prod_env = os.getenv("APP", "STAGE").lower()
-env_name = os.getenv("ENV").lower()
+env_name = os.getenv("ENV", "").lower()
+test_workflows = os.getenv("WORKFLOWS")
 
-available_envs = ["txt2img", "video"]
-if env_name not in available_envs:
-    raise Exception(f"Invalid environment: {env_name}. Available options: {', '.join(available_envs)}")
 if prod_env not in ["prod", "stage"]:
     raise Exception(f"Invalid environment: {prod_env}. Must be PROD or STAGE")
 
@@ -90,6 +88,7 @@ image = (
     .copy_local_dir(f"../workflows/environments/{env_name}", "/root/env")
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+    .env({"WORKFLOWS": test_workflows})
 )
 
 gpu = modal.gpu.A100()
@@ -114,16 +113,20 @@ app = modal.App(
     volumes={"/data": downloads_vol},
     concurrency_limit=3,
     container_idle_timeout=60,
-    timeout=60,
+    timeout=6000,
 )
 class ComfyUI:
     
     def _start(self, port=8188):
+        print("Start sertver")
+        t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
         cmd = f"python main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
             time.sleep(1)
+        t2 = time.time()
+        self.launch_time = t2 - t1
 
     def _execute(self, workflow_name: str, args: dict):
         print("args", workflow_name, args)
@@ -136,20 +139,19 @@ class ComfyUI:
         print("comfyui outputs", outputs)
         output = outputs.get(str(tool_.comfyui_output_node_id))
         if not output:
-            raise Exception(f"No output found at output node") 
+            raise Exception(f"No output found for {workflow_name} at output node {tool_.comfyui_output_node_id}") 
         return output
 
     @modal.method()
     def run(self, workflow_name: str, args: dict):
-        tool_ = tool.load_tool(f"/root/env/workflows/{workflow_name}")
         output = self._execute(workflow_name, args)
-        result = tool_.process_output(output)
+        result = utils.upload_media(output)
         return result
 
+
     @modal.method()
-    def api(self, task: dict):
+    def run_task(self, task: dict):
         task = Task(**task)
-        tool_ = tool.load_tool(f"/root/env/workflows/{task.workflow}")
 
         start_time = datetime.utcnow()
         queue_time = (start_time - task.createdAt).total_seconds()
@@ -161,28 +163,28 @@ class ComfyUI:
         
         try:
             output = self._execute(task.workflow, task.args)
-            result = tool_.process_output(output)            
+            result = utils.upload_media(output)
             task_update = {
                 "status": "completed", 
                 "result": result
             }
+            return task_update
         
         except Exception as e:
-            print("Task failed", e)
             task_update = {"status": "failed", "error": str(e)}
+            raise e
         
-        run_time = datetime.utcnow() - start_time
-        task_update["performance.runTime"] = run_time.total_seconds()
-        task.update(task_update)
-
-        return task_update
+        finally:
+            run_time = datetime.utcnow() - start_time
+            task_update["performance.runTime"] = run_time.total_seconds()
+            task.update(task_update)
 
     @modal.enter()
     def enter(self):
         self._start()
 
     @modal.build()
-    def download(self):
+    def download_files(self):
         downloads = json.load(open("/root/env/downloads.json", 'r'))
         for path, url in downloads.items():
             comfy_path = pathlib.Path("/root") / path
@@ -201,29 +203,37 @@ class ComfyUI:
                 raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
             if not pathlib.Path(comfy_path).exists():
                 raise Exception(f"No file found at {comfy_path}")
-
+            
     @modal.build()
-    def test(self):
+    def test_workflows(self):
         t1 = time.time()
         self._start()
         t2 = time.time()
+
         results = {"_performance": {"launch": t2 - t1}}
         workflows_dir = pathlib.Path("/root/env/workflows")
         workflow_names = [f.name for f in workflows_dir.iterdir() if f.is_dir()]
+        test_workflows = os.getenv("WORKFLOWS")
+        if test_workflows:
+            test_workflows = test_workflows.split(",")
+            if not all([w in workflow_names for w in test_workflows]):
+                raise Exception(f"One or more invalid workflows found: {', '.join(test_workflows)}")
+            workflow_names = test_workflows
+
+        if not workflow_names:
+            raise Exception("No workflows found")
+
         for workflow in workflow_names:
-            tool_ = tool.load_tool(f"/root/env/workflows/{workflow}")
             t1 = time.time()
-            output = self._execute(workflow, tool_.test_args)
+            test_args = tool.load_tool(f"/root/env/workflows/{workflow}").test_args
+            output = self._execute(workflow, test_args)
             if not output:
                 raise Exception(f"No output from {workflow} test")
-            result = tool_.process_output(output)
+            result = utils.upload_media(output)
             t2 = time.time()
             results[workflow] = result
             results["_performance"][workflow] = t2 - t1
-        t3 = time.time()
-        self._start(port=8194)
-        t4 = time.time()
-        results["_performance"]["launch2"] = t4 - t3
+        results["_performance"]["launch0"] = self.launch_time
         with open("_test_results_.json", "w") as f:
             json.dump(results, f, indent=4)
 
@@ -331,7 +341,7 @@ class ComfyUI:
         extracted_files = os.listdir(destination_folder)
         print("tl, extracted files", extracted_files)
         
-        # Find the base name X for the files X.safetensors and X_embeddings.safetensors
+        # find the base name X for the files X.safetensors and X_embeddings.safetensors
         base_name = None
         pattern = re.compile(r"^(.+)_embeddings\.safetensors$")
         for file in extracted_files:
@@ -345,13 +355,13 @@ class ComfyUI:
         if base_name is None:
             raise FileNotFoundError("No matching files found for pattern X_embeddings.safetensors.")
         
-        lora_filename = f"{base_name}.safetensors"
+        lora_filename = f"{base_name}_lora.safetensors"
         embeddings_filename = f"{base_name}_embeddings.safetensors"
 
         # hack to correct for older lora naming convention
         if str(lora_filename) not in extracted_files:
             print("Old lora naming convention detected. Correcting...")
-            lora_filename = f"{base_name}_lora.safetensors"
+            lora_filename = f"{base_name}.safetensors"
             print("tl, old lora filename", lora_filename)
 
         for file in [lora_filename, embeddings_filename]:
@@ -378,7 +388,7 @@ class ComfyUI:
         shutil.copy(embeddings_path, embeddings_copy_path)
         print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
         
-        return lora_filename, base_name
+        return lora_filename
 
     def _url_to_filename(self, url):
         filename = url.split('/')[-1]
@@ -417,6 +427,7 @@ class ComfyUI:
                     raise Exception(f"Lora {lora_id} not found")
 
                 lora_url = lora.get("checkpoint")
+                embedding_trigger = lora.get("name")
                 print("LORA URL", lora_url)
                 if not lora_url:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
@@ -424,7 +435,7 @@ class ComfyUI:
                 # lora_url = args.get(param.name)
                 print("LORA URL 2", lora_url)
                 # if lora_url:
-                lora_filename, embedding_trigger = self._transport_lora(
+                lora_filename = self._transport_lora(
                     lora_url, 
                     downloads_folder="/root/downloads",
                     loras_folder="/root/models/loras",
