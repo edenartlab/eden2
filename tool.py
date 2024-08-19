@@ -67,6 +67,7 @@ class ToolParameter(BaseModel):
     default: Optional[Any] = Field(None, description="Default value")
     minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
     maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
+    step: Optional[float] = Field(None, description="Step size for number ranges")
     min_length: Optional[int] = Field(None, description="Minimum length for array type")
     max_length: Optional[int] = Field(None, description="Maximum length for array type")
     choices: Optional[List[Any]] = Field(None, description="Allowed values")

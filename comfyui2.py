@@ -27,7 +27,8 @@ GPUs = {
 prod_env = os.getenv("APP", "STAGE").lower()
 env_name = os.getenv("ENV", "").lower()
 test_workflows = os.getenv("WORKFLOWS")
-
+root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
+print("ROOT WORKFLOWS FOLDER", root_workflows_folder)
 if prod_env not in ["prod", "stage"]:
     raise Exception(f"Invalid environment: {prod_env}. Must be PROD or STAGE")
 
@@ -85,7 +86,7 @@ image = (
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
         "torchaudio", "pydub", "moviepy", "accelerate")
     .pip_install("bson").pip_install("pymongo") 
-    .copy_local_dir(f"../workflows/environments/{env_name}", "/root/env")
+    .copy_local_dir(f"../{root_workflows_folder}/environments/{env_name}", "/root/env")
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .env({"WORKFLOWS": test_workflows})
@@ -148,7 +149,6 @@ class ComfyUI:
         result = utils.upload_media(output)
         return result
 
-
     @modal.method()
     def run_task(self, task: dict):
         task = Task(**task)
@@ -158,7 +158,7 @@ class ComfyUI:
 
         task.update({
             "status": "running",
-            "performance": {"queueTime": queue_time}
+            "performance": {"waitTime": queue_time}
         })
         
         try:
@@ -221,7 +221,7 @@ class ComfyUI:
             workflow_names = test_workflows
 
         if not workflow_names:
-            raise Exception("No workflows found")
+            raise Exception("No workflows found!")
 
         for workflow in workflow_names:
             t1 = time.time()
@@ -280,7 +280,7 @@ class ComfyUI:
                 error_str = ", ".join(errors)
                 print("error", error_str)
                 raise Exception(error_str)
-            
+
             for _ in history['outputs']:
                 for node_id in history['outputs']:
                     node_output = history['outputs'][node_id]
@@ -293,6 +293,11 @@ class ComfyUI:
                         outputs[node_id] = [
                             os.path.join("output", video['subfolder'], video['filename'])
                             for video in node_output['gifs']
+                        ]
+                    elif 'audio' in node_output:
+                        outputs[node_id] = [
+                            os.path.join("output", audio['subfolder'], audio['filename'])
+                            for audio in node_output['audio']
                         ]
             
             print("comfy outputs", outputs)
@@ -377,13 +382,13 @@ class ComfyUI:
         embeddings_path = os.path.join(destination_folder, embeddings_filename)
 
         # copy lora file to loras folder
-        lora_filename = lora_filename.replace("_lora.safetensors", ".safetensors")  
+        # lora_filename = lora_filename.replace("_lora.safetensors", ".safetensors")  
         lora_copy_path = os.path.join(loras_folder, lora_filename)
         shutil.copy(lora_path, lora_copy_path)
         print(f"LoRA {lora_path} has been moved to {lora_copy_path}.")
 
         # copy embedding file to embeddings folder
-        embeddings_filename = embeddings_filename.replace("_embeddings.safetensors", ".safetensors") 
+        # embeddings_filename = embeddings_filename.replace("_embeddings.safetensors", ".safetensors") 
         embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
         shutil.copy(embeddings_path, embeddings_copy_path)
         print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
@@ -427,7 +432,12 @@ class ComfyUI:
                     raise Exception(f"Lora {lora_id} not found")
 
                 lora_url = lora.get("checkpoint")
-                embedding_trigger = lora.get("name")
+                lora_name = lora.get("name")
+                pretrained_model = lora.get("args").get("sd_model_version")
+                embedding_trigger = f"{lora_name}_{pretrained_model}_embeddings"
+
+                print("THE EMEBEDDING TRIGGER IS", embedding_trigger)
+                
                 print("LORA URL", lora_url)
                 if not lora_url:
                     raise Exception(f"Lora {lora_id} has no checkpoint")

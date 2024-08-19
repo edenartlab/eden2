@@ -1,6 +1,6 @@
 from bson import ObjectId
-from typing import Dict, Any, Optional, List
-from mongo import MongoBaseModel, agents, tasks, models, users, threads
+from typing import Dict, Any, Optional
+from mongo import MongoBaseModel, tasks, models, users
 
 
 class Model(MongoBaseModel):
@@ -42,6 +42,7 @@ class Task(MongoBaseModel):
     status: str = "pending"
     error: Optional[str] = None
     result: Optional[Any] = None
+    performance: Optional[Dict[str, Any]] = {}
 
     def __init__(self, **data):
         if isinstance(data.get('user'), str):
@@ -51,6 +52,9 @@ class Task(MongoBaseModel):
     @classmethod
     def from_id(self, document_id: str):
         return super().from_id(self, tasks, document_id)
+
+    def reload(self):
+        super().reload(self, tasks)
 
     def save(self):
         super().save(self, tasks)

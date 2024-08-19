@@ -5,29 +5,23 @@ import random
 import asyncio
 import modal
 from enum import Enum
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
-from models import Task
+from models import Task, Model
 import utils
-import s3
+import s32 as s3
 
 env = os.getenv("ENV", "STAGE")
-DEFAULT_APP_NAME = "comfyui" if env == "PROD" else "comfyui-dev"
+MODAL_APP_PREFIX = "comfyui" if env == "PROD" else "comfyui-dev"
 
 
 TYPE_MAPPING = {
-    "bool": bool,
-    "string": str,
-    "int": int,
-    "float": float,
-    "image": str,
-    "video": str,
-    "audio": str,
-    "zip": str,
-    "lora": str
+    "bool": bool, "string": str, "int": int, "float": float, 
+    "image": str, "video": str, "audio": str, "zip": str, "lora": str
 }
 
 class ParameterType(str, Enum):
@@ -50,11 +44,18 @@ class ParameterType(str, Enum):
     ZIP_ARRAY = "zip[]"
     LORA_ARRAY = "lora[]"
 
-FILE_TYPES = [ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO]
+FILE_TYPES = [
+    ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
+]
 
-FILE_ARRAY_TYPES = [ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY]
+FILE_ARRAY_TYPES = [
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY
+]
 
-ARRAY_TYPES = [ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY]
+ARRAY_TYPES = [
+    ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, 
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
+]
 
 
 class ToolParameter(BaseModel):
@@ -149,7 +150,7 @@ class Tool(BaseModel):
             "function": openai_schema(tool_model).openai_schema
         }
 
-    def prepare_args(self, user_args, save_files=False):
+    def prepare_args(self, user_args):
         args = {}
         for param in self.parameters:
             key = param.name
@@ -174,55 +175,74 @@ class Tool(BaseModel):
 
         return args
 
-    def run_tool(run_method):
-        async def wrapper(self, args: Dict, mock=False):
+    def get_user_result(self, result):
+        for r in result:
+            if "filename" in r:
+                filename = r.pop("filename")
+                r["url"] = f"{s3.get_root_url()}{filename}"
+        return result
+    
+    def handle_run(run_function):
+        async def wrapper(self, args: Dict, *args_, **kwargs):
             args = self.prepare_args(args)
-            if mock:
-                return utils.mock_image(args)        
-            result = await run_method(self, args)
-            return result
+            result = await run_function(self, args, *args_, **kwargs)
+            return self.get_user_result(result)
         return wrapper
 
-    def process_output(self, output):
-        result = []
-        for o in output:
-            media_attributes, thumbnail = utils.get_media_attributes(o)
-            url = s3.upload_file(o)
-            thumbnail = utils.PIL_to_bytes(thumbnail)
-            thumbnail_url = s3.upload_buffer(thumbnail, webp=True)
-            result.append({
-                "url": url,
-                "thumbnail": thumbnail_url,
-                "metadata": None,
-                "mediaAttributes": media_attributes
-            })
-        return result
+    def handle_submit(submit_function):
+        async def wrapper(self, task: Task, *args, **kwargs):
+            task.args = self.prepare_args(task.args)
+            handler_id = await submit_function(self, task, *args, **kwargs)
+            task.status = "pending"
+            task.handler_id = handler_id
+            task.save()
+            return handler_id
+        return wrapper
 
+    def handle_cancel(cancel_function):
+        async def wrapper(self, task: Task):            
+            cancel_function()
+            task.status = "cancelled"
+            task.save()
+        return wrapper
 
-class ModalTool(Tool):
-
-    def submit(self, task: Task):
-        task.args = self.prepare_args(task.args)
-        function = modal.Function.lookup("handlers", "submit")
-        job = function.spawn(self.key, task.to_mongo())
-        return job.object_id
+    async def async_submit_and_run(self, task: Task):
+        await self.async_submit(task)
+        result = await self.async_process(task)
+        return result 
 
     def run(self, args: Dict):
         return asyncio.run(self.async_run(args))
 
-    async def async_run(self, args: Dict, mock=False):
-        args = self.prepare_args(args)
-        if mock:
-            return utils.mock_image(args)
-        function = modal.Function.lookup("handlers", "run")
-        result = await function.remote.aio(self.key, args)
+    def submit(self, task: Task):
+        return asyncio.run(self.async_submit(task))
+
+    def submit_and_run(self, task: Task):
+        return asyncio.run(self.async_submit_and_run(task))
+
+
+
+class ModalTool(Tool):
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        func = modal.Function.lookup("handlers", "run")
+        result = await func.remote.aio(self.key, args)
         return result
+
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        job = self.func.spawn(self.key, task.to_mongo())
+        return job.object_id
     
+    async def async_process(self, task: Task):
+        fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        result = await fc.get.aio()
+        return result 
+
+    @Tool.handle_cancel
     def cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         fc.cancel()
-        task.status = "cancelled"
-        task.save()
 
 
 class ComfyUIInfo(BaseModel):
@@ -238,44 +258,85 @@ class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     env: str
+    cls: Any = None
 
-    @Tool.run_tool
+    def __init__(self, data, key):
+        super().__init__(data, key)
+
+    @Tool.handle_run
     async def async_run(self, args: Dict):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        result = await cls().run.remote.aio(self.key, args)
-        return result
+        cls = modal.Cls.lookup(f"{MODAL_APP_PREFIX}-{self.env}".lower(), "ComfyUI")
+        return await cls().run.remote.aio(self.key, args)
 
+    @Tool.handle_submit
     async def async_submit(self, task: Task):
-        task.args = self.prepare_args(task.args)
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        job = await cls().api.spawn.aio(task.to_mongo())
+        cls = modal.Cls.lookup(f"{MODAL_APP_PREFIX}-{self.env}".lower(), "ComfyUI")
+        job = await cls().run_task.spawn.aio(task.to_mongo())
         return job.object_id
-        
-    async def async_submit_and_run(self, task: Task):
-        job_id = self.submit(task)
-        fc = modal.functions.FunctionCall.from_id(str(job_id))
-        result = await fc.get.aio()
-        return result    
+    
+    async def async_process(self, task: Task):
+        fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        await fc.get.aio()
+        task.reload()
+        return self.get_user_result(task.result)
 
+    @Tool.handle_cancel
     def cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         fc.cancel()
-        task.status = "cancelled"
-        task.save()
-
-    def run(self, args: Dict):
-        return asyncio.run(self.async_run(args))
-
-    def submit(self, task: Task):
-        return asyncio.run(self.async_submit(task))
-
-    def submit_and_run(self, task: Task):
-        return asyncio.run(self.async_submit_and_run(task))
 
 
 class ReplicateTool(Tool):
     model: str
     output_handler: str = "normal"
+
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        args = self._format_args_for_replicate(args)
+        prediction = self._create_prediction(args, webhook=False)        
+        await prediction.async_wait()        
+        if self.output_handler == "eden":
+            return [{"url": prediction.output[-1]["files"][0]}]
+        elif self.output_handler == "trainer":
+            return [{"url": prediction.output[-1]["thumbnails"][0]}]
+        else:
+            return [{"url": url for url in prediction.output}]
+
+    @Tool.handle_submit
+    async def async_submit(self, task: Task, webhook: bool = True):
+        args = self._format_args_for_replicate(task.args)
+        prediction = self._create_prediction(args, webhook=webhook)
+        return prediction.id
+
+    async def async_process(self, task: Task):
+        import replicate
+        status = "starting"
+        prediction = await replicate.predictions.async_get(task.handler_id)
+        while True: 
+            if prediction.status != status:
+                status = prediction.status
+                result = replicate_update_task(
+                    task,
+                    status, 
+                    prediction.error, 
+                    prediction.output, 
+                    self.output_handler
+                )
+                if result["status"] in ["error", "canceled", "completed"]:
+                    return self.get_user_result(result)
+            await asyncio.sleep(0.5)
+            prediction.reload()
+
+    async def async_submit_and_run(self, task: Task):
+        await self.async_submit(task, webhook=False)
+        result = await self.async_process(task)
+        return result
+
+    @Tool.handle_cancel
+    def cancel(self, task: Task):
+        import replicate
+        prediction = replicate.predictions.get(task.handler_id)
+        prediction.cancel()
 
     def _format_args_for_replicate(self, args):
         new_args = args.copy()
@@ -315,122 +376,88 @@ class ReplicateTool(Tool):
             )
         return prediction
 
-    def submit(self, task: Task):
-        task.args = self.prepare_args(task.args)
-        args = self._format_args_for_replicate(task.args)
-        prediction = self._create_prediction(args)
-        return prediction.id
+
+def replicate_update_task(task: Task, status, error, output, output_handler):
+    print("LIVE UPDATE TASK")
+    if status == "failed":
+        task.status = "error"
+        task.error = error
+        task.save()
+        return {"status": "error", "error": error}
     
-    def run(self, args: Dict):
-        return asyncio.run(self.async_run(args))
-
-    async def async_run(self, args: Dict, mock=False):
-        # if self.output_handler == "trainer":
-        #     return [{"url": "https://edenartlab-stage-data.s3.amazonaws.com/621da9fe428b61f3aca62445338cb34dbf65349bcf0cf47cfebf12c5ea0d448b.webp", "name": "Ygor", "model": "66b5162faec5413f19eb0036"}]
+    elif status == "canceled":
+        task.status = "canceled"
+        task.save()
+        return {"status": "canceled"}
+    
+    elif status == "processing":
+        print("WAIT TIME IS", (datetime.utcnow() - task.createdAt).total_seconds())
+        task.performance["waitTime"] = (datetime.utcnow() - task.createdAt).total_seconds()
+        task.status = "running"
+        task.save()
+        print("The task now")
+        print(task)
+        return {"status": "running"}
+    
+    elif status == "succeeded":
         
-        args = self.prepare_args(args)
-        args = self._format_args_for_replicate(args)
-        if mock:
-            return utils.mock_image(args)
-        prediction = self._create_prediction(args, webhook=False)
-        prediction.wait()
-        if self.output_handler == "eden":
-            return [{"url": prediction.output[-1]["files"][0]}]
-        elif self.output_handler == "trainer":
-            # print("GOT A TRAINER")
-            # print(args)
-            # model_id = replicate_process_eden_model_temp(prediction.output, args, save_model=True)
-            # print("HERE IS THE REUSLT")
-            # print([{"url": prediction.output[-1]["thumbnails"][0], "name": args["name"], "model": model_id}])
-            return [{"url": prediction.output[-1]["thumbnails"][0]}]
-        else:
-            return [{"url": url for url in prediction.output}]
+        if output_handler == "normal":
+            result = utils.upload_media(output)
+        
+        elif output_handler in ["trainer", "eden"]:
+            result = replicate_process_eden(output)
 
-    async def async_submit_and_run(self, task: Task):
-        task.args = self.prepare_args(task.args)
-        args = self._format_args_for_replicate(task.args)
-        prediction = self._create_prediction(args)
-        prediction.wait()
-        if self.output_handler == "eden":
-            return [{"url": prediction.output[-1]["files"][0]}]
-        elif self.output_handler == "trainer":
-            return [{"url": prediction.output[-1]["thumbnails"][0]}]
-        else:
-            return [{"url": url for url in prediction.output}]
-
-    def submit_and_run(self, task: Task):
-        return asyncio.run(self.async_submit_and_run(task))
-
-    def cancel(self, task: Task):
-        import replicate
-        prediction = replicate.predictions.get(task.handler_id)
-        prediction.cancel()
-        task.status = "cancelled"
+            if output_handler == "trainer":
+                model = Model(
+                    name=task.args["name"],
+                    user=task.user,
+                    args=task.args,
+                    task=task.id,
+                    checkpoint=result[0]["url"], 
+                    thumbnail=result[0]["thumbnail"]
+                )
+                model.save()
+                result[0]["model"] = model.id
+        
+        run_time = (datetime.utcnow() - task.createdAt).total_seconds()
+        if task.performance.get("waitTime"):
+            run_time -= task.performance["waitTime"]
+        task.performance["runTime"] = run_time
+        
+        task.status = "completed"
+        task.result = result
         task.save()
 
+        return {"status": "completed", "result": result}
 
 
+def replicate_process_eden(output):
+    output = output[-1]
+    if not output or "files" not in output:
+        raise Exception("No output found")         
 
-# def replicate_process_eden_model_temp(output, args, save_model=False):
-#     import s3
-#     from bson import ObjectId
-#     from models import Model
-#     import utils
-#     print("TT 1")
-#     try:
-#         print("TT 2")
-#         output = output[-1]
-#         print(output)
-#         if not output or "files" not in output:
-#             raise Exception("No output found")         
-
-#         file_url = s3.upload_file_from_url(output["files"][0])
-#         metadata = output.get("attributes")
-
-#         if save_model:
-#             media_attributes = {"type": "application/x-tar"}
-#             thumbnail_url = s3.upload_file_from_url(output["thumbnails"][0], webp=True)
-        
-#             model = Model(
-#                 name=args["name"],
-#                 user=ObjectId("65284b18f8bbb9bff13ebe65"),
-#                 args=args,
-#                 task=ObjectId("65284b18f8bbb9bff13ebe65"),
-#                 checkpoint=file_url, 
-#                 thumbnail=thumbnail_url
-#             )
-#             model.save()
-        
-#             return model.id
-#             # task.result = [{
-#             #     "url": file_url,
-#             #     "thumbnail": thumbnail_url,
-#             #     "metadata": metadata,
-#             #     "mediaAttributes": media_attributes,
-#             #     "model": model.id
-#             # }]
-            
-#         else:
-#             media_attributes, thumbnail = utils.get_media_attributes(file_url)
-#             thumbnail_url = s3.upload_buffer(utils.PIL_to_bytes(thumbnail), webp=True) if thumbnail else None
-
-#             # task.result = [{
-#             #     "url": file_url,
-#             #     "thumbnail": thumbnail_url,
-#             #     "metadata": metadata,
-#             #     "mediaAttributes": media_attributes
-#             # }]
-
-#         # task.status = "completed"
+    results = []
     
-#     except Exception as e:
-#         # task.status = "failed"
-#         # task.error = str(e)
-#         print("ERROR")
-#         print(e)
+    for file, thumb in zip(output["files"], output["thumbnails"]):
+        file_url, _ = s3.upload_file_from_url(file)
+        metadata = output.get("attributes")
+        media_attributes, thumbnail = utils.get_media_attributes(file_url)
 
+        result = {
+            "url": file_url,
+            "metadata": metadata,
+            "mediaAttributes": media_attributes
+        }
 
+        thumbnail = thumbnail or thumb or None
+        if thumbnail:
+            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp')
+            result["thumbnail"] = thumbnail_url
 
+        results.append(result)
+
+    return results
+    
 
 def create_tool_base_model(tool: Tool, remove_hidden_fields=False):
     fields = {
@@ -499,15 +526,8 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {api_path}: {e}")
     if data['handler'] == 'comfyui':
-        env = tool_path.split("/")[-3]
-        print("THE ENV IS", env)
-        data["env"] = env
-        print(data.keys())
-        print(data)
-        print("done 1")
+        data["env"] = tool_path.split("/")[-3]
         tool = ComfyUITool(data, key=name)
-        print("done 2")
-        print("THE TOOL IS", tool)
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
     else:
@@ -516,17 +536,22 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
     return tool
 
 
-def get_tools(tools_folder: str, exclude: List[str] = []):
+def get_tools(tools_folder: str):
     required_files = {'api.yaml', 'test.json'}
     tools = {}
-    exclude_set = set(exclude) | {"_dev"}  # exclude worklows/_dev folder 
     for root, dirs, files in os.walk(tools_folder):
-        dirs[:] = [d for d in dirs if os.path.relpath(os.path.join(root, d), start=tools_folder) not in exclude_set]
         name = os.path.relpath(root, start=tools_folder)
-        if "." in name or name in exclude_set or not required_files <= set(files):
+        if "." in name or not required_files <= set(files):
             continue
         tools[name] = load_tool(os.path.join(tools_folder, name), name)
     return tools
+
+
+def get_comfyui_tools(envs_dir: str):
+    return {
+        k: v for env in os.listdir(envs_dir) 
+        for k, v in get_tools(f"{envs_dir}/{env}/workflows").items()
+    }
 
 
 def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
@@ -537,12 +562,10 @@ def get_tools_summary(tools: List[Tool], include_params=False, include_requireme
 
 
 def get_human_readable_error(error_list):
-    # print("error_list", error_list)
     errors = []
     for error in error_list:
         field = error['loc'][0]
         error_type = error['type']
-        input_value = error['input']
         if error_type == 'string_type':
             errors.append(f"{field} is missing")
         elif error_type == 'list_type':
