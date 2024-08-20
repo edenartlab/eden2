@@ -88,6 +88,7 @@ image = (
     .pip_install("bson").pip_install("pymongo") 
     .copy_local_dir(f"../{root_workflows_folder}/environments/{env_name}", "/root/env")
     .run_function(install_comfyui)
+    .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"})
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .env({"WORKFLOWS": test_workflows})
 )
