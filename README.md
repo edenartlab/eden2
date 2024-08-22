@@ -2,33 +2,23 @@
 
 Test a single workflow
 
-    python comfyui.py test --workflows NAME_OF_WORKFLOW
+    ENV=name_of_environment modal run comfyui.py
 
-Test multiple workflows
+Deploy a single workflow to stage.
 
-    python comfyui.py test --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...
+    ENV=name_of_environment modal deploy comfyui.py
 
-Test all workflows
+Deploy a single workflow to prod (dangerous).
 
-    python comfyui.py test
+    ENV=name_of_environment APP=prod modal deploy comfyui.py
 
-Push all workflows to staging:
 
-    python comfyui.py deploy
+## Todo
 
-Push all workflows to production:
+- test one workflow instead of all of them
+- re-evaluate naming conventions
 
-    python comfyui.py deploy --production
 
-Once workflows are pushed (to either stage or production), you can test the deployments using:
-
-    python tests/test_comfyui.py --workflows NAME_OF_WORKFLOW1,NAME_OF_WORKFLOW2,...
-
-Or test them all
-
-    python tests/test_comfyui.py
-
-To save all results to a local folder, include `--save` flag. To test production endpoints, use `--production`.
 
 
 # Tools API
@@ -46,12 +36,9 @@ Deploy api to production.
     ENV=PROD modal deploy api.py
 
 
-# Interactive mode for threads
+# Interactive mode for threads (WIP)
 
 To interact with an agent, run
 
     python thread.py
 
-To interact via client:
-
-    eden chat

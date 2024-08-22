@@ -16,6 +16,7 @@ else:
     DEFAULT_API_URL = "api.eden.art"
     DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
     
+    
 
 class EdenClient:
     def __init__(self):

@@ -1,5 +1,6 @@
 name: Clarity Upscaler
-description: Upscale an image
+description: Upscale an image.
+tip: This tool can **only** upscale images. It **cannot** upscale videos.
 output_type: image
 handler: replicate
 output_handler: normal

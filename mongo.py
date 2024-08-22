@@ -62,9 +62,18 @@ class MongoBaseModel(BaseModel):
         return data
 
     @classmethod
+    def reload(cls, instance, collection):
+        document = collection.find_one({"_id": instance.id})
+        if not document:
+            raise Exception("Document not found")
+        for key, value in document.items():
+            setattr(instance, key, value)
+        return instance
+
+    @classmethod
     def save(cls, document, collection):
         try:
-            cls.validate(document)
+            cls.model_validate(document)
         except ValidationError as e:
             print("Validation error:", e)
             return None
@@ -81,7 +90,7 @@ class MongoBaseModel(BaseModel):
     @classmethod
     def update(cls, document, collection, update_args):
         try:
-            cls.validate({**document.to_mongo(), **update_args})
+            cls.model_validate({**document.to_mongo(), **update_args})
         except ValidationError as e:
             print("Validation error:", e)
             return None
@@ -94,3 +103,4 @@ class MongoBaseModel(BaseModel):
             return collection.update_one({'_id': document_id}, {'$set': update_args})
         else:
             raise Exception("Document not found")
+

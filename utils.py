@@ -18,23 +18,41 @@ from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import s3
+import s32 as s3
+
+
+def upload_media(output):
+    result = []
+    for o in output:
+        file_url, sha = s3.upload_file(o)
+        filename = file_url.split("/")[-1]
+
+        media_attributes, thumbnail = get_media_attributes(o)
+
+        if thumbnail:
+            for width in [384, 768, 1024, 2560]:
+                img = thumbnail.copy()
+                img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
+                img_bytes = PIL_to_bytes(img)
+                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp')
+                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg')
+
+        result.append({
+            "filename": filename,
+            # "metadata": None,
+            "mediaAttributes": media_attributes
+        })
+
+    return result
 
 
 def get_media_attributes(file_path):
-    def process_thumbnail(thumbnail):
-        width, height = thumbnail.size
-        aspect_ratio = width / height
-        if height > 512:
-            tw, th = int(512 * aspect_ratio), 512
-            thumbnail = thumbnail.resize((tw, th))
-        return thumbnail, width, height, aspect_ratio
-    
-    url = file_path.startswith('http://') or file_path.startswith('https://')
-    if url:
+    is_url = file_path.startswith('http://') or file_path.startswith('https://')
+    if is_url:
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         file_path = download_file(file_path, temp_file.name, overwrite=True)
 
+    thumbnail = None
     mime_type = magic.from_file(file_path, mime=True)
     media_attributes = {
         "mimeType": mime_type,
@@ -43,35 +61,31 @@ def get_media_attributes(file_path):
     if 'image' in mime_type:
         image = Image.open(file_path)
         thumbnail = image.copy()
-        thumbnail, width, height, aspect_ratio = process_thumbnail(thumbnail)
+        width, height = thumbnail.size
         media_attributes.update({
             "width": width,
             "height": height,
-            "aspectRatio": aspect_ratio
+            "aspectRatio": width / height
         })
 
     elif 'video' in mime_type:
         video = VideoFileClip(file_path)
         thumbnail = Image.fromarray(video.get_frame(0).astype('uint8'), 'RGB')
-        thumbnail, width, height, aspect_ratio = process_thumbnail(thumbnail)
+        width, height = thumbnail.size
         media_attributes.update({
             "width": width,
             "height": height,
-            "aspectRatio": aspect_ratio,
+            "aspectRatio": width / height,
             "duration": video.duration
         })
 
     elif 'audio' in mime_type:
-        thumbnail = None
         media_attributes.update({
             "duration": get_media_duration(file_path)
         })
 
-    if url:
+    if is_url:
         os.remove(file_path)
-
-    print("THE MEDIA ATTRIBUTES ARE", media_attributes)
-    print("THE THUMBNAIL IS", thumbnail)
 
     return media_attributes, thumbnail
 
@@ -173,17 +187,24 @@ def download_image_to_PIL(url):
 
 
 def PIL_to_bytes(image, ext="JPEG", quality=95):
+    if image.mode == 'RGBA' and ext.upper() != 'PNG':
+        image = image.convert('RGB')
     img_byte_arr = BytesIO()
     image.save(img_byte_arr, format=ext, quality=quality)
     return img_byte_arr.getvalue()
 
 
-def url_to_image_data(url, max_size=(512, 512)):
-    img = download_image_to_PIL(url)
+def file_to_base64_data(file_path, max_size, quality=95, truncate=False):
+    img = Image.open(file_path).convert('RGB')
+    if isinstance(max_size, (int, float)):
+        w, h = img.size
+        ratio = min(1.0, ((max_size ** 2) / (w * h)) ** 0.5)
+        max_size = int(w * ratio), int(h * ratio)
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
-    img_bytes = PIL_to_bytes(img, ext="JPEG", quality=95)
+    img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")
-    data = f"data:image/jpeg;base64,{data}"
+    if truncate:
+        data = data[:64]+"..."
     return data
 
 
@@ -304,7 +325,6 @@ def mix_video_audio(video_path, audio_path, output_path):
         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-ac", "2",
         output_path,
     ]
-    print(cmd)
     subprocess.run(cmd, check=True)
 
 
@@ -448,3 +468,17 @@ def video_textbox(
     clip.write_videofile(output_file.name, fps=30, codec="libx264", audio_codec="aac")
 
     return output_file.name
+
+
+def custom_print(string, color):
+    colors = {
+        "red": "\033[91m",
+        "green": "\033[92m",
+        "yellow": "\033[93m",
+        "blue": "\033[94m",
+        "magenta": "\033[95m",
+        "cyan": "\033[96m",
+        "white": "\033[97m"
+    }
+    return f"{colors[color]}{string}\033[0m"
+    

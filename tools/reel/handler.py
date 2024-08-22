@@ -9,9 +9,9 @@ from typing import List, Optional, Literal
 import requests
 import instructor
 
-import s3
+import s32 as s3
 import voice
-import tool
+import tool2 as tool
 import utils
 
 
@@ -96,8 +96,9 @@ def write_reel(
     
 
 async def reel(args: dict, user: str = None):
-
-    try:
+    print("OS TJOS MY REL")
+    # try:
+    if 1:
 
         print("RUN A REEL!!!")
 
@@ -109,13 +110,19 @@ async def reel(args: dict, user: str = None):
         width = args.get("width")
         height = args.get("height")
         speech_boost = 5
+
+
+        if not min_duration:
+            raise Exception("min_duration is required")
+
+        print("ALL ARGS ARE", args)
         
         characters = extract_characters(prompt)
 
         if narrator:
             characters.append(Character(name="narrator", description="The narrator of the reel is a voiceover artist who provides some narration for the reel"))
         
-        print("characters", characters)
+        print("characters :: ", characters)
 
         voices = {
             c.name: voice.select_random_voice(c.description) 
@@ -137,9 +144,11 @@ async def reel(args: dict, user: str = None):
             "characters": [c.model_dump() for c in characters],
         }
 
+        print("metadata", metadata)
+
         speech_audio = None
         music_audio = None
-
+        print("NEXT")
         # generate speech
         if story.speech:
             speech_audio = voice.run(
@@ -162,8 +171,10 @@ async def reel(args: dict, user: str = None):
                 "model_name": "facebook/musicgen-large",
                 "duration_seconds": int(duration)
             })
+            print("THE MUSIC IS DONE!")
+            print(music)
             print("generated music", story.music_prompt)
-            music_bytes = requests.get(music[0]['files'][0]).content
+            music_bytes = requests.get(music[0]['url']).content
             music_audio = AudioSegment.from_file(BytesIO(music_bytes))
             metadata["music"] = s3.upload_audio_segment(music_audio)
 
@@ -178,15 +189,21 @@ async def reel(args: dict, user: str = None):
             audio = speech_audio
         elif music_audio:
             audio = music_audio
+        
+        print("THE AUDIO IS DONE!")
+        print(audio)
 
-        txt2vid = tool.load_tool("../workflows/txt2vid")
+        print("MAKE THE VIDEO!")
+        txt2vid = tool.load_tool("../workflows/environments/video/workflows/txt2vid")
         video = await txt2vid.async_run({
             "prompt": story.image_prompt,
             "n_frames": 128,
             "width": width,
             "height": height
         })
-        output_url = video[0]
+        print("THE VIDEO IS DONE!")
+        print(video)
+        output_url = video[0]["url"]
         print("txt2vid", output_url)
 
         if audio:
@@ -201,10 +218,10 @@ async def reel(args: dict, user: str = None):
         return [output_url], metadata
 
 
-    except asyncio.CancelledError as e:
-        print("asyncio CancelledError")
-        print(e)
-    except Exception as e:
-        print("normal error")
-        print(e)
+    # except asyncio.CancelledError as e:
+    #     print("asyncio CancelledError")
+    #     print(e)
+    # except Exception as e:
+    #     print("normal error")
+    #     print(e)
         
