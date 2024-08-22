@@ -66,6 +66,7 @@ class ToolParameter(BaseModel):
     type: ParameterType
     required: bool = Field(False, description="Indicates if the field is mandatory")
     hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
+    hide_from_ui: bool = Field(False, description="Hide from UI")
     default: Optional[Any] = Field(None, description="Default value")
     minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
     maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
@@ -231,7 +232,8 @@ class ModalTool(Tool):
 
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        job = self.func.spawn(self.key, task.to_mongo())
+        func = modal.Function.lookup("handlers", "submit")
+        job = func.spawn(task.to_mongo())
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -258,7 +260,7 @@ class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     env: str
-    cls: Any = None
+    #cls: Any = None
 
     def __init__(self, data, key):
         super().__init__(data, key)
@@ -294,13 +296,15 @@ class ReplicateTool(Tool):
     async def async_run(self, args: Dict):
         args = self._format_args_for_replicate(args)
         prediction = self._create_prediction(args, webhook=False)        
-        await prediction.async_wait()        
+        prediction.wait()
         if self.output_handler == "eden":
-            return [{"url": prediction.output[-1]["files"][0]}]
+            output = [prediction.output[-1]["files"][0]]
         elif self.output_handler == "trainer":
-            return [{"url": prediction.output[-1]["thumbnails"][0]}]
+            output = [prediction.output[-1]["thumbnails"][0]]
         else:
-            return [{"url": url for url in prediction.output}]
+            output = [url for url in prediction.output]
+        result = utils.upload_media(output)
+        return result
 
     @Tool.handle_submit
     async def async_submit(self, task: Task, webhook: bool = True):
@@ -310,7 +314,6 @@ class ReplicateTool(Tool):
 
     async def async_process(self, task: Task):
         import replicate
-        status = "starting"
         prediction = await replicate.predictions.async_get(task.handler_id)
         while True: 
             if prediction.status != status:
@@ -378,7 +381,6 @@ class ReplicateTool(Tool):
 
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
-    print("LIVE UPDATE TASK")
     if status == "failed":
         task.status = "error"
         task.error = error
@@ -391,16 +393,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "canceled"}
     
     elif status == "processing":
-        print("WAIT TIME IS", (datetime.utcnow() - task.createdAt).total_seconds())
         task.performance["waitTime"] = (datetime.utcnow() - task.createdAt).total_seconds()
         task.status = "running"
         task.save()
-        print("The task now")
-        print(task)
         return {"status": "running"}
     
     elif status == "succeeded":
-        
         if output_handler == "normal":
             result = utils.upload_media(output)
         
@@ -428,7 +426,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.result = result
         task.save()
 
-        return {"status": "completed", "result": result}
+        return {
+            "status": "completed", 
+            "result": result
+        }
 
 
 def replicate_process_eden(output):
@@ -543,7 +544,11 @@ def get_tools(tools_folder: str):
         name = os.path.relpath(root, start=tools_folder)
         if "." in name or not required_files <= set(files):
             continue
-        tools[name] = load_tool(os.path.join(tools_folder, name), name)
+        # temp hack to load vton and remix as xhibit/vton and xhibit/remix
+        if "xhibit" in tools_folder:
+            tools[f"xhibit/{name}"] = load_tool(os.path.join(tools_folder, name), name)
+        else:
+            tools[name] = load_tool(os.path.join(tools_folder, name), name)
     return tools
 
 

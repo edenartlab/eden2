@@ -50,11 +50,24 @@ def install_custom_nodes():
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
         print(f"Installing custom node {url} with hash {hash}")
-        install_custom_node(url, node['hash'])
+        install_custom_node_with_retries(url, node['hash'])
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
         os.system(cmd)
-    
+
+
+def install_custom_node_with_retries(url, hash, max_retries=3): 
+    for attempt in range(max_retries + 1):
+        try:
+            install_custom_node(url, hash)
+            return
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"Attempt {attempt + 1} failed. Retrying...")
+                time.sleep(5)
+            else:
+                print(f"All attempts failed. Error: {e}")
+                raise
 
 def install_custom_node(url, hash):
     repo_name = url.split("/")[-1].split(".")[0]
@@ -75,10 +88,12 @@ def install_custom_node(url, hash):
                 except Exception as e:
                     print(f"Error installing requirements: {e}")
 
-
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"APP": prod_env, "ENV": env_name})
+    .env({
+        "APP": prod_env, "ENV": env_name, "WORKFLOWS": test_workflows,
+        "COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models", 
+    }) 
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3",
@@ -88,9 +103,7 @@ image = (
     .pip_install("bson").pip_install("pymongo") 
     .copy_local_dir(f"../{root_workflows_folder}/environments/{env_name}", "/root/env")
     .run_function(install_comfyui)
-    .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"})
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
-    .env({"WORKFLOWS": test_workflows})
 )
 
 gpu = modal.gpu.A100()
@@ -132,6 +145,11 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict):
         print("args", workflow_name, args)
+        
+        # hack to fix xhibit aliases
+        if "xhibit/" in workflow_name:
+            workflow_name = workflow_name.replace("xhibit/", "")
+        
         tool_path = f"/root/env/workflows/{workflow_name}"
         tool_ = tool.load_tool(tool_path)
         workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
@@ -152,19 +170,28 @@ class ComfyUI:
 
     @modal.method()
     def run_task(self, task: dict):
+        print("=====================")
+        print(task)
         task = Task(**task)
+        print(task)
 
         start_time = datetime.utcnow()
         queue_time = (start_time - task.createdAt).total_seconds()
 
         task.update({
             "status": "running",
-            "performance": {"waitTime": queue_time}
+            "performance": {"waitTime": queue_time, "waitTime2": self.launch_time}
         })
-        
+        task_update = {}
+
+        print("2", task)
+
         try:
+            print(task.workflow, task.args)
             output = self._execute(task.workflow, task.args)
+            print("3", output)
             result = utils.upload_media(output)
+            print("4", result)
             task_update = {
                 "status": "completed", 
                 "result": result
@@ -172,6 +199,7 @@ class ComfyUI:
             return task_update
         
         except Exception as e:
+            print("Error", e)
             task_update = {"status": "failed", "error": str(e)}
             raise e
         

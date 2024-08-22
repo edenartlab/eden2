@@ -425,6 +425,7 @@ class EdenComfyUI(ComfyUI):
             args
         )
 
+        # results = utils.upload_media(output)
         results = []
         for o in output:
             media_attributes, thumbnail = utils.get_media_attributes(o)
@@ -484,13 +485,14 @@ if modal.is_local():
     args = parser.parse_args()
 
     import tool
-    workflows = tool.get_tools("../workflows/public_workflows", exclude=["_dev"]) | tool.get_tools("../workflows/private_workflows")
+    workflows = tool.get_tools("../workflows/public_workflows", exclude=["flux", "moodmix", "layer_diffusion", "stable_audio"]) | tool.get_tools("../workflows/private_workflows")
     selected_workflows = args.workflows.split(",") if args.method == "test" and args.workflows != "_all_" else workflows.keys()
     selected_workflows = [w for w in selected_workflows]
     missing_workflows = [w for w in selected_workflows if w not in workflows]
     if missing_workflows:
         raise ValueError(f"Workflows {', '.join(missing_workflows)} not found.")
-    workflows = {key: workflows[key] for key in selected_workflows}
+    #workflows = {key: workflows[key] for key in selected_workflows}
+    workflows = {key: workflows[key] for key in selected_workflows if key not in ["flux", "moodmix", "layer_diffusion", "stable_audio"]}
 
     if args.method == "deploy" and args.production:
         app_name = APP_NAME_PROD
@@ -501,10 +503,11 @@ if modal.is_local():
 
 else:    
     workflows = [
-        "txt2img", "txt2img2", "SD3", "face_styler", "controlnet", "remix", "animate_3D", 
+        "txt2img", "txt2img2", "SD3", "face_styler", "controlnet", "animate_3D", 
         "txt2vid", "txt2vid_lora", "img2vid", "img2vid_museV", "vid2vid_sd15", "vid2vid_sdxl", 
         "style_mixing", "video_upscaler", "controlnet", "outpaint", "remix",
-        "moodmix", "inpaint", "background_removal",
+        "inpaint", "background_removal", "moodmix", 
+        "flux", "layer_diffusion", "stable_audio"
     ]
     private_workflows = [
         "xhibit/vton", "xhibit/remix", "beeple_ai",

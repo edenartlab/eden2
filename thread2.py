@@ -12,20 +12,20 @@ import anthropic
 
 import s3
 from agent import Agent, get_default_agent
-from tool import get_tools
+from tool2 import get_tools, get_comfyui_tools
 from mongo import MongoBaseModel, threads
 from utils import custom_print, download_file, file_to_base64_data
 
 FILE_CACHE_DIR = "/tmp/eden_file_cache/"
 
-workflows = get_tools("../workflows/public_workflows", exclude=["vid2vid_sd15", "img2vid_museV"])
-extra_tools = get_tools("tools")
-default_tools = workflows | extra_tools 
+eve_tools = [
+    "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
+    "animate_3D", "txt2vid", "txt2vid_lora", "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
+    "stable_audio", "audiocraft", "reel", "lora_trainer",
+]
 
-for t in default_tools.values():
-    print("------")
-    print(t)
-    print(t.anthropic_tool_schema(remove_hidden_fields=True))
+tools = get_comfyui_tools("../workflows/environments") | get_comfyui_tools("../private_workflows/environments") | get_tools("tools")
+default_tools = {k: v for k, v in tools.items() if k in eve_tools}
 
 anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]

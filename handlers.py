@@ -3,6 +3,7 @@ import modal
 from datetime import datetime
 from tools import reel, story
 from models import Task
+import utils
 
 handlers = {
     "reel": reel,
@@ -45,7 +46,7 @@ async def run(tool_name: str, args: dict, user: str = None):
 
 
 @app.function(image=image, timeout=1800)
-async def submit(tool_name: str, task: Task):
+async def submit(task: Task):
     task = Task(**task)
     
     start_time = datetime.utcnow()
@@ -53,29 +54,28 @@ async def submit(tool_name: str, task: Task):
     
     task.update({
         "status": "running",
-        "performance": {"queueTime": queue_time}
+        "performance": {"waitTime": queue_time}
     })
 
     try:
         output, metadata = await _execute(
-            tool_name, task.args, task.user
+            task.workflow, task.args, task.user
         )
+        result = utils.upload_media(output)
         task_update = {
             "status": "completed", 
-            "result": [{
-                "url": output,
-                "metadata": metadata
-            }]
+            "result": result
         }
+        return task_update
 
     except Exception as e:
         print("Task failed", e)
         task_update = {"status": "failed", "error": str(e)}
 
-    run_time = datetime.utcnow() - start_time
-    task_update["performance.runTime"] = run_time.total_seconds()
-
-    task.update(task_update)
+    finally:
+        run_time = datetime.utcnow() - start_time
+        task_update["performance.runTime"] = run_time.total_seconds()
+        task.update(task_update)
 
     
 @app.local_entrypoint()
@@ -84,7 +84,7 @@ def main():
         result = await run.remote.aio(
             tool_name="reel",
             args={
-                "prompt": "billy and jamie are playing tennis at wimbledon"
+                "prompt": "billy and jamie are playing tennis at wimbledon",
             }
         )
         print(result)

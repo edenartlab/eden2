@@ -1,8 +1,8 @@
 import os
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional, List
-from pydantic import BaseModel, Field
+from typing import Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
@@ -27,8 +27,8 @@ from models import tasks
 api_tools = [
     "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
     "animate_3D", "txt2vid", "txt2vid_lora", "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
-    "stable_audio", "audiocraft", "reel", "story", 
-    "vton", "remix", "beeple_ai",
+    "stable_audio", "audiocraft", "reel",
+    "xhibit/vton", "xhibit/remix", "beeple_ai",
     "moodmix", "lora_trainer",
 ]
 
@@ -54,15 +54,8 @@ def task_handler(
     try:
         task = Task(**request)
         tool = tools[task.workflow]
-        print("LETS SUBMIT!!!")
-        print(task)
         tool.submit(task)
-        print("THE TASK IS NOW")
-        print(task)
         task.reload()
-        print("THE TASK IS NOW 2")
-        print(task)
-        print("go...")
         return task
     except Exception as e:
         print(e)
@@ -75,8 +68,11 @@ def cancel(
 ):
     try:
         task_id = request.get("taskId")
+        print("receive cancel request", task_id)
         task = Task.from_id(task_id)
+        
     except Exception as e:
+        print("error canceling task", e)
         print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -85,6 +81,7 @@ def cancel(
     
     tool = tools[task.workflow]
     try:
+        print("cancel task", task.workflow)
         tool.cancel(task)
         return {"status": task.status}
     except Exception as e:
@@ -93,18 +90,13 @@ def cancel(
     
 
 async def replicate_update(request: Request):
-    print("ok. ..... . ..  fh")
     body = await request.json()
     body.pop("logs")
+    print("body", body)
     output = body.get("output") 
     handler_id = body.get("id")
     status = body.get("status")
     error = body.get("error")
-
-    print("handler_id", handler_id)
-    print("status", status)
-    print("output", output)
-    print("handler_id", handler_id)
 
     task = tasks.find_one({"handler_id": handler_id})
     if not task:
@@ -113,65 +105,23 @@ async def replicate_update(request: Request):
     task = Task(**task)
     tool = tools[task.workflow]
     output_handler = tool.output_handler
-    print("THE OUTPUT HANDLER IS", output_handler)
-    print(status, error)
-    print("THE OUTPUT IS", output)
-    result = replicate_update_task(
+
+    _ = replicate_update_task(
         task,
         status, 
         error, 
         output, 
         output_handler
     )
-    print("THE RESULT IS", result)
-
-    # if status == "failed":
-    #     task.status = "failed"
-    #     task.error = error
-    #     task.save()
-    
-    # elif status == "cancelled":
-    #     task.status = "cancelled"
-    #     task.save()
-
-    # elif status == "processing":
-    #     task.status = "running"
-    #     task.save()
-    
-    # elif status == "succeeded":
-    #     tool = tools[task.workflow]        
-    #     if tool.output_handler == "eden":
-    #         replicate_process_eden(output, task)
-    #     elif tool.output_handler == "trainer":
-    #         replicate_process_eden(output, task, save_model=True)
-    #     else:
-    #         replicate_process_normal(output, task)
-        
-    #     task.save()
-
-
-
-################################################################################
-
-
-
-
-
-
-
-
-
-
 
 
 class ChatRequest(BaseModel):
     message: UserMessage
     thread_id: Optional[str] = None
-    agent_id: str = None
+    agent_id: str = "6678c3495ecc0b3ed1f4fd8f"
 
 async def chat(data, user):
     request = ChatRequest(**data)
-
     agent = agents.find_one({"_id": ObjectId(request.agent_id)})
     if not agent:
         raise Exception(f"Agent not found")
