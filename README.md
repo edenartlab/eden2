@@ -2,15 +2,15 @@
 
 Test a single workflow
 
-    ENV=name_of_environment modal run comfyui2.py
+    ENV=name_of_environment modal run comfyui.py
 
 Deploy a single workflow to stage.
 
-    ENV=name_of_environment modal deploy comfyui2.py
+    ENV=name_of_environment modal deploy comfyui.py
 
 Deploy a single workflow to prod (dangerous).
 
-    ENV=name_of_environment APP=prod modal deploy comfyui2.py
+    ENV=name_of_environment APP=prod modal deploy comfyui.py
 
 
 ## Todo
@@ -36,12 +36,9 @@ Deploy api to production.
     ENV=PROD modal deploy api.py
 
 
-# Interactive mode for threads
+# Interactive mode for threads (WIP)
 
 To interact with an agent, run
 
     python thread.py
 
-To interact via client:
-
-    eden chat
