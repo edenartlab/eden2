@@ -19,6 +19,19 @@ AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
 AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
 
+file_extensions = {
+    'audio/mpeg': '.mp3',
+    'audio/mp4': '.mp4',
+    'audio/flac': '.flac',
+    'audio/wav': '.wav',
+    'image/jpeg': '.jpg',
+    'image/webp': '.webp',
+    'image/png': '.png',
+    'video/mp4': '.mp4',
+    'application/x-tar': '.tar'
+
+}
+
 s3 = boto3.client(
     's3', 
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -28,10 +41,11 @@ s3 = boto3.client(
 
 
 def get_root_url(bucket_name=AWS_BUCKET_NAME):
+    """Returns the root URL for the specified bucket."""
     return f"https://{bucket_name}.s3.us-east-1.amazonaws.com/"
     
     
-def upload_file_from_url(url, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
+def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     with requests.get(url, stream=True) as r:
@@ -41,66 +55,73 @@ def upload_file_from_url(url, png_to_jpg=False, webp=False, bucket_name=AWS_BUCK
                 tmp_file.write(chunk)
             tmp_file.flush()
             tmp_file.seek(0)
-            return upload_file(tmp_file.name, png_to_jpg=png_to_jpg, webp=webp, bucket_name=bucket_name)
+            return upload_file(tmp_file.name, name, file_type, bucket_name)
 
 
-def upload_file(file_path, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
+def upload_file(file_path, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
     """Uploads a file to an S3 bucket and returns the file URL."""
+
+    if file_path.startswith('http://') or file_path.startswith('https://'):
+        return upload_file_from_url(file_path, name, file_type, bucket_name)
     
     with open(file_path, 'rb') as file:
         buffer = file.read()
 
-    file_url = upload_buffer(buffer, png_to_jpg, webp, bucket_name)    
-    return file_url
+    return upload_buffer(buffer, name, file_type, bucket_name)    
 
 
-def upload_buffer(buffer, png_to_jpg=False, webp=False, bucket_name=AWS_BUCKET_NAME):
+def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
+    assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav'], \
+        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav']"
+
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
 
-    # Get sha256 hash of content
-    hasher = hashlib.sha256()
-    hasher.update(buffer)
-    sha = hasher.hexdigest()
-
     # Get file extension from mimetype
     mime_type = magic.from_buffer(buffer, mime=True)
-    file_ext = mimetypes.guess_extension(mime_type)
+    originial_file_type = file_extensions.get(mime_type) or mimetypes.guess_extension(mime_type) or f".{mime_type.split('/')[-1]}"
+    if not file_type:
+        file_type = originial_file_type
 
-    # Convert PNG to JPG if requested
-    if webp and file_ext != '.webp':
+    # if it's an image of the wrong type, convert it
+    if file_type != originial_file_type and mime_type.startswith('image/'):
         image = Image.open(io.BytesIO(buffer))
         output = io.BytesIO()
-        image.save(output, 'WEBP', quality=95)
+        if file_type == '.jpg':
+            image.save(output, 'JPEG', quality=95)
+            mime_type = 'image/jpeg'
+        elif file_type == '.webp':
+            image.save(output, 'WEBP', quality=95)
+            mime_type = 'image/webp'
+        elif file_type == '.png':
+            image.save(output, 'PNG', quality=95)
+            mime_type = 'image/png'
         buffer = output.getvalue()
-        file_ext = '.webp'
-        mime_type = 'image/webp'
-    elif png_to_jpg and file_ext == '.png':
-        image = Image.open(io.BytesIO(buffer))
-        output = io.BytesIO()
-        image.convert('RGB').save(output, 'JPEG', quality=95)
-        buffer = output.getvalue()
-        file_ext = '.jpg'
-        mime_type = 'image/jpeg'
+
+    # if no name is provided, use sha256 of content
+    if not name:
+        hasher = hashlib.sha256()
+        hasher.update(buffer)
+        name = hasher.hexdigest()
     
     # Upload file to S3
-    file_name = f"{sha}{file_ext}"
+    filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     
     s3.upload_fileobj(
         file_bytes, 
         bucket_name, 
-        file_name, 
+        filename, 
         ExtraArgs={'ContentType': mime_type, 'ContentDisposition': 'inline'}
     )
 
     # Generate and return file URL
-    file_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+    file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
     print(f"==> Uploaded: {file_url}")
-    
-    return file_url
+
+    return file_url, name
 
 
 def upload_audio_segment(audio: AudioSegment, bucket_name=AWS_BUCKET_NAME):

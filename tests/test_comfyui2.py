@@ -9,7 +9,7 @@ import requests
 from datetime import datetime
 # from concurrent.futures import ThreadPoolExecutor
 
-from tool2 import get_tools
+from tool import get_tools
 
 parser = argparse.ArgumentParser(description="Test all ComfyUI workflows")
 parser.add_argument("--envs", type=str, help="Which environments to test (comma-separated)", default=None)

@@ -18,7 +18,7 @@ from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import s32 as s3
+import s3
 
 
 def upload_media(output):

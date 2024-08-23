@@ -1,7 +1,7 @@
 import sys
 sys.path.append(".")
 
-from tool2 import load_tool
+from tool import load_tool
 from models import Task
 
 user = "65284b18f8bbb9bff13ebe65"

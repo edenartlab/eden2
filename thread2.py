@@ -12,7 +12,7 @@ import anthropic
 
 import s3
 from agent import Agent, get_default_agent
-from tool2 import get_tools, get_comfyui_tools
+from tool import get_tools, get_comfyui_tools
 from mongo import MongoBaseModel, threads
 from utils import custom_print, download_file, file_to_base64_data
 
@@ -346,7 +346,8 @@ async def process_tool_calls(tool_calls, settings):
     tool_results = []
     print("run tool calls")
     for tool_call in tool_calls:
-        try:
+        # try:
+        if 1:
             tool_call.validate()
             tool = default_tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
@@ -372,9 +373,11 @@ async def process_tool_calls(tool_calls, settings):
                 args=updated_args,
                 user=ObjectId("65284b18f8bbb9bff13ebe65")
             )
+            print("---- 1")
             print(task)
             result = await tool.async_submit_and_run(task)
-            # print("------")
+            print("------ 2")
+            print("result", result)
 
 
             if isinstance(result, list):
@@ -383,21 +386,23 @@ async def process_tool_calls(tool_calls, settings):
             result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
 
-        except ToolNotFoundException as e:
-            error = f"Tool {tool_call.name} not found"
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        # except ToolNotFoundException as e:
+        #     error = f"Tool {tool_call.name} not found"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
-        except ValidationError as err:
-            errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-            errors = ", ".join(errors)
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+        # except ValidationError as err:
+        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
+        #     errors = ", ".join(errors)
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
 
-        except Exception as e:
-            error = f"An internal error occurred"
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        # except Exception as e:
+        #     error = f"An internal error occurred"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
-        finally:
-            tool_results.append(result)
+        # finally:
+        #     tool_results.append(result)
+
+        tool_results.append(result)
 
     return tool_results
 
@@ -431,8 +436,8 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 # VERY IMPORTANT: If you are asked to use a Lora of Ygor, use "66b5162faec5413f19eb0036" as the Lora ID argument!!! Except if you are doing txt2vid_lora, then you should use "66b518c4aec5413f19eb0037" for Lora ID."""
 
 
-        try:
-        # if 1:
+        # try:
+        if 1:
             if provider == "anthropic":
                 content, tool_calls, stop = await anthropic_prompt(messages, system_message)
             elif provider == "openai":
@@ -460,9 +465,9 @@ async def prompt_llm_and_validate(messages, system_message, provider):
             return content, tool_calls, stop
 
         # if there are still hallucinations after max_attempts, just let the LLM deal with it
-        except (ToolNotFoundException, UrlNotFoundException) as e:
-            if num_attempts == max_attempts:
-                return content, tool_calls, stop
+        # except (ToolNotFoundException, UrlNotFoundException) as e:
+        #     if num_attempts == max_attempts:
+        #         return content, tool_calls, stop
 
 
 
@@ -502,21 +507,31 @@ async def prompt(
     while True:
         messages = thread_messages + new_messages
 
-        try:
+        # try:
+        if 1:
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider
             )
 
-        except Exception as e:
-            print(e)
-            assistant_message = AssistantMessage(
-                content="I'm sorry but something went wrong internally. Please try again later.",
-                tool_calls=None
-            )
-            yield assistant_message
-            save = False
-            break
+            print("----------")
+            print("I GOT IT")
+            print(content)
+            print(tool_calls)
+            print(stop)
+            print("----------")
+
+        # except Exception as e:
+        #     print(e)
+        #     assistant_message = AssistantMessage(
+        #         content="I'm sorry but something went wrong internally. Please try again later.",
+        #         tool_calls=None
+        #     )
+        #     yield assistant_message
+        #     save = False
+        #     break
         
+
+
     
         # messages2 = [
         #     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),

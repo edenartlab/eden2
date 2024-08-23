@@ -9,9 +9,9 @@ from typing import List, Optional, Literal
 import requests
 import instructor
 
-import s32 as s3
+import s3
 import voice
-import tool2 as tool
+import tool
 import utils
 
 

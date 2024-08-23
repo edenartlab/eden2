@@ -15,7 +15,7 @@ import tempfile
 import subprocess
 
 from models import Task, models
-import tool2 as tool
+import tool
 import utils
 
 
@@ -28,7 +28,6 @@ prod_env = os.getenv("APP", "STAGE").lower()
 env_name = os.getenv("ENV", "").lower()
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
-print("ROOT WORKFLOWS FOLDER", root_workflows_folder)
 if prod_env not in ["prod", "stage"]:
     raise Exception(f"Invalid environment: {prod_env}. Must be PROD or STAGE")
 

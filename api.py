@@ -21,7 +21,7 @@ from mongo import agents, threads
 from agent import Agent
 from thread2 import Thread, UserMessage, prompt
 from models import Task
-from tool2 import get_tools, get_comfyui_tools, replicate_update_task
+from tool import get_tools, get_comfyui_tools, replicate_update_task
 from models import tasks
 
 api_tools = [
@@ -122,6 +122,7 @@ class ChatRequest(BaseModel):
 
 async def chat(data, user):
     request = ChatRequest(**data)
+    print("======= chat reqyest ---- ", request)
     agent = agents.find_one({"_id": ObjectId(request.agent_id)})
     if not agent:
         raise Exception(f"Agent not found")
@@ -138,6 +139,8 @@ async def chat(data, user):
         thread = Thread()
 
     async for response in prompt(thread, agent, request.message):
+        print("received message")
+        print(response.model_dump_json())
         yield {
             "message": response.model_dump_json()
         }
@@ -167,6 +170,47 @@ def create_handler(task_handler):
                 print("Closing WebSocket...")
                 await websocket.close()
     return websocket_handler
+
+
+
+import asyncio
+
+def create_han4dler(task_handler):
+    async def websocket_handler(
+        websocket: WebSocket, 
+        user: dict = Depends(auth.authenticate_ws)
+    ):
+        await websocket.accept()
+        heartbeat_task = None
+        try:
+            async def send_heartbeat():
+                while True:
+                    await asyncio.sleep(10)
+                    print("heartbeat")
+                    await websocket.send_json({"status": "running"})
+
+            heartbeat_task = asyncio.create_task(send_heartbeat())
+
+            async for data in websocket.iter_json():
+                try:
+                    async for response in task_handler(data, user):
+                        await websocket.send_json(response)
+                    break
+                except Exception as e:
+                    await websocket.send_json({"error": str(e)})
+                    break
+        except WebSocketDisconnect:
+            print("WebSocket disconnected by client")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+        finally:
+            if heartbeat_task:
+                heartbeat_task.cancel()
+            if websocket.application_state == WebSocketState.CONNECTED:
+                print("Closing WebSocket...")
+                await websocket.close()
+    return websocket_handler
+
 
 
 def tools_list():
@@ -224,7 +268,7 @@ image = (
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    timeout=60
+    timeout=3600   # when it times out make sure to cancel jobs
 )
 @modal.asgi_app()
 def fastapi_app():

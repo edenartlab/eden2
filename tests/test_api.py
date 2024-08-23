@@ -9,7 +9,7 @@ import dotenv
 import requests
 from datetime import datetime
 
-from tool2 import get_tools
+from tool import get_tools
 
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
 parser.add_argument("--tools", type=str, help="Which tools to test (comma-separated)", default=None)

@@ -36,6 +36,9 @@ class EdenClient:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
+                print(response)
+                print(response.content)
+                print(response.json())
                 task_id = response.json().get("task", {}).get("_id")
                 async for event in self._subscribe(task_id):
                     if event["status"] == "completed":
@@ -109,6 +112,45 @@ class EdenClient:
            print(f"Connection closed by the server with code: {e.code}")
         except Exception as e:
            print(f"Error: {e}")
+
+
+
+    async def async_run3_ws(self, endpoint, payload):
+        uri = f"wss://{self.tools_api_url}{endpoint}"
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
+        try:
+            async with websockets.connect(uri, extra_headers=headers) as websocket:
+                await websocket.send(json.dumps(payload))
+                
+                # Create a task for sending heartbeats
+                heartbeat_task = asyncio.create_task(self._send_heartbeat(websocket))
+                
+                try:
+                    async for message in websocket:
+                        message_data = json.loads(message)
+                        yield message_data
+                finally:
+                    # Cancel the heartbeat task when we're done
+                    heartbeat_task.cancel()
+                    
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"Connection closed by the server with code: {e.code}")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    async def _send_heartbeat(self, websocket):
+        while True:
+            try:
+                await asyncio.sleep(10)
+                print("PING HEARTBEAT")
+                await websocket.ping()
+            except Exception as e:
+                print(f"Error sending heartbeat: {e}")
+                break
+
+
+
+
 
     def upload(self, file_path):
         return asyncio.run(self.async_upload(file_path))
