@@ -4,19 +4,17 @@ Test a single workflow
 
     ENV=name_of_environment modal run comfyui.py
 
+If you just want to test only a subset of workflows, use:
+
+    ENV=name_of_environment WORKFLOWS=workflow1,workflow2 modal run comfyui.py
+
 Deploy a single workflow to stage.
 
     ENV=name_of_environment modal deploy comfyui.py
 
-Deploy a single workflow to prod (dangerous).
+If you want to deploy a private environment, use `PRIVATE=1`
 
-    ENV=name_of_environment APP=prod modal deploy comfyui.py
-
-
-## Todo
-
-- test one workflow instead of all of them
-- re-evaluate naming conventions
+    ENV=name_of_private_env PRIVATE=1 modal deploy comfyui.py
 
 
 
