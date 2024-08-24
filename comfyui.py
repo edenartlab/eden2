@@ -14,7 +14,8 @@ import pathlib
 import tempfile
 import subprocess
 
-from models import Task, models
+from models import Task
+from mongo import mongo_client
 import tool
 import utils
 
@@ -24,15 +25,17 @@ GPUs = {
     "A100-80GB": modal.gpu.A100(size="80GB")
 }
 
-prod_env = os.getenv("APP", "STAGE").lower()
-env_name = os.getenv("ENV", "").lower()
-test_workflows = os.getenv("WORKFLOWS")
-root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
-if prod_env not in ["prod", "stage"]:
+prod_env = os.getenv("APP", "STAGE")
+env_name = os.getenv("ENV")
+
+if not env_name:
+    raise Exception("No environment selected")
+if prod_env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {prod_env}. Must be PROD or STAGE")
 
-app_name = "comfyui" if prod_env == "prod" else "comfyui-dev"
-app_name = f"{app_name}-{env_name}"
+app_name = f"comfyui-{env_name}"
+test_workflows = os.getenv("WORKFLOWS")
+root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
 
 
 def install_comfyui():
@@ -127,7 +130,7 @@ app = modal.App(
     volumes={"/data": downloads_vol},
     concurrency_limit=3,
     container_idle_timeout=60,
-    timeout=6000,
+    timeout=3600,
 )
 class ComfyUI:
     
@@ -142,7 +145,7 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict):
+    def _execute(self, workflow_name: str, args: dict, db_name: str):
         print("args", workflow_name, args)
         
         # hack to fix xhibit aliases
@@ -152,7 +155,7 @@ class ComfyUI:
         tool_path = f"/root/env/workflows/{workflow_name}"
         tool_ = tool.load_tool(tool_path)
         workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
-        workflow = self._inject_args_into_workflow(workflow, tool_, args)
+        workflow = self._inject_args_into_workflow(workflow, tool_, args, db_name=db_name)
         prompt_id = self._queue_prompt(workflow)['prompt_id']
         outputs = self._get_outputs(prompt_id)
         print("comfyui outputs", outputs)
@@ -162,16 +165,17 @@ class ComfyUI:
         return output
 
     @modal.method()
-    def run(self, workflow_name: str, args: dict):
-        output = self._execute(workflow_name, args)
-        result = utils.upload_media(output)
+    def run(self, workflow_name: str, args: dict, db_name: str = "eden-stg"):
+        output = self._execute(workflow_name, args, db_name=db_name)
+        result = utils.upload_media(output, stage=(db_name == "eden-stg"))
         return result
 
     @modal.method()
-    def run_task(self, task: dict):
+    def run_task(self, task_id: str, db_name):
         print("=====================")
-        print(task)
-        task = Task(**task)
+        print("stage3", db_name, task_id)
+        # task = Task(**task)
+        task = Task.from_id(document_id=task_id, db_name=db_name)
         print(task)
 
         start_time = datetime.utcnow()
@@ -187,9 +191,9 @@ class ComfyUI:
 
         try:
             print(task.workflow, task.args)
-            output = self._execute(task.workflow, task.args)
+            output = self._execute(task.workflow, task.args, db_name=db_name)
             print("3", output)
-            result = utils.upload_media(output)
+            result = utils.upload_media(output, stage=(db_name == "eden-stg"))
             print("4", result)
             task_update = {
                 "status": "completed", 
@@ -198,13 +202,16 @@ class ComfyUI:
             return task_update
         
         except Exception as e:
-            print("Error", e)
+            print("Error", e)   
             task_update = {"status": "failed", "error": str(e)}
             raise e
         
         finally:
             run_time = datetime.utcnow() - start_time
             task_update["performance.runTime"] = run_time.total_seconds()
+            print("SAVE THE TASK UPDATE")
+            print(task_update)
+            print("stage", db_name)
             task.update(task_update)
 
     @modal.enter()
@@ -254,10 +261,10 @@ class ComfyUI:
         for workflow in workflow_names:
             t1 = time.time()
             test_args = tool.load_tool(f"/root/env/workflows/{workflow}").test_args
-            output = self._execute(workflow, test_args)
+            output = self._execute(workflow, test_args, db_name="eden-stg")
             if not output:
                 raise Exception(f"No output from {workflow} test")
-            result = utils.upload_media(output)
+            result = utils.upload_media(output, stage=True)
             t2 = time.time()
             results[workflow] = result
             results["_performance"][workflow] = t2 - t1
@@ -432,7 +439,7 @@ class ComfyUI:
             filename = name[:max_length - len(ext)] + ext
         return filename    
 
-    def _inject_args_into_workflow(self, workflow, tool_, args):
+    def _inject_args_into_workflow(self, workflow, tool_, args, db_name="eden-stg"):
         embedding_trigger = None
         
         # download and transport files
@@ -453,7 +460,8 @@ class ComfyUI:
                 print("LORA ID", lora_id)
                 if not lora_id:
                     continue
-
+                
+                models = mongo_client[db_name]["models"]
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 print("LORA", lora)
                 if not lora:

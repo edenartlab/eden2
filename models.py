@@ -1,6 +1,9 @@
 from bson import ObjectId
 from typing import Dict, Any, Optional
-from mongo import MongoBaseModel, tasks, models, users
+from pymongo.collection import Collection
+from mongo import MongoBaseModel, mongo_client
+from pydantic.json_schema import SkipJsonSchema
+from pydantic import Field
 
 
 class Model(MongoBaseModel):
@@ -12,26 +15,27 @@ class Model(MongoBaseModel):
     public: bool = False
     checkpoint: str
     thumbnail: str
+    users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.make_slug()
+    def __init__(self, db_name, **data):
+        super().__init__(collection_name="models", db_name=db_name, **data)
+        self.users = mongo_client[db_name]["users"] 
+        self._make_slug()
 
     @classmethod
-    def from_id(self, document_id: str):
-        return super().from_id(self, models, document_id)
+    def from_id(self, document_id: str, db_name: str):
+        self.users = mongo_client[db_name]["users"]
+        return super().from_id(self, document_id, "models", db_name)
 
-    def make_slug(self):
+    def _make_slug(self):
+        if self.collection is None:
+            return
+        if self.slug:
+            return  # just set it once
         name = self.name.lower().replace(" ", "-")
-        version = 1 + models.count_documents({"name": self.name, "user": self.user}) 
-        username = users.find_one({"_id": self.user})["username"]
+        version = 1 + self.collection.count_documents({"name": self.name, "user": self.user}) 
+        username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{version}"
-
-    def save(self):
-        super().save(self, models)
-
-    def update(self, args: dict):
-        super().update(self, models, args)
 
 
 class Task(MongoBaseModel):
@@ -44,20 +48,11 @@ class Task(MongoBaseModel):
     result: Optional[Any] = None
     performance: Optional[Dict[str, Any]] = {}
 
-    def __init__(self, **data):
+    def __init__(self, db_name, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
-        super().__init__(**data)
+        super().__init__(collection_name="tasks2", db_name=db_name, **data)
 
     @classmethod
-    def from_id(self, document_id: str):
-        return super().from_id(self, tasks, document_id)
-
-    def reload(self):
-        super().reload(self, tasks)
-
-    def save(self):
-        super().save(self, tasks)
-    
-    def update(self, args: dict):
-        super().update(self, tasks, args)
+    def from_id(self, document_id: str, db_name: str):
+        return super().from_id(self, document_id, "tasks2", db_name)

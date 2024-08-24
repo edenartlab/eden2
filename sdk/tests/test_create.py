@@ -12,7 +12,7 @@ client = EdenClient()
 # })
 
 result = client.create("txt2img", {
-    "prompt": "<concept> under a rainbow",
+    "prompt": "<concept> on a disco floor",
     "lora": "66c2bf435ec7b6d95deb7223",
     "lora_strength": 0.3,
     "width": 1280,

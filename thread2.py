@@ -13,8 +13,14 @@ import anthropic
 import s3
 from agent import Agent, get_default_agent
 from tool import get_tools, get_comfyui_tools
-from mongo import MongoBaseModel, threads
+from mongo import MongoBaseModel, mongo_client
 from utils import custom_print, download_file, file_to_base64_data
+
+
+env = os.getenv("ENV", "STAGE")
+db_name = "eden-stg" if env == "STAGE" else "eden-prod"
+threads = mongo_client[db_name]["threads"]
+
 
 FILE_CACHE_DIR = "/tmp/eden_file_cache/"
 
@@ -243,33 +249,33 @@ class Thread(MongoBaseModel):
     messages: List[Union[UserMessage, AssistantMessage, ToolResultMessage]] = []
     has_id: bool = Field(False, exclude=True)
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, db_name, **data):
+        super().__init__(collection_name="threads", db_name=db_name, **data)
         message_types = {
             "user": UserMessage,
             "assistant": AssistantMessage,
             "tool": ToolResultMessage
         }
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
-        self.has_id = False
 
     @classmethod
-    def from_id(self, document_id: str):
-        thread = super().from_id(self, threads, document_id)
-        thread.has_id = True
+    def from_id(self, document_id: str, db_name: str):
+        thread = super().from_id(self, document_id, "threads", db_name)
         return thread
 
     @classmethod
-    def from_name(self, name: str, user: dict, create_if_missing: bool = False):
+    def from_name(self, name: str, user: dict, db_name: str, create_if_missing: bool = False):
+        threads = mongo_client[db_name]["threads"]
         thread = threads.find_one({"name": name, "user": user["_id"]})
+
         if not thread:
             if create_if_missing:
-                thread = self(name=name, user=user["_id"])
+                thread = self(name=name, user=user["_id"], db_name=db_name)
                 thread.save()
             else:
                 raise Exception(f"Thread {name} not found")
         else:
-            thread = self(**thread)
+            thread = self(db_name=db_name, **thread)
         return thread
 
     def to_mongo(self):
@@ -284,20 +290,20 @@ class Thread(MongoBaseModel):
             return [item for m in self.messages for item in m.anthropic_schema()]
 
     def add_messages(self, *new_messages, save=False, reload_messages=False):
-        if self.has_id and reload_messages:
+        if reload_messages and not self.collection is None:
             self.reload_messages()
         self.messages.extend(new_messages)
         if save:
             self.save()
 
     def reload_messages(self):
-        self.messages = self.from_id(self.id).messages
+        self.messages = self.from_id(self.id, db_name=db_name).messages
         
-    def save(self):
-        super().save(self, threads)
+    # def save(self):
+    #     super().save(self, threads)
 
-    def update(self, args: dict):
-        super().update(self, threads, args)
+    # def update(self, args: dict):
+    #     super().update(self, threads, args)
 
 
 class ToolNotFoundException(Exception):
@@ -343,68 +349,83 @@ async def openai_prompt(messages, system_message):
 
 
 async def process_tool_calls(tool_calls, settings):
-    tool_results = []
-    print("run tool calls")
-    for tool_call in tool_calls:
-        # try:
-        if 1:
-            tool_call.validate()
-            tool = default_tools[tool_call.name]
-            input = {k: v for k, v in tool_call.input.items() if v is not None}
-            input.update(settings)
-            updated_args = tool.get_base_model(**input).model_dump()
-            print("updated args", updated_args)
+    if 1:
+
+
+        tool_results = []
+        print("run tool calls")
+        for tool_call in tool_calls:
+            # try:
+            if 1:
+                tool_call.validate()
+                tool = default_tools[tool_call.name]
+                input = {k: v for k, v in tool_call.input.items() if v is not None}
+                input.update(settings)
+                updated_args = tool.get_base_model(**input).model_dump()
+                print("updated args", updated_args)
+                
+                
+                
+                #result = await tool.async_run(args=updated_args)
+
+
+                # print("THE RESULT")
+                # res = result[0]
+                # if res['url'].endswith('.tar'):
+                #     print("WE GOT A MDOEL)")
+                #     print(res)
+                #     print("-----")
+
+                print("DO A TOOL CALL")
+                print(db_name)
+                print(tool.key)
+                from models import Task
+                task = Task(
+                    workflow=tool.key,
+                    args=updated_args,
+                    user=ObjectId("65284b18f8bbb9bff13ebe65"),
+                    db_name=db_name
+                )
+                print("---- 1")
+                print(task)
+                result = await tool.async_submit_and_run(task)
+                # result = await asyncio.wait_for(tool.async_submit_and_run(task), timeout=3600)
             
-            
-            
-            #result = await tool.async_run(args=updated_args)
+                print("------ 2")
+                print("result", result)
 
 
-            # print("THE RESULT")
-            # res = result[0]
-            # if res['url'].endswith('.tar'):
-            #     print("WE GOT A MDOEL)")
-            #     print(res)
-            #     print("-----")
+                if isinstance(result, list):
+                    result = ", ".join([r['url'] for r in result])
 
-            from models import Task
-            task = Task(
-                workflow=tool.key,
-                args=updated_args,
-                user=ObjectId("65284b18f8bbb9bff13ebe65")
-            )
-            print("---- 1")
-            print(task)
-            result = await tool.async_submit_and_run(task)
-            print("------ 2")
-            print("result", result)
+                result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
 
-            if isinstance(result, list):
-                result = ", ".join([r['url'] for r in result])
+            # except ToolNotFoundException as e:
+            #     error = f"Tool {tool_call.name} not found"
+            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
-            result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
+            # except ValidationError as err:
+            #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
+            #     errors = ", ".join(errors)
+            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
 
+            # except Exception as e:
+            #     error = f"An internal error occurred"
+            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
-        # except ToolNotFoundException as e:
-        #     error = f"Tool {tool_call.name} not found"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+            # finally:
+            #     tool_results.append(result)
 
-        # except ValidationError as err:
-        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-        #     errors = ", ".join(errors)
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+            tool_results.append(result)
 
-        # except Exception as e:
-        #     error = f"An internal error occurred"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        return tool_results
+    
 
-        # finally:
-        #     tool_results.append(result)
-
-        tool_results.append(result)
-
-    return tool_results
+    # except asyncio.TimeoutError:
+    #     print("TOOL CALL TIMED OUT")
+    #     raise Exception("Tool call timed out")
+    
 
 
 @retry(
@@ -484,11 +505,13 @@ async def prompt(
     user_message: UserMessage,
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
+    bucket_name = os.getenv("AWS_BUCKET_NAME_STAGE") if env == "STAGE" else os.getenv("AWS_BUCKET_NAME_PROD")
+
     # upload all attachments to s3
     attachments = user_message.attachments or []    
     for a, attachment in enumerate(attachments):
-        if not attachment.startswith(s3.get_root_url()):
-            attachment_url = s3.upload_file_from_url(attachment)
+        if not attachment.startswith(s3.get_root_url(bucket_name=bucket_name)):
+            attachment_url = s3.upload_file_from_url(attachment, bucket_name=bucket_name)
             attachments[a] = attachment_url
     user_message.attachments = attachments
 

@@ -1,7 +1,7 @@
 import os
 import jwt
 from bson import ObjectId
-from mongo import users, api_keys
+from mongo import mongo_client
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import WebSocket, HTTPException, Depends, status
 
@@ -11,6 +11,10 @@ ADMIN_KEY = os.getenv("ADMIN_KEY")
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
+env = os.getenv("ENV")
+db_name = "eden-prod" if env == "PROD" else "eden-stg"
+api_keys = mongo_client[db_name]["apikeys"]
+users = mongo_client[db_name]["users"]
 
 def verify_api_key(api_key: str) -> dict:
     api_key = api_keys.find_one({"apiKey": api_key})

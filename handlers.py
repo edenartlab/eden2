@@ -46,8 +46,9 @@ async def run(tool_name: str, args: dict, user: str = None):
 
 
 @app.function(image=image, timeout=1800)
-async def submit(task: Task):
-    task = Task(**task)
+async def submit(task_id: str, db_name):
+    task = Task.from_id(document_id=task_id, db_name=db_name)
+    print(task)
     
     start_time = datetime.utcnow()
     queue_time = (start_time - task.createdAt).total_seconds()

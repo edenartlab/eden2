@@ -1,20 +1,28 @@
+import os
 from bson import ObjectId
-from mongo import MongoBaseModel, agents
+from mongo import MongoBaseModel, mongo_client
 from tool import get_tools_summary
 
 DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
+env = os.getenv("ENV")
+db_name = "eden-stg" if env == "STAGE" else "eden-prod"
+agents = mongo_client[db_name]["agents"]
+
 def get_default_agent():
-    _agent = agents.find_one({"_id": ObjectId(DEFAULT_AGENT_ID)})
-    return Agent(**_agent)
+    return Agent.from_id(DEFAULT_AGENT_ID, db_name)
 
 
 class Agent(MongoBaseModel):
     name: str
     description: str
-    
-    def save(self):
-        super().save(self, agents)
+
+    def __init__(self, db_name, **data):
+        super().__init__(collection_name="agents", db_name=db_name, **data)
+
+    @classmethod
+    def from_id(self, document_id: str, db_name: str):
+        return super().from_id(self, document_id, "agents", db_name)
 
     def get_system_message(self, tools):
         return (

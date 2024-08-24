@@ -12,11 +12,13 @@ from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
 from models import Task, Model
+from mongo import mongo_client
 import utils
 import s3
 
 env = os.getenv("ENV", "STAGE")
-MODAL_APP_PREFIX = "comfyui" if env == "PROD" else "comfyui-dev"
+db_name = "eden-stg" if env == "STAGE" else "eden-prod"
+bucket_name = os.getenv("AWS_BUCKET_NAME_STAGE") if env == "STAGE" else os.getenv("AWS_BUCKET_NAME_PROD")
 
 
 TYPE_MAPPING = {
@@ -180,6 +182,8 @@ class Tool(BaseModel):
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
+                print("get root for filename", filename)
+                print(":root", s3.get_root_url())
                 r["url"] = f"{s3.get_root_url()}{filename}"
         return result
     
@@ -193,17 +197,17 @@ class Tool(BaseModel):
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
             task.args = self.prepare_args(task.args)
-            handler_id = await submit_function(self, task, *args, **kwargs)
             task.status = "pending"
-            task.handler_id = handler_id
             task.save()
+            handler_id = await submit_function(self, task, *args, **kwargs)
+            task.update({"handler_id": handler_id})
             return handler_id
         return wrapper
 
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):            
             cancel_function()
-            task.status = "cancelled"
+            task.status = "canceled"
             task.save()
         return wrapper
 
@@ -232,11 +236,15 @@ class ModalTool(Tool):
 
     @Tool.handle_submit
     async def async_submit(self, task: Task):
+        stage = os.getenv("ENV") == "STAGE"
+        db_name = "eden-stg" if stage else "eden-prod"
         func = modal.Function.lookup("handlers", "submit")
-        job = func.spawn(task.to_mongo())
+        job = func.spawn(str(task.id), db_name=db_name)
         return job.object_id
     
     async def async_process(self, task: Task):
+        if not task.handler_id:
+            task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         result = await fc.get.aio()
         return result 
@@ -260,32 +268,29 @@ class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     env: str
-    #cls: Any = None
 
     def __init__(self, data, key):
         super().__init__(data, key)
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        cls = modal.Cls.lookup(f"{MODAL_APP_PREFIX}-{self.env}".lower(), "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
         return await cls().run.remote.aio(self.key, args)
 
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        cls = modal.Cls.lookup(f"{MODAL_APP_PREFIX}-{self.env}".lower(), "ComfyUI")
-        job = await cls().run_task.spawn.aio(task.to_mongo())
-        print("the job id is", job.object_id)
+        stage = os.getenv("ENV") == "STAGE"
+        db_name = "eden-stg" if stage else "eden-prod"
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        job = await cls().run_task.spawn.aio(str(task.id), db_name=db_name)
         return job.object_id
     
     async def async_process(self, task: Task):
-        print("async process", task.handler_id)
+        if not task.handler_id:
+            task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        print("start waiting")
         await fc.get.aio()
-        print("done waiting")
         task.reload()
-        print("task now", task)
-        print("retunr")
         return self.get_user_result(task.result)
 
     @Tool.handle_cancel
@@ -309,7 +314,7 @@ class ReplicateTool(Tool):
             output = [prediction.output[-1]["thumbnails"][0]]
         else:
             output = [url for url in prediction.output]
-        result = utils.upload_media(output)
+        result = utils.upload_media(output, stage=True)
         return result
 
     @Tool.handle_submit
@@ -319,6 +324,8 @@ class ReplicateTool(Tool):
         return prediction.id
 
     async def async_process(self, task: Task):
+        if not task.handler_id:
+            task.reload()
         import replicate
         prediction = await replicate.predictions.async_get(task.handler_id)
         while True: 
@@ -355,7 +362,7 @@ class ReplicateTool(Tool):
         return new_args
 
     def _get_webhook_url(self):
-        env = "tools" if os.getenv("ENV").lower() == "prod" else "tools-dev"
+        env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
         dev = "-dev" if os.getenv("MODAL_SERVE") == "1" else ""
         webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
         return webhook_url
@@ -387,11 +394,7 @@ class ReplicateTool(Tool):
 
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
-    print("LIVE UPDATE TASK")
-    print(status, error)
-    print(output)
 
-    print("THE OUTPUT IS", output)
     if status == "failed":
         task.status = "error"
         task.error = error
@@ -411,7 +414,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     
     elif status == "succeeded":
         if output_handler == "normal":
-            result = utils.upload_media(output)
+            result = utils.upload_media(output, stage=(env == "STAGE"))
         
         elif output_handler in ["trainer", "eden"]:
             result = replicate_process_eden(output)
@@ -423,7 +426,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     args=task.args,
                     task=task.id,
                     checkpoint=result[0]["url"], 
-                    thumbnail=result[0]["thumbnail"]
+                    thumbnail=result[0]["thumbnail"],
+                    db_name=db_name
                 )
                 model.save()
                 result[0]["model"] = model.id
@@ -451,7 +455,7 @@ def replicate_process_eden(output):
     results = []
     
     for file, thumb in zip(output["files"], output["thumbnails"]):
-        file_url, _ = s3.upload_file_from_url(file)
+        file_url, _ = s3.upload_file_from_url(file, bucket_name=bucket_name)
         metadata = output.get("attributes")
         media_attributes, thumbnail = utils.get_media_attributes(file_url)
 
@@ -463,7 +467,7 @@ def replicate_process_eden(output):
 
         thumbnail = thumbnail or thumb or None
         if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp')
+            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', bucket_name=bucket_name)
             result["thumbnail"] = thumbnail_url
 
         results.append(result)

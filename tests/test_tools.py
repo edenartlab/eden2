@@ -12,12 +12,8 @@ from tool import get_tools
 
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
 parser.add_argument("--tools", type=str, help="Which tools to test (comma-separated)", default=None)
-parser.add_argument("--production", action='store_true', help="Test production (otherwise staging)")
 parser.add_argument("--save", action='store_true', help="Save results to a folder")
 args = parser.parse_args()
-
-if args.production:
-    os.environ["ENV"] = "PROD"
 
 envs_dir = pathlib.Path("../workflows/environments")
 envs = [f.name for f in envs_dir.iterdir() if f.is_dir()]

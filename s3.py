@@ -16,7 +16,8 @@ load_dotenv()
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
+AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
 
 
 file_extensions = {
@@ -40,12 +41,12 @@ s3 = boto3.client(
 )
 
 
-def get_root_url(bucket_name=AWS_BUCKET_NAME):
+def get_root_url(bucket_name=AWS_BUCKET_NAME_STAGE):
     """Returns the root URL for the specified bucket."""
     return f"https://{bucket_name}.s3.us-east-1.amazonaws.com/"
     
     
-def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
+def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     with requests.get(url, stream=True) as r:
@@ -58,7 +59,7 @@ def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_
             return upload_file(tmp_file.name, name, file_type, bucket_name)
 
 
-def upload_file(file_path, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
+def upload_file(file_path, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
     """Uploads a file to an S3 bucket and returns the file URL."""
 
     if file_path.startswith('http://') or file_path.startswith('https://'):
@@ -70,7 +71,7 @@ def upload_file(file_path, name=None, file_type=None, bucket_name=AWS_BUCKET_NAM
     return upload_buffer(buffer, name, file_type, bucket_name)    
 
 
-def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME):
+def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
     assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav'], \
@@ -124,7 +125,7 @@ def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME
     return file_url, name
 
 
-def upload_audio_segment(audio: AudioSegment, bucket_name=AWS_BUCKET_NAME):
+def upload_audio_segment(audio: AudioSegment, bucket_name=AWS_BUCKET_NAME_STAGE):
     buffer = io.BytesIO()
     audio.export(buffer, format="mp3")
     output = upload_buffer(buffer, bucket_name=bucket_name)

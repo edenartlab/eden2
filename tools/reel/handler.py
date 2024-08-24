@@ -15,11 +15,6 @@ import tool
 import utils
 
 
-import modal
-
-import asyncio
-
-
 client = instructor.from_openai(OpenAI())
 
 

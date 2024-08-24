@@ -6,29 +6,19 @@ from bson import ObjectId
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
-
+from pymongo.collection import Collection
 
 load_dotenv()
-env = os.getenv("ENV", "STAGE").lower()
 mongo_url = os.getenv("MONGO_URI")
 
-client = MongoClient(mongo_url)
-db_name = "eden-prod" if env == "prod" else "eden-stg"
-db = client[db_name]
-
-threads = db["threads"]
-agents = db["agents"]
-users = db["users"]
-api_keys = db["apikeys"]
-models = db["models"]
-tasks = db["tasks2"]
-characters = db["characters"]
+mongo_client = MongoClient(mongo_url)
 
 
 class MongoBaseModel(BaseModel):
     id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id")
     createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-    updatedAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)    
+    collection: SkipJsonSchema[Collection] = Field(None, exclude=True)
 
     class Config:
         populate_by_name = True
@@ -36,17 +26,18 @@ class MongoBaseModel(BaseModel):
         json_encoders = {ObjectId: str}
         protected_namespaces = ()
 
+    def __init__(self, collection_name: str, db_name: str, **data):
+        super().__init__(**data)
+        self.collection = mongo_client[db_name][collection_name]
+
     @staticmethod
-    def from_id(cls, collection, document_id):
+    def from_id(cls, document_id, collection_name, db_name):
+        collection = mongo_client[db_name][collection_name]
         document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
         document = collection.find_one({"_id": document_id})
         if not document:
             raise Exception("Document not found")
-        return cls(**document)
-
-    @classmethod
-    def from_mongo(cls, data: dict):
-        return cls(**data)
+        return cls(**document, collection=collection, db_name=db_name)
 
     def to_mongo(self, **kwargs):
         by_alias = kwargs.pop("by_alias", True)
@@ -61,46 +52,55 @@ class MongoBaseModel(BaseModel):
         data["updatedAt"] = self.updatedAt
         return data
 
-    @classmethod
-    def reload(cls, instance, collection):
-        document = collection.find_one({"_id": instance.id})
+    # @classmethod
+    def reload(self): 
+        if self.collection is None:
+            raise Exception("Collection not set")
+
+        document = self.collection.find_one({"_id": self.id})
         if not document:
             raise Exception("Document not found")
         for key, value in document.items():
-            setattr(instance, key, value)
-        return instance
+            setattr(self, key, value)
+        return self
 
-    @classmethod
-    def save(cls, document, collection):
+    # @classmethod
+    def save(self):
+        if self.collection is None:
+            raise Exception("Collection not set")
+
         try:
-            cls.model_validate(document)
+            self.model_validate(self)
         except ValidationError as e:
             print("Validation error:", e)
             return None
 
-        data = document.to_mongo()
+        data = self.to_mongo()
         document_id = data.get('_id')
 
         if document_id:
             data["updatedAt"] = datetime.utcnow()
-            return collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
+            return self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
-            return collection.insert_one(data)
+            return self.collection.insert_one(data)
 
-    @classmethod
-    def update(cls, document, collection, update_args):
+    # @classmethod
+    def update(self, update_args):
+        if self.collection is None:
+            raise Exception("Collection not set")
+
         try:
-            cls.model_validate({**document.to_mongo(), **update_args})
+            self.model_validate({**self.to_mongo(), **update_args, "db_name": self.collection.database.name})
         except ValidationError as e:
             print("Validation error:", e)
             return None
 
-        data = document.to_mongo()
+        data = self.to_mongo()
         document_id = data.get('_id')
 
         if document_id:
             update_args["updatedAt"] = datetime.utcnow()
-            return collection.update_one({'_id': document_id}, {'$set': update_args})
+            return self.collection.update_one({'_id': document_id}, {'$set': update_args})
         else:
             raise Exception("Document not found")
 

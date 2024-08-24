@@ -6,23 +6,18 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-COMFYUI_PROD   = "comfyui-dev"
-COMFYUI_STAGE  = "comfyui-dev"
-APP_NAME_PROD  = "tools"
-APP_NAME_STAGE = "tools-dev"
-
-env = os.getenv("ENV", "STAGE").lower()
-if env not in ["prod", "stage"]:
+env = os.getenv("ENV", "STAGE")
+db_name = "eden-prod" if env == "PROD" else "eden-stg"
+if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
-app_name = APP_NAME_PROD if env == "prod" else APP_NAME_STAGE
+app_name = "tools" if env == "PROD" else "tools-dev"
         
 import auth
-from mongo import agents, threads
+from mongo import mongo_client
 from agent import Agent
 from thread2 import Thread, UserMessage, prompt
 from models import Task
 from tool import get_tools, get_comfyui_tools, replicate_update_task
-from models import tasks
 
 api_tools = [
     "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
@@ -31,6 +26,9 @@ api_tools = [
     "xhibit/vton", "xhibit/remix", "beeple_ai",
     "moodmix", "lora_trainer",
 ]
+
+agents = mongo_client[db_name]["agents"]
+threads = mongo_client[db_name]["threads"]
 
 tools = get_comfyui_tools("../workflows/environments") | get_comfyui_tools("../private_workflows/environments") | get_tools("tools")
 tools = {k: v for k, v in tools.items() if k in api_tools}
@@ -43,7 +41,7 @@ async def get_or_create_thread(
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = Thread.from_name(thread_name, user, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user, db_name=db_name, create_if_missing=True)
     return {"thread_id": str(thread.id)}
 
 
@@ -52,7 +50,7 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
-        task = Task(**request)
+        task = Task(db_name=db_name, **request)
         tool = tools[task.workflow]
         tool.submit(task)
         task.reload()
@@ -69,14 +67,14 @@ def cancel(
     try:
         task_id = request.get("taskId")
         print("receive cancel request", task_id)
-        task = Task.from_id(task_id)
+        task = Task.from_id(task_id, db_name=db_name)
         
     except Exception as e:
         print("error canceling task", e)
         print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
-    if task.status in ["completed", "failed", "cancelled"]:
+    if task.status in ["completed", "failed", "canceled"]:
         return {"status": task.status}
     
     tool = tools[task.workflow]
@@ -98,11 +96,15 @@ async def replicate_update(request: Request):
     status = body.get("status")
     error = body.get("error")
 
+    tasks = mongo_client[db_name]["tasks2"]
     task = tasks.find_one({"handler_id": handler_id})
     if not task:
         raise Exception("Task not found")
     
-    task = Task(**task)
+    task = Task.from_id(document_id=task["_id"], db_name=db_name)
+
+#    task = Task(**task, db_name=db_name)
+ 
     tool = tools[task.workflow]
     output_handler = tool.output_handler
 
@@ -122,11 +124,13 @@ class ChatRequest(BaseModel):
 
 async def chat(data, user):
     request = ChatRequest(**data)
-    print("======= chat reqyest ---- ", request)
+    print("======= chat request ---- ", request)
     agent = agents.find_one({"_id": ObjectId(request.agent_id)})
     if not agent:
         raise Exception(f"Agent not found")
-    agent = Agent(**agent)
+    
+    #agent = Agent(**agent)
+    agent = Agent.from_id(request.agent_id, db_name=db_name)
 
     # todo: check if user owns this agent
 
@@ -134,16 +138,59 @@ async def chat(data, user):
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
             raise Exception("Thread not found")
-        thread = Thread(**thread)
+        # thread = Thread(**thread)
+        thread = Thread.from_id(request.thread_id, db_name=db_name)
     else:
-        thread = Thread()
+        thread = Thread(db_name=db_name)
 
+    import asyncio
     async for response in prompt(thread, agent, request.message):
+    # async for response in asyncio.wait_for(prompt(thread, agent, request.message), timeout=3600):
         print("received message")
         print(response.model_dump_json())
         yield {
             "message": response.model_dump_json()
         }
+
+
+
+import asyncio
+import asyncio
+
+def create_handl3er(task_handler):
+    async def websocket_handler(
+        websocket: WebSocket, 
+        user: dict = Depends(auth.authenticate_ws)
+    ):
+        await websocket.accept()
+        task = None
+        try:
+            async for data in websocket.iter_json():
+                async def process_task():
+                    try:
+                        async for response in task_handler(data, user):
+                            if websocket.application_state == WebSocketState.CONNECTED:
+                                await websocket.send_json(response)
+                            else:
+                                print("WebSocket disconnected, but continuing to process task")
+                    except Exception as e:
+                        print(f"Error in task_handler: {str(e)}")
+                        if websocket.application_state == WebSocketState.CONNECTED:
+                            await websocket.send_json({"error": str(e)})
+
+                task = asyncio.create_task(process_task())
+                await task
+        except WebSocketDisconnect:
+            print("WebSocket disconnected by client")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+        finally:
+            if websocket.application_state == WebSocketState.CONNECTED:
+                print("Closing WebSocket...")
+                await websocket.close()
+            if task and not task.done():
+                print("Task is still running, allowing it to continue...")
+    return websocket_handler
 
 
 def create_handler(task_handler):
@@ -152,65 +199,26 @@ def create_handler(task_handler):
         user: dict = Depends(auth.authenticate_ws)
     ):
         await websocket.accept()
-        try:
+        # try:
+        if 1:
             async for data in websocket.iter_json():
-                try:
+                # try:
+                if 1:
                     async for response in task_handler(data, user):
                         await websocket.send_json(response)
                     break
-                except Exception as e:
-                    await websocket.send_json({"error": str(e)})
-                    break
-        except WebSocketDisconnect:
-            print("WebSocket disconnected by client")
-        except Exception as e:
-            print(f"Unexpected error: {str(e)}")
-        finally:
-            if websocket.application_state == WebSocketState.CONNECTED:
-                print("Closing WebSocket...")
-                await websocket.close()
+                # except Exception as e:
+                #     await websocket.send_json({"error": str(e)})
+                #     break
+        # except WebSocketDisconnect:
+        #     print("WebSocket disconnected by client")
+        # except Exception as e:
+        #     print(f"Unexpected error: {str(e)}")
+        # finally:
+        #     if websocket.application_state == WebSocketState.CONNECTED:
+        #         print("Closing WebSocket...")
+        #         await websocket.close()
     return websocket_handler
-
-
-
-import asyncio
-
-def create_han4dler(task_handler):
-    async def websocket_handler(
-        websocket: WebSocket, 
-        user: dict = Depends(auth.authenticate_ws)
-    ):
-        await websocket.accept()
-        heartbeat_task = None
-        try:
-            async def send_heartbeat():
-                while True:
-                    await asyncio.sleep(10)
-                    print("heartbeat")
-                    await websocket.send_json({"status": "running"})
-
-            heartbeat_task = asyncio.create_task(send_heartbeat())
-
-            async for data in websocket.iter_json():
-                try:
-                    async for response in task_handler(data, user):
-                        await websocket.send_json(response)
-                    break
-                except Exception as e:
-                    await websocket.send_json({"error": str(e)})
-                    break
-        except WebSocketDisconnect:
-            print("WebSocket disconnected by client")
-        except Exception as e:
-            print(f"Unexpected error: {str(e)}")
-        finally:
-            if heartbeat_task:
-                heartbeat_task.cancel()
-            if websocket.application_state == WebSocketState.CONNECTED:
-                print("Closing WebSocket...")
-                await websocket.close()
-    return websocket_handler
-
 
 
 def tools_list():
@@ -250,17 +258,14 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .env({"ENV": "PROD", "MODAL_SERVE": "0"}) # os.getenv("MODAL_SERVE")})
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
                  "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub")
-    #.copy_local_dir("../workflows/public_workflows", remote_path="/workflows/public_workflows")
-    #.copy_local_dir("../workflows/private_workflows", remote_path="/workflows/private_workflows")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("../private_workflows", remote_path="/private_workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
-    .env({"ENV": "PROD" if app_name == APP_NAME_PROD else "STAGE"})
-    .env({"MODAL_SERVE": "1" if os.getenv("MODAL_SERVE") else "0"})
 )
 
 @app.function(
@@ -268,7 +273,7 @@ image = (
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    timeout=3600   # when it times out make sure to cancel jobs
+    timeout=3600
 )
 @modal.asgi_app()
 def fastapi_app():
