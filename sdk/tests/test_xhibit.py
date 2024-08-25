@@ -9,7 +9,7 @@ args = {
     "face_image": "https://www.refinery29.com/images/11118508.jpg"
 }
 response = eden_client.create(
-    workflow="xhibit/vton",
+    workflow="xhibit_vton",
     args=args
 )
 

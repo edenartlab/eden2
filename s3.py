@@ -16,9 +16,28 @@ load_dotenv()
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
 AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
+AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
+MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
+MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
 
+envs = {
+    "STAGE": {
+        "bucket_name": AWS_BUCKET_NAME_STAGE,
+        "db_name": MONGO_DB_NAME_STAGE,
+    },
+    "PROD": {
+        "bucket_name": AWS_BUCKET_NAME_PROD,
+        "db_name": MONGO_DB_NAME_PROD,
+    }
+}
+
+s3 = boto3.client(
+    's3', 
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION_NAME
+)
 
 file_extensions = {
     'audio/mpeg': '.mp3',
@@ -29,24 +48,18 @@ file_extensions = {
     'image/webp': '.webp',
     'image/png': '.png',
     'video/mp4': '.mp4',
-    'application/x-tar': '.tar'
-
+    'application/x-tar': '.tar',
+    'application/zip': '.zip'
 }
 
-s3 = boto3.client(
-    's3', 
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-    region_name=AWS_REGION_NAME
-)
 
-
-def get_root_url(bucket_name=AWS_BUCKET_NAME_STAGE):
+def get_root_url(env="STAGE"):
     """Returns the root URL for the specified bucket."""
-    return f"https://{bucket_name}.s3.us-east-1.amazonaws.com/"
+    bucket_name = envs[env]["bucket_name"]
+    return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com/"
     
     
-def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
+def upload_file_from_url(url, name=None, file_type=None, env="STAGE"):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     with requests.get(url, stream=True) as r:
@@ -56,22 +69,22 @@ def upload_file_from_url(url, name=None, file_type=None, bucket_name=AWS_BUCKET_
                 tmp_file.write(chunk)
             tmp_file.flush()
             tmp_file.seek(0)
-            return upload_file(tmp_file.name, name, file_type, bucket_name)
+            return upload_file(tmp_file.name, name, file_type, env)
 
 
-def upload_file(file_path, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
+def upload_file(file_path, name=None, file_type=None, env="STAGE"):
     """Uploads a file to an S3 bucket and returns the file URL."""
 
     if file_path.startswith('http://') or file_path.startswith('https://'):
-        return upload_file_from_url(file_path, name, file_type, bucket_name)
+        return upload_file_from_url(file_path, name, file_type, env)
     
     with open(file_path, 'rb') as file:
         buffer = file.read()
 
-    return upload_buffer(buffer, name, file_type, bucket_name)    
+    return upload_buffer(buffer, name, file_type, env)    
 
 
-def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME_STAGE):
+def upload_buffer(buffer, name=None, file_type=None, env="STAGE"):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
     assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav'], \
@@ -111,6 +124,8 @@ def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     
+    bucket_name = envs[env]["bucket_name"]
+
     s3.upload_fileobj(
         file_bytes, 
         bucket_name, 
@@ -125,8 +140,8 @@ def upload_buffer(buffer, name=None, file_type=None, bucket_name=AWS_BUCKET_NAME
     return file_url, name
 
 
-def upload_audio_segment(audio: AudioSegment, bucket_name=AWS_BUCKET_NAME_STAGE):
+def upload_audio_segment(audio: AudioSegment, env="STAGE"):
     buffer = io.BytesIO()
     audio.export(buffer, format="mp3")
-    output = upload_buffer(buffer, bucket_name=bucket_name)
+    output = upload_buffer(buffer, env=env)
     return output

@@ -21,12 +21,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
-def upload_media(output, stage=True):
-    bucket_name = os.getenv("AWS_BUCKET_NAME_STAGE") if stage else os.getenv("AWS_BUCKET_NAME_PROD")
-
+def upload_media(output, env):
     result = []
     for o in output:
-        file_url, sha = s3.upload_file(o, bucket_name=bucket_name)
+        file_url, sha = s3.upload_file(o, env=env)
         filename = file_url.split("/")[-1]
 
         media_attributes, thumbnail = get_media_attributes(o)
@@ -36,8 +34,8 @@ def upload_media(output, stage=True):
                 img = thumbnail.copy()
                 img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
                 img_bytes = PIL_to_bytes(img)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', bucket_name=bucket_name)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', bucket_name=bucket_name)
+                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
+                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
 
         result.append({
             "filename": filename,
@@ -152,7 +150,7 @@ def mock_image(args):
     draw.text((5, 5), wrapped_text, fill="black", font=font)    
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
-    url = s3.upload_buffer(buffer, bucket_name=os.getenv("AWS_BUCKET_NAME_STAGE"))
+    url = s3.upload_buffer(buffer, env="STAGE")
     return [url]
 
 

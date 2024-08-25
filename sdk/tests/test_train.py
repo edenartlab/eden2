@@ -17,7 +17,7 @@ result = client.create("lora_trainer", {
     ],
     "sd_model_version": "sd15",
     "concept_mode": "face",
-    "max_train_steps": 700
+    "max_train_steps": 220
 })
 
 print(result)

@@ -4,6 +4,7 @@ from bson import ObjectId
 from mongo import mongo_client
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import WebSocket, HTTPException, Depends, status
+from s3 import envs
 
 CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
@@ -12,9 +13,10 @@ api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 env = os.getenv("ENV")
-db_name = "eden-prod" if env == "PROD" else "eden-stg"
+db_name = envs[env]["db_name"]
 api_keys = mongo_client[db_name]["apikeys"]
 users = mongo_client[db_name]["users"]
+
 
 def verify_api_key(api_key: str) -> dict:
     api_key = api_keys.find_one({"apiKey": api_key})
@@ -74,24 +76,8 @@ async def authenticate_ws(websocket: WebSocket):
 def authenticate_admin(
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
-    print("token", token)
-    print("token.credentials", token.credentials)
-    print("ADMIN_KEY", ADMIN_KEY)
-    print("GO!")
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
                             detail="No authentication credentials provided")
     if token.credentials != ADMIN_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-
-# def authenticate_socketio(environ):
-#     api_key = environ.get('HTTP_X_API_KEY')
-#     token = environ.get('HTTP_AUTHORIZATION')
-#     if token:
-#         token = HTTPAuthorizationCredentials(
-#             scheme="Bearer", 
-#             credentials=token.replace("Bearer ", "").strip()
-#         )
-#     user = authenticate(api_key=api_key, token=token)
-#     return user

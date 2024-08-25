@@ -2,11 +2,12 @@ import os
 from bson import ObjectId
 from mongo import MongoBaseModel, mongo_client
 from tool import get_tools_summary
+from s3 import envs
 
 DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
 env = os.getenv("ENV")
-db_name = "eden-stg" if env == "STAGE" else "eden-prod"
+db_name = envs[env]["db_name"]
 agents = mongo_client[db_name]["agents"]
 
 def get_default_agent():

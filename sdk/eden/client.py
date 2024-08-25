@@ -7,21 +7,15 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-STAGE = False
-
-if STAGE:
-    DEFAULT_API_URL = "staging.api.eden.art"
-    DEFAULT_TOOLS_API_URL = "edenartlab--tools-dev-fastapi-app-dev.modal.run" 
-else:
-    DEFAULT_API_URL = "api.eden.art"
-    DEFAULT_TOOLS_API_URL = "edenartlab--tools-fastapi-app.modal.run"
-    
-    
 
 class EdenClient:
-    def __init__(self):
-        self.api_url = DEFAULT_API_URL
-        self.tools_api_url = DEFAULT_TOOLS_API_URL
+    def __init__(self, stage=False):
+        if stage:
+            self.api_url = "staging.api.eden.art"
+            self.tools_api_url = "edenartlab--tools-dev-fastapi-app-dev.modal.run" 
+        else:
+            self.api_url = "api.eden.art"
+            self.tools_api_url = "edenartlab--tools-fastapi-app.modal.run"
         self.api_key = get_api_key()
 
     def create(self, workflow, args):        
@@ -112,45 +106,6 @@ class EdenClient:
            print(f"Connection closed by the server with code: {e.code}")
         except Exception as e:
            print(f"Error: {e}")
-
-
-
-    async def async_run3_ws(self, endpoint, payload):
-        uri = f"wss://{self.tools_api_url}{endpoint}"
-        headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        try:
-            async with websockets.connect(uri, extra_headers=headers) as websocket:
-                await websocket.send(json.dumps(payload))
-                
-                # Create a task for sending heartbeats
-                heartbeat_task = asyncio.create_task(self._send_heartbeat(websocket))
-                
-                try:
-                    async for message in websocket:
-                        message_data = json.loads(message)
-                        yield message_data
-                finally:
-                    # Cancel the heartbeat task when we're done
-                    heartbeat_task.cancel()
-                    
-        except websockets.exceptions.ConnectionClosed as e:
-            print(f"Connection closed by the server with code: {e.code}")
-        except Exception as e:
-            print(f"Error: {e}")
-
-    async def _send_heartbeat(self, websocket):
-        while True:
-            try:
-                await asyncio.sleep(10)
-                print("PING HEARTBEAT")
-                await websocket.ping()
-            except Exception as e:
-                print(f"Error sending heartbeat: {e}")
-                break
-
-
-
-
 
     def upload(self, file_path):
         return asyncio.run(self.async_upload(file_path))
