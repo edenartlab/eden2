@@ -156,7 +156,7 @@ async def reel(args: dict, user: str = None):
             silence2 = AudioSegment.silent(duration=3000)
             speech_audio = silence1 + speech_audio + silence2
             duration = max(duration, len(speech_audio) / 1000)
-            metadata["speech"] = s3.upload_audio_segment(speech_audio)
+            metadata["speech"], _ = s3.upload_audio_segment(speech_audio)
             
         # generate music
         if music and story.music_prompt:
@@ -171,7 +171,7 @@ async def reel(args: dict, user: str = None):
             print("generated music", story.music_prompt)
             music_bytes = requests.get(music[0]['url']).content
             music_audio = AudioSegment.from_file(BytesIO(music_bytes))
-            metadata["music"] = s3.upload_audio_segment(music_audio)
+            metadata["music"], _ = s3.upload_audio_segment(music_audio)
 
         # mix audio
         audio = None
@@ -189,7 +189,7 @@ async def reel(args: dict, user: str = None):
         print(audio)
 
         print("MAKE THE VIDEO!")
-        txt2vid = tool.load_tool("../workflows/environments/video/workflows/txt2vid")
+        txt2vid = tool.load_tool("../workflows/workspaces/video/workflows/txt2vid")
         video = await txt2vid.async_run({
             "prompt": story.image_prompt,
             "n_frames": 128,
@@ -205,12 +205,12 @@ async def reel(args: dict, user: str = None):
             buffer = BytesIO()
             audio.export(buffer, format="mp3")
             output = utils.combine_audio_video(buffer, output_url)
-            output_url = s3.upload_file(output)
+            output_url, _ = s3.upload_file(output)
 
         print("output_url", output_url)
         print("metadata", metadata)
 
-        return [output_url], metadata
+        return [output_url]
 
 
     # except asyncio.CancelledError as e:

@@ -1,9 +1,10 @@
 from bson import ObjectId
 from typing import Dict, Any, Optional
 from pymongo.collection import Collection
-from mongo import MongoBaseModel, mongo_client
 from pydantic.json_schema import SkipJsonSchema
 from pydantic import Field
+
+from mongo import MongoBaseModel, mongo_client, envs
 
 
 class Model(MongoBaseModel):
@@ -17,13 +18,15 @@ class Model(MongoBaseModel):
     thumbnail: str
     users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
-    def __init__(self, db_name, **data):
-        super().__init__(collection_name="models", db_name=db_name, **data)
+    def __init__(self, env, **data):
+        super().__init__(collection_name="models", env=env, **data)
+        db_name = envs[env]["db_name"]
         self.users = mongo_client[db_name]["users"] 
         self._make_slug()
 
     @classmethod
-    def from_id(self, document_id: str, db_name: str):
+    def from_id(self, document_id: str, env: str):
+        db_name = envs[env]["db_name"]
         self.users = mongo_client[db_name]["users"]
         return super().from_id(self, document_id, "models", db_name)
 
@@ -48,11 +51,11 @@ class Task(MongoBaseModel):
     result: Optional[Any] = None
     performance: Optional[Dict[str, Any]] = {}
 
-    def __init__(self, db_name, **data):
+    def __init__(self, env, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
-        super().__init__(collection_name="tasks2", db_name=db_name, **data)
+        super().__init__(collection_name="tasks2", env=env, **data)
 
     @classmethod
-    def from_id(self, document_id: str, db_name: str):
-        return super().from_id(self, document_id, "tasks2", db_name)
+    def from_id(self, document_id: str, env: str):
+        return super().from_id(self, document_id, "tasks2", env)

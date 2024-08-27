@@ -20,7 +20,7 @@ import modal
 
 import asyncio
 
-from mongo import characters as mongo_characters
+# from mongo import characters as mongo_characters
 
 
 client = instructor.from_openai(OpenAI())

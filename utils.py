@@ -150,7 +150,7 @@ def mock_image(args):
     draw.text((5, 5), wrapped_text, fill="black", font=font)    
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
-    url = s3.upload_buffer(buffer, env="STAGE")
+    url, _ = s3.upload_buffer(buffer, env="STAGE")
     return [url]
 
 

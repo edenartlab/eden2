@@ -2,7 +2,8 @@ import sys
 sys.path.append(".")
 import os
 import json
-import asyncio
+import concurrent.futures
+# import asyncio
 import argparse
 import pathlib
 import dotenv
@@ -18,22 +19,20 @@ parser.add_argument("--save", action='store_true', help="Save results to a folde
 args = parser.parse_args()
 
 save = args.save
-if args.production:
-    os.environ["ENV"] = "PROD"
-
+os.environ["ENV"] = "PROD" if args.production else "STAGE"
 
 dotenv.load_dotenv()
-EDEN_ADMIN_KEY=os.getenv("EDEN_ADMIN_KEY")
-user = "65284b18f8bbb9bff13ebe65"
-url = "https://edenartlab--tools-dev-fastapi-app-dev.modal.run/create" 
+EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
+EDEN_USER = os.getenv("EDEN_USER")
+MODAL_DEV_API_URL = os.getenv("MODAL_DEV_API_URL") 
 
-envs_dir = pathlib.Path("../workflows/environments")
+envs_dir = pathlib.Path("../workflows/workspaces")
 envs = [f.name for f in envs_dir.iterdir() if f.is_dir()]
 tools = {
     k: v for env in envs 
     for k, v in get_tools(f"{envs_dir}/{env}/workflows").items()
 }
-envs_dir = pathlib.Path("../private_workflows/environments")
+envs_dir = pathlib.Path("../private_workflows/workspaces")
 envs = [f.name for f in envs_dir.iterdir() if f.is_dir()]
 tools.update({
     k: v for env in envs 
@@ -72,13 +71,18 @@ def test_api_tool(tool_name, args):
         task = {
             "workflow": tool_name,
             "args": args,
-            "user": user
+            "user": EDEN_USER
         }
-        print(task)
-        response = requests.post(url, json=task, headers=headers)
-        print(response)
-        print(response.status_code)
-        print(response.json())
+        task = {
+            "workflow": tool_name,
+            "args": {"prompt": "a blue cat", "width": 50000},
+            "user": EDEN_USER
+        }
+        # print(task)
+        response = requests.post(MODAL_DEV_API_URL, json=task, headers=headers)
+        # print(response)
+        # print(response.status_code)
+        # print(response.json())
         return {
             "status_code": response.status_code,
             "content": response.json() if response.headers.get('content-type') == 'application/json' else response.text,
@@ -87,9 +91,7 @@ def test_api_tool(tool_name, args):
     except Exception as e:
         return {"error": f"{e}"}
 
-# ... rest of the code remains the same ...
 
-import concurrent.futures
 def run_all_tests():
     print(f"Running tests: {', '.join(tools.keys())}")
     results_dict = {}

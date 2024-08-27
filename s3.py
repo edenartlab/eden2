@@ -10,27 +10,29 @@ from pydub import AudioSegment
 from typing import Iterator
 from PIL import Image
 
+from mongo import envs
+
 from dotenv import load_dotenv
 load_dotenv()
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
-AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
-MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
-MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
+# AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
+# AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
+# MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
+# MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
 
-envs = {
-    "STAGE": {
-        "bucket_name": AWS_BUCKET_NAME_STAGE,
-        "db_name": MONGO_DB_NAME_STAGE,
-    },
-    "PROD": {
-        "bucket_name": AWS_BUCKET_NAME_PROD,
-        "db_name": MONGO_DB_NAME_PROD,
-    }
-}
+# envs = {
+#     "STAGE": {
+#         "bucket_name": AWS_BUCKET_NAME_STAGE,
+#         "db_name": MONGO_DB_NAME_STAGE,
+#     },
+#     "PROD": {
+#         "bucket_name": AWS_BUCKET_NAME_PROD,
+#         "db_name": MONGO_DB_NAME_PROD,
+#     }
+# }
 
 s3 = boto3.client(
     's3', 

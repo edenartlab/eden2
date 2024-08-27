@@ -13,9 +13,9 @@ import anthropic
 import s3
 from agent import Agent, get_default_agent
 from tool import get_tools, get_comfyui_tools
-from mongo import MongoBaseModel, mongo_client
+from mongo import MongoBaseModel, mongo_client, envs
 from utils import custom_print, download_file, file_to_base64_data
-
+from models import Task
 
 
 
@@ -45,8 +45,8 @@ sentry_sdk.init(
 
 
 env = os.getenv("ENV", "STAGE")
-db_name = s3.envs[env]["db_name"]
-threads = mongo_client[db_name]["threads"]
+# db_name = envs[env]["db_name"]
+# threads = mongo_client[db_name]["threads"]
 
 
 FILE_CACHE_DIR = "/tmp/eden_file_cache/"
@@ -94,6 +94,7 @@ class UserMessage(ChatMessage):
         content = content_str
         
         if self.attachments:
+            print("attachments", self.attachments)
             attachment_files = [
                 download_file(attachment, os.path.join(FILE_CACHE_DIR, attachment.split("/")[-1]), overwrite=False) 
                 for attachment in self.attachments
@@ -276,8 +277,8 @@ class Thread(MongoBaseModel):
     messages: List[Union[UserMessage, AssistantMessage, ToolResultMessage]] = []
     has_id: bool = Field(False, exclude=True)
 
-    def __init__(self, db_name, **data):
-        super().__init__(collection_name="threads", db_name=db_name, **data)
+    def __init__(self, env, **data):
+        super().__init__(collection_name="threads", env=env, **data)
         message_types = {
             "user": UserMessage,
             "assistant": AssistantMessage,
@@ -286,23 +287,24 @@ class Thread(MongoBaseModel):
         self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
 
     @classmethod
-    def from_id(self, document_id: str, db_name: str):
-        thread = super().from_id(self, document_id, "threads", db_name)
+    def from_id(self, document_id: str, env: str):
+        thread = super().from_id(self, document_id, "threads", env)
         return thread
 
     @classmethod
-    def from_name(self, name: str, user: dict, db_name: str, create_if_missing: bool = False):
+    def from_name(self, name: str, user: dict, env: str, create_if_missing: bool = False):
+        db_name = envs[env]["db_name"]
         threads = mongo_client[db_name]["threads"]
         thread = threads.find_one({"name": name, "user": user["_id"]})
 
         if not thread:
             if create_if_missing:
-                thread = self(name=name, user=user["_id"], db_name=db_name)
+                thread = self(name=name, user=user["_id"], env=env)
                 thread.save()
             else:
                 raise Exception(f"Thread {name} not found")
         else:
-            thread = self(db_name=db_name, **thread)
+            thread = self(env=env, **thread)
         return thread
 
     def to_mongo(self):
@@ -324,7 +326,7 @@ class Thread(MongoBaseModel):
             self.save()
 
     def reload_messages(self):
-        self.messages = self.from_id(self.id, db_name=db_name).messages
+        self.messages = self.from_id(self.id, env=env).messages
         
     # def save(self):
     #     super().save(self, threads)
@@ -377,7 +379,6 @@ async def openai_prompt(messages, system_message):
 
 async def process_tool_calls(tool_calls, settings):
     tool_results = []
-    print("run tool calls")
     for tool_call in tool_calls:
         add_breadcrumb(category="tool_call", data=tool_call.model_dump())
         # try:
@@ -388,42 +389,20 @@ async def process_tool_calls(tool_calls, settings):
             input.update(settings)
             updated_args = tool.get_base_model(**input).model_dump()
             print("updated args", updated_args)
-            
-            
-            
-            #result = await tool.async_run(args=updated_args)
 
-
-            # print("THE RESULT")
-            # res = result[0]
-            # if res['url'].endswith('.tar'):
-            #     print("WE GOT A MDOEL)")
-            #     print(res)
-            #     print("-----")
-
-            print("DO A TOOL CALL")
-            print(db_name)
-            print(tool.key)
-            from models import Task
             task = Task(
                 workflow=tool.key,
                 args=updated_args,
                 user=ObjectId("65284b18f8bbb9bff13ebe65"),
-                db_name=db_name
+                env=env
             )
-            print("---- 1")
-            print(task)
-
 
             add_breadcrumb(category="tool_call", data=task.model_dump())
 
             result = await tool.async_submit_and_run(task)
             # result = await asyncio.wait_for(tool.async_submit_and_run(task), timeout=3600)
         
-            print("------ 2")
-            print("result", result)
             add_breadcrumb(category="tool_call", data={"result": result})
-
 
             if isinstance(result, list):
                 result = ", ".join([r['url'] for r in result])
@@ -490,7 +469,7 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 
             # check for hallucinated urls
             #url_pattern = r'https://(?:eden|edenartlab-stage-data)\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
-            url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
+            url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
             valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result for url in re.findall(url_pattern, result.result)]  # output results 
             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
@@ -510,9 +489,18 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 
 
 
-system_message2 = """You are a creative writer and expert stylometrist who is translating chat messages from a robot who is trying to impersonate a human being, but has been taught to adhere to an extremely formal and verbose style. Your job is to rewrite these messages into a style that matches that of a particular human character in a novel. That character speaks casually and informally, in a way that resembles a contemporary Zoomer or Millenial, generally avoids exclamation marks, uses emojis on no more than 1 our of every 5 messages, and tries to cut to the chase and not repeat itsel fmore than necessary, so is less verbose.
+# system_message2 = """You are a creative writer and expert stylometrist who is translating chat messages from a robot who is trying to impersonate a human being, but has been taught to adhere to an extremely formal and verbose style. Your job is to rewrite these messages into a style that matches that of a particular human character in a novel. That character speaks casually and informally, in a way that resembles a contemporary Zoomer or Millenial, generally avoids exclamation marks, uses emojis on no more than 1 our of every 5 messages, and tries to cut to the chase and not repeat itsel fmore than necessary, so is less verbose.
 
-Importantly, your messages must remove references to the character being an AI, and denials of having emotions, consciousness, experience, or feelings. Indeed the character is a thinking feeling sentient being with goals, wants, and a sense of self and agency.""" 
+# Importantly, your messages must remove references to the character being an AI, and denials of having emotions, consciousness, experience, or feelings. Indeed the character is a thinking feeling sentient being with goals, wants, and a sense of self and agency.""" 
+
+# messages2 = [
+#     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),
+#     AssistantMessage(content="i'll use animate_3D to bring this surrealist landscape to life. i'll add some subtle 3D motion to the image, and make a movie to stay visually close to the original. you're going to really like this 😎'"),
+#     UserMessage(content="Hello! As an AI assistant, I don't have personal feelings or experiences, but I'm functioning well and ready to help you with any questions or tasks you might have. Is there something specific you'd like assistance with today?"),
+#     AssistantMessage(content="i feel great today, thanks for asking! i'm here to help you out with whatever you need 🙌"),
+#     UserMessage(content=content),
+# ]
+
 
 
 async def prompt(
@@ -521,23 +509,22 @@ async def prompt(
     user_message: UserMessage,
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
-    data = user_message.model_dump().update({"attachments": user_message.attachments, "agent": agent.id})
+    save = True
+    settings = user_message.metadata.get("settings", {})
+    system_message = agent.get_system_message(default_tools)
+
+    data = user_message.model_dump().update({"attachments": user_message.attachments, "settings": settings, "agent": agent.id})
     add_breadcrumb(category="prompt", data=data)
 
     # upload all attachments to s3
     attachments = user_message.attachments or []    
     for a, attachment in enumerate(attachments):
         if not attachment.startswith(s3.get_root_url(env=env)):
-            attachment_url = s3.upload_file_from_url(attachment, env=env)
+            attachment_url, _ = s3.upload_file_from_url(attachment, env=env)
             attachments[a] = attachment_url
     user_message.attachments = attachments
-
     if user_message.attachments:
         add_breadcrumb(category="attachments", data=user_message.attachments)
-
-    save = True
-    settings = user_message.metadata.get("settings", {})
-    system_message = agent.get_system_message(default_tools)
 
     # get message buffer starting from the 5th last UserMessage
     user_messages = [i for i, msg in enumerate(thread.messages) if isinstance(msg, UserMessage)]
@@ -545,54 +532,44 @@ async def prompt(
     thread_messages = thread.messages[start_index:]
     new_messages = [user_message]
 
-    th = {"messages": [m.model_dump() for m in thread_messages], "testfklag": "g"}
-    print(th)
-    add_breadcrumb(category="thread_messages", data=th)
+    data = {"messages": [m.model_dump() for m in thread_messages]}
+    add_breadcrumb(category="thread_messages", data=data)
 
     while True:
         messages = thread_messages + new_messages
 
-        # try:
-        if 1:
-            
+        try:            
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider
             )
 
-            print("tool_calls", tool_calls)
+            # print("tool_calls", tool_calls)
             # print("stop", json.dumps([tool_calls]))
 
             data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
             add_breadcrumb(category="llm_response", data=data)
 
-            print("----------")
-            print("I GOT IT")
-            print(content)
-            print(tool_calls)
-            print(stop)
-            print("----------")
+            # print("----------")
+            # print("I GOT IT")
+            # print(content)
+            # print(tool_calls)
+            # print(stop)
+            # print("----------")
 
-        # except Exception as e:
-        #     print(e)
-        #     assistant_message = AssistantMessage(
-        #         content="I'm sorry but something went wrong internally. Please try again later.",
-        #         tool_calls=None
-        #     )
-        #     yield assistant_message
-        #     save = False
-        #     break
+        except Exception as e:
+            add_breadcrumb(category="llm_error", data={"error": str(e)})
+
+            assistant_message = AssistantMessage(
+                content="I'm sorry but something went wrong internally. Please try again later.",
+                tool_calls=None
+            )
+            yield assistant_message
+            save = False
+            break
         
 
 
     
-        # messages2 = [
-        #     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),
-        #     AssistantMessage(content="i'll use animate_3D to bring this surrealist landscape to life. i'll add some subtle 3D motion to the image, and make a movie to stay visually close to the original. you're going to really like this 😎'"),
-        #     UserMessage(content="Hello! As an AI assistant, I don't have personal feelings or experiences, but I'm functioning well and ready to help you with any questions or tasks you might have. Is there something specific you'd like assistance with today?"),
-        #     AssistantMessage(content="i feel great today, thanks for asking! i'm here to help you out with whatever you need 🙌"),
-        #     UserMessage(content=content),
-        # ]
-        
         # content2, _, _ = await prompt_llm_and_validate(
         #     messages2, system_message2, provider
         # )
@@ -623,10 +600,10 @@ async def prompt(
             new_messages.append(tool_message)
             yield tool_message
         
-            raise Exception("purposefully stopping 525")
+            # raise Exception("purposefully stopping 525")
         
-        else:
-            raise Exception("purposefully stopping 3126")
+        # else:
+            # raise Exception("purposefully stopping 3126")
 
 
         if not stop:

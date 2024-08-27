@@ -1,3 +1,6 @@
+import dotenv
+dotenv.load_dotenv()
+
 import asyncio
 import modal
 from datetime import datetime
@@ -59,7 +62,7 @@ async def submit(task_id: str, db_name):
     })
 
     try:
-        output, metadata = await _execute(
+        output = await _execute(
             task.workflow, task.args, task.user
         )
         result = utils.upload_media(output)
@@ -95,7 +98,7 @@ def main():
 if __name__ == "__main__":
     async def run_example_local():
         output = await _execute(
-            tool_name="story",
+            tool_name="reel",
             args={
                 "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
                 "narrator": True,

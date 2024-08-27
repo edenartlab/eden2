@@ -7,23 +7,23 @@ from s3 import envs
 DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
 env = os.getenv("ENV")
-db_name = envs[env]["db_name"]
-agents = mongo_client[db_name]["agents"]
+# db_name = envs[env]["db_name"]
+# agents = mongo_client[db_name]["agents"]
 
 def get_default_agent():
-    return Agent.from_id(DEFAULT_AGENT_ID, db_name)
+    return Agent.from_id(DEFAULT_AGENT_ID, env)
 
 
 class Agent(MongoBaseModel):
     name: str
     description: str
 
-    def __init__(self, db_name, **data):
-        super().__init__(collection_name="agents", db_name=db_name, **data)
+    def __init__(self, env, **data):
+        super().__init__(collection_name="agents", env=env, **data)
 
     @classmethod
-    def from_id(self, document_id: str, db_name: str):
-        return super().from_id(self, document_id, "agents", db_name)
+    def from_id(self, document_id: str, env: str):
+        return super().from_id(self, document_id, "agents", env)
 
     def get_system_message(self, tools):
         return (

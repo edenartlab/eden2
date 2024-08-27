@@ -30,9 +30,9 @@ class EdenClient:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
-                print(response)
-                print(response.content)
-                print(response.json())
+                # print(response)
+                # print(response.content)
+                # print(response.json())
                 task_id = response.json().get("task", {}).get("_id")
                 async for event in self._subscribe(task_id):
                     if event["status"] == "completed":

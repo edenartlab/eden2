@@ -1,3 +1,7 @@
+# dotenv
+import dotenv
+dotenv.load_dotenv()
+
 import os
 import random
 from tempfile import NamedTemporaryFile

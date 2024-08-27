@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from mongo import envs
+
 env = os.getenv("ENV", "STAGE")
-db_name = "eden-prod" if env == "PROD" else "eden-stg"
+db_name = envs[env]["db_name"]
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
@@ -32,7 +34,7 @@ threads = mongo_client[db_name]["threads"]
 
 tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
 tools = {k: v for k, v in tools.items() if k in api_tools}
-print("YAY", tools.keys())
+
 
 async def get_or_create_thread(
     request: dict, 
@@ -41,7 +43,7 @@ async def get_or_create_thread(
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = Thread.from_name(thread_name, user, db_name=db_name, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user, env=env, create_if_missing=True)
     return {"thread_id": str(thread.id)}
 
 
@@ -50,7 +52,7 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
-        task = Task(db_name=db_name, **request)
+        task = Task(env=env, **request)
         tool = tools[task.workflow]
         tool.submit(task)
         task.reload()
@@ -66,20 +68,15 @@ def cancel(
 ):
     try:
         task_id = request.get("taskId")
-        print("receive cancel request", task_id)
-        task = Task.from_id(task_id, db_name=db_name)
-        
+        task = Task.from_id(task_id, env=env)        
     except Exception as e:
-        print("error canceling task", e)
-        print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
-    if task.status in ["completed", "failed", "canceled"]:
+    if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
     tool = tools[task.workflow]
     try:
-        print("cancel task", task.workflow)
         tool.cancel(task)
         return {"status": task.status}
     except Exception as e:
@@ -88,6 +85,7 @@ def cancel(
     
 
 async def replicate_update(request: Request):
+    print("receive replicate update request")
     body = await request.json()
     body.pop("logs")
     print("body", body)
@@ -101,9 +99,8 @@ async def replicate_update(request: Request):
     if not task:
         raise Exception("Task not found")
     
-    task = Task.from_id(document_id=task["_id"], db_name=db_name)
-
-#    task = Task(**task, db_name=db_name)
+    task = Task.from_id(document_id=task["_id"], env=env)
+    #task = Task(**task, db_name=db_name)
  
     tool = tools[task.workflow]
     output_handler = tool.output_handler
@@ -130,7 +127,7 @@ async def chat(data, user):
         raise Exception(f"Agent not found")
     
     #agent = Agent(**agent)
-    agent = Agent.from_id(request.agent_id, db_name=db_name)
+    agent = Agent.from_id(request.agent_id, env=env)
 
     # todo: check if user owns this agent
 
@@ -138,16 +135,11 @@ async def chat(data, user):
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
             raise Exception("Thread not found")
-        # thread = Thread(**thread)
-        thread = Thread.from_id(request.thread_id, db_name=db_name)
+        thread = Thread.from_id(request.thread_id, env=env)
     else:
-        thread = Thread(db_name=db_name)
+        thread = Thread(env=env)
 
-    import asyncio
     async for response in prompt(thread, agent, request.message):
-    # async for response in asyncio.wait_for(prompt(thread, agent, request.message), timeout=3600):
-        print("received message")
-        print(response.model_dump_json())
         yield {
             "message": response.model_dump_json()
         }

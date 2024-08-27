@@ -16,7 +16,6 @@ import utils
 import s3
 
 env = os.getenv("ENV", "STAGE")
-db_name = s3.envs[env]["db_name"]
 
 
 TYPE_MAPPING = {
@@ -201,9 +200,9 @@ class Tool(BaseModel):
         return wrapper
 
     def handle_cancel(cancel_function):
-        async def wrapper(self, task: Task):            
-            cancel_function()
-            task.status = "canceled"
+        async def wrapper(self, task: Task):
+            await cancel_function(self, task)
+            task.status = "cancelled"
             task.save()
         return wrapper
 
@@ -220,6 +219,9 @@ class Tool(BaseModel):
 
     def submit_and_run(self, task: Task):
         return asyncio.run(self.async_submit_and_run(task))
+    
+    def cancel(self, task: Task):
+        return asyncio.run(self.async_cancel(task))
 
 
 
@@ -244,9 +246,9 @@ class ModalTool(Tool):
         return result 
 
     @Tool.handle_cancel
-    def cancel(self, task: Task):
+    async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        fc.cancel()
+        await fc.cancel.aio()
 
 
 class ComfyUIInfo(BaseModel):
@@ -286,9 +288,9 @@ class ComfyUITool(Tool):
         return self.get_user_result(task.result)
 
     @Tool.handle_cancel
-    def cancel(self, task: Task):
+    async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        fc.cancel()
+        await fc.cancel.aio()
 
 
 class ReplicateTool(Tool):
@@ -320,6 +322,7 @@ class ReplicateTool(Tool):
             task.reload()
         import replicate
         prediction = await replicate.predictions.async_get(task.handler_id)
+        status = "starting"
         while True: 
             if prediction.status != status:
                 status = prediction.status
@@ -330,8 +333,8 @@ class ReplicateTool(Tool):
                     prediction.output, 
                     self.output_handler
                 )
-                if result["status"] in ["error", "canceled", "completed"]:
-                    return self.get_user_result(result)
+                if result["status"] in ["error", "cancelled", "completed"]:
+                    return self.get_user_result(result["result"])
             await asyncio.sleep(0.5)
             prediction.reload()
 
@@ -341,7 +344,7 @@ class ReplicateTool(Tool):
         return result
 
     @Tool.handle_cancel
-    def cancel(self, task: Task):
+    async def async_cancel(self, task: Task):
         import replicate
         prediction = replicate.predictions.get(task.handler_id)
         prediction.cancel()
@@ -355,7 +358,7 @@ class ReplicateTool(Tool):
 
     def _get_webhook_url(self):
         env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
-        dev = "-dev" if os.getenv("MODAL_SERVE") == "1" else ""
+        dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
         webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
         return webhook_url
     
@@ -365,7 +368,7 @@ class ReplicateTool(Tool):
         model, version = model.split(':', 1)
         webhook_url = self._get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
-        
+
         if version == "deployment":
             deployment = replicate.deployments.get(f"{user}/{model}")
             prediction = deployment.predictions.create(
@@ -386,7 +389,6 @@ class ReplicateTool(Tool):
 
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
-
     if status == "failed":
         task.status = "error"
         task.error = error
@@ -394,9 +396,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "error", "error": error}
     
     elif status == "canceled":
-        task.status = "canceled"
+        task.status = "cancelled"
         task.save()
-        return {"status": "canceled"}
+        return {"status": "cancelled"}
     
     elif status == "processing":
         task.performance["waitTime"] = (datetime.utcnow() - task.createdAt).total_seconds()
@@ -419,7 +421,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     task=task.id,
                     checkpoint=result[0]["url"], 
                     thumbnail=result[0]["thumbnail"],
-                    db_name=db_name
+                    env=env
                 )
                 model.save()
                 result[0]["model"] = model.id
@@ -448,11 +450,12 @@ def replicate_process_eden(output):
     
     for file, thumb in zip(output["files"], output["thumbnails"]):
         file_url, _ = s3.upload_file_from_url(file, env=env)
+        filename = file_url.split("/")[-1]
         metadata = output.get("attributes")
         media_attributes, thumbnail = utils.get_media_attributes(file_url)
 
         result = {
-            "url": file_url,
+            "filename": filename,
             "metadata": metadata,
             "mediaAttributes": media_attributes
         }
@@ -584,10 +587,10 @@ def get_human_readable_error(error_list):
             errors.append(f"{field} must be one of {expected_values}")
         elif error_type == 'less_than_equal':
             max_value = error['ctx']['le']
-            errors.append(f"{field} must be ≤ {max_value}")
+            errors.append(f"{field} must be <= {max_value}")
         elif error_type == 'greater_than_equal':
             min_value = error['ctx']['ge']
-            errors.append(f"{field} must be ≥ {min_value}")
+            errors.append(f"{field} must be >= {min_value}")
         elif error_type == 'value_error.any_str.min_length':
             min_length = error['ctx']['limit_value']
             errors.append(f"{field} must have at least {min_length} characters")

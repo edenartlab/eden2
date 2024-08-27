@@ -10,6 +10,11 @@ from datetime import datetime
 
 from tool import get_tools
 
+from eden.client import EdenClient
+
+client = EdenClient(stage=True)
+
+
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
 parser.add_argument("--tools", type=str, help="Which tools to test (comma-separated)", default=None)
 parser.add_argument("--save", action='store_true', help="Save results to a folder")
@@ -38,8 +43,8 @@ if args.tools:
 async def test_tool(workflow_name):
     try:
         tool = tools[workflow_name]
-        output = await tool.async_run(tool.test_args)
-        result = tool.get_user_result(output)
+        result = await client.async_create(workflow_name, tool.test_args)
+        print(workflow_name, result)
         return {"result": result}
     except Exception as e:
         return {"error": f"{e}"}

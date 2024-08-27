@@ -15,8 +15,7 @@ import tempfile
 import subprocess
 
 from models import Task
-from mongo import mongo_client
-import s3
+from mongo import mongo_client, envs
 import tool
 import utils
 
@@ -166,11 +165,6 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, env: str):
         print("args", workflow_name, args)
-        
-        # hack to fix xhibit aliases
-        # if "xhibit/" in workflow_name:
-        #     workflow_name = workflow_name.replace("xhibit/", "")
-        
         tool_path = f"/root/workspace/workflows/{workflow_name}"
         tool_ = tool.load_tool(tool_path)
         workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
@@ -191,19 +185,16 @@ class ComfyUI:
 
     @modal.method()
     def run_task(self, task_id: str, env: str):
-        db_name = s3.envs[env]["db_name"]
-        print("=====================")
-        print("stage3", db_name, task_id)
-        # task = Task(**task)
-        task = Task.from_id(document_id=task_id, db_name=db_name)
-        print(task)
+        task = Task.from_id(document_id=task_id, env=env)
+        print("1", task)
 
         start_time = datetime.utcnow()
         queue_time = (start_time - task.createdAt).total_seconds()
+        boot_time = queue_time - self.launch_time if self.launch_time else 0
 
         task.update({
             "status": "running",
-            "performance": {"waitTime": queue_time, "waitTime2": self.launch_time}
+            "performance": {"waitTime": queue_time, "bootTime": boot_time}
         })
         task_update = {}
 
@@ -229,10 +220,9 @@ class ComfyUI:
         finally:
             run_time = datetime.utcnow() - start_time
             task_update["performance.runTime"] = run_time.total_seconds()
-            print("SAVE THE TASK UPDATE")
             print(task_update)
-            print("stage", db_name)
             task.update(task_update)
+            self.launch_time = 0
 
     @modal.enter()
     def enter(self):
@@ -272,7 +262,7 @@ class ComfyUI:
             t2 = time.time()
             results[workflow] = result
             results["_performance"][workflow] = t2 - t1
-        results["_performance"]["launch0"] = self.launch_time
+        
         with open("_test_results_.json", "w") as f:
             json.dump(results, f, indent=4)
 
@@ -442,8 +432,6 @@ class ComfyUI:
         return filename    
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
-        db_name = s3.envs[env]["db_name"]
-
         embedding_trigger = None
         
         # download and transport files
@@ -465,6 +453,7 @@ class ComfyUI:
                 if not lora_id:
                     continue
                 
+                db_name = envs[env]["db_name"]
                 models = mongo_client[db_name]["models"]
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 print("LORA", lora)
