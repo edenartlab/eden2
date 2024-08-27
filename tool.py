@@ -179,7 +179,7 @@ class Tool(BaseModel):
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
-                r["url"] = f"{s3.get_root_url(env=env)}{filename}"
+                r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
         return result
     
     def handle_run(run_function):
@@ -414,13 +414,16 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             result = replicate_process_eden(output)
 
             if output_handler == "trainer":
+                filename = result[0]["filename"]
+                thumbnail = result[0]["thumbnail"]
+                url = f"{s3.get_root_url(env=env)}/{filename}"
                 model = Model(
                     name=task.args["name"],
                     user=task.user,
                     args=task.args,
                     task=task.id,
-                    checkpoint=result[0]["url"], 
-                    thumbnail=result[0]["thumbnail"],
+                    checkpoint=url, 
+                    thumbnail=thumbnail,
                     env=env
                 )
                 model.save()

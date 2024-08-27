@@ -3,12 +3,14 @@ from datetime import datetime
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, Literal, Union
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 import os
 import re
 import json
 import asyncio
 import openai
 import anthropic
+import sentry_sdk
 
 import s3
 from agent import Agent, get_default_agent
@@ -18,38 +20,12 @@ from utils import custom_print, download_file, file_to_base64_data
 from models import Task
 
 
-
-
-
-
-
-
-import sentry_sdk
-from sentry_sdk import add_breadcrumb
-from sentry_sdk import capture_exception, capture_message
-
-sentry_sdk.init(
-    dsn="https://09eeaaebc42fb91e01a5501a7e96adfa@o4505840416784384.ingest.us.sentry.io/4507796161167360",
-    traces_sample_rate=1.0,
-    profiles_sample_rate=1.0,
-)
-
-
-
-
-
-
-
-
-
-
+FILE_CACHE_DIR = "/tmp/eden_file_cache/"
 
 env = os.getenv("ENV", "STAGE")
-# db_name = envs[env]["db_name"]
-# threads = mongo_client[db_name]["threads"]
+sentry_dsn = os.getenv("SENTRY_DSN")
 
-
-FILE_CACHE_DIR = "/tmp/eden_file_cache/"
+sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
 
 eve_tools = [
     "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
@@ -327,12 +303,6 @@ class Thread(MongoBaseModel):
 
     def reload_messages(self):
         self.messages = self.from_id(self.id, env=env).messages
-        
-    # def save(self):
-    #     super().save(self, threads)
-
-    # def update(self, args: dict):
-    #     super().update(self, threads, args)
 
 
 class ToolNotFoundException(Exception):
@@ -381,8 +351,8 @@ async def process_tool_calls(tool_calls, settings):
     tool_results = []
     for tool_call in tool_calls:
         add_breadcrumb(category="tool_call", data=tool_call.model_dump())
-        # try:
-        if 1:
+        
+        try:
             tool_call.validate()
             tool = default_tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
@@ -396,40 +366,36 @@ async def process_tool_calls(tool_calls, settings):
                 user=ObjectId("65284b18f8bbb9bff13ebe65"),
                 env=env
             )
-
-            add_breadcrumb(category="tool_call", data=task.model_dump())
-
+            add_breadcrumb(category="tool_call_task", data=task.model_dump())
+            
             result = await tool.async_submit_and_run(task)
-            # result = await asyncio.wait_for(tool.async_submit_and_run(task), timeout=3600)
-        
-            add_breadcrumb(category="tool_call", data={"result": result})
+            add_breadcrumb(category="tool_result", data={"result": result})
 
             if isinstance(result, list):
                 result = ", ".join([r['url'] for r in result])
 
             result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
+        except ToolNotFoundException as err:
+            error = f"Tool {tool_call.name} not found"
+            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+            capture_exception(err)
 
-        # except ToolNotFoundException as e:
-        #     error = f"Tool {tool_call.name} not found"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        except ValidationError as err:
+            errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
+            errors = ", ".join(errors)
+            result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+            capture_exception(err)
 
-        # except ValidationError as err:
-        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-        #     errors = ", ".join(errors)
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+        except Exception as err:
+            error = f"An internal error occurred: {err}"
+            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+            capture_exception(err)
 
-        # except Exception as e:
-        #     error = f"An internal error occurred"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
-
-        # finally:
-        #     tool_results.append(result)
-
-        tool_results.append(result)
+        finally:
+            tool_results.append(result)
 
     return tool_results
-
 
 
 @retry(
@@ -486,9 +452,6 @@ async def prompt_llm_and_validate(messages, system_message, provider):
                 return content, tool_calls, stop
 
 
-
-
-
 # system_message2 = """You are a creative writer and expert stylometrist who is translating chat messages from a robot who is trying to impersonate a human being, but has been taught to adhere to an extremely formal and verbose style. Your job is to rewrite these messages into a style that matches that of a particular human character in a novel. That character speaks casually and informally, in a way that resembles a contemporary Zoomer or Millenial, generally avoids exclamation marks, uses emojis on no more than 1 our of every 5 messages, and tries to cut to the chase and not repeat itsel fmore than necessary, so is less verbose.
 
 # Importantly, your messages must remove references to the character being an AI, and denials of having emotions, consciousness, experience, or feelings. Indeed the character is a thinking feeling sentient being with goals, wants, and a sense of self and agency.""" 
@@ -502,14 +465,12 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 # ]
 
 
-
 async def prompt(
     thread: Thread,
     agent: Agent,
     user_message: UserMessage,
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
-    save = True
     settings = user_message.metadata.get("settings", {})
     system_message = agent.get_system_message(default_tools)
 
@@ -542,42 +503,18 @@ async def prompt(
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider
             )
-
-            # print("tool_calls", tool_calls)
-            # print("stop", json.dumps([tool_calls]))
-
             data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
             add_breadcrumb(category="llm_response", data=data)
 
-            # print("----------")
-            # print("I GOT IT")
-            # print(content)
-            # print(tool_calls)
-            # print(stop)
-            # print("----------")
-
-        except Exception as e:
-            add_breadcrumb(category="llm_error", data={"error": str(e)})
-
+        except Exception as err:
+            capture_exception(err)
             assistant_message = AssistantMessage(
                 content="I'm sorry but something went wrong internally. Please try again later.",
                 tool_calls=None
             )
             yield assistant_message
-            save = False
-            break
+            return
         
-
-
-    
-        # content2, _, _ = await prompt_llm_and_validate(
-        #     messages2, system_message2, provider
-        # )
-        # print("content1", content)
-        # print("content2", content2)
-
-
-
         assistant_message = AssistantMessage(
             content=content,
             tool_calls=tool_calls
@@ -586,36 +523,17 @@ async def prompt(
         yield assistant_message
         
         if tool_calls:
-            print("LKETS dwfswdff PROCESS THE TOOL CALLS")
             tool_results = await process_tool_calls(tool_calls, settings)
-            print("the tool results are", tool_results)
-
-            add_breadcrumb(category="tool_results", data=[t.model_dump() for t in tool_results])
-            add_breadcrumb(category="tool_results2", data={"tool_results": [t.model_dump() for t in tool_results]})
-            add_breadcrumb(category="tool_results3", data={"hello": "world"})
-
-            print("we ghave reached the end")
-
+            add_breadcrumb(category="tool_results", data={"tool_results": [t.model_dump() for t in tool_results]})
             tool_message = ToolResultMessage(tool_results=tool_results)
             new_messages.append(tool_message)
             yield tool_message
-        
-            # raise Exception("purposefully stopping 525")
-        
-        # else:
-            # raise Exception("purposefully stopping 3126")
-
 
         if not stop:
             break
 
-        
+    thread.add_messages(*new_messages, save=True, reload_messages=True)
 
-    # print("new_messages")
-    # pretty_print_messages(new_messages)
-
-    if save:
-        thread.add_messages(*new_messages, save=True, reload_messages=True)
 
 
 async def interactive_chat(initial_message=None):

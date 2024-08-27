@@ -203,6 +203,7 @@ app = modal.App(
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
+        modal.Secret.from_name("sentry"),
     ],   
 )
 

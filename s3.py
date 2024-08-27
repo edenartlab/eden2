@@ -58,7 +58,7 @@ file_extensions = {
 def get_root_url(env="STAGE"):
     """Returns the root URL for the specified bucket."""
     bucket_name = envs[env]["bucket_name"]
-    return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com/"
+    return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
     
     
 def upload_file_from_url(url, name=None, file_type=None, env="STAGE"):

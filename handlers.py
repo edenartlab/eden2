@@ -42,15 +42,15 @@ async def _execute(tool_name: str, args: dict, user: str = None):
     return result
         
 
-@app.function(image=image, timeout=1800)
+@app.function(image=image, timeout=3600)
 async def run(tool_name: str, args: dict, user: str = None):
     result = await _execute(tool_name, args, user)
     return result
 
 
-@app.function(image=image, timeout=1800)
-async def submit(task_id: str, db_name):
-    task = Task.from_id(document_id=task_id, db_name=db_name)
+@app.function(image=image, timeout=3600)
+async def submit(task_id: str, env: str):
+    task = Task.from_id(document_id=task_id, env=env)
     print(task)
     
     start_time = datetime.utcnow()
@@ -65,7 +65,7 @@ async def submit(task_id: str, db_name):
         output = await _execute(
             task.workflow, task.args, task.user
         )
-        result = utils.upload_media(output)
+        result = utils.upload_media(output, env=env)
         task_update = {
             "status": "completed", 
             "result": result
