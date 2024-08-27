@@ -12,13 +12,11 @@ from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
 from models import Task, Model
-from mongo import mongo_client
 import utils
 import s3
 
 env = os.getenv("ENV", "STAGE")
-db_name = "eden-stg" if env == "STAGE" else "eden-prod"
-bucket_name = os.getenv("AWS_BUCKET_NAME_STAGE") if env == "STAGE" else os.getenv("AWS_BUCKET_NAME_PROD")
+db_name = s3.envs[env]["db_name"]
 
 
 TYPE_MAPPING = {
@@ -182,9 +180,7 @@ class Tool(BaseModel):
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
-                print("get root for filename", filename)
-                print(":root", s3.get_root_url())
-                r["url"] = f"{s3.get_root_url()}{filename}"
+                r["url"] = f"{s3.get_root_url(env=env)}{filename}"
         return result
     
     def handle_run(run_function):
@@ -236,10 +232,8 @@ class ModalTool(Tool):
 
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        stage = os.getenv("ENV") == "STAGE"
-        db_name = "eden-stg" if stage else "eden-prod"
         func = modal.Function.lookup("handlers", "submit")
-        job = func.spawn(str(task.id), db_name=db_name)
+        job = func.spawn(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -279,10 +273,8 @@ class ComfyUITool(Tool):
 
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        stage = os.getenv("ENV") == "STAGE"
-        db_name = "eden-stg" if stage else "eden-prod"
         cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        job = await cls().run_task.spawn.aio(str(task.id), db_name=db_name)
+        job = await cls().run_task.spawn.aio(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -314,7 +306,7 @@ class ReplicateTool(Tool):
             output = [prediction.output[-1]["thumbnails"][0]]
         else:
             output = [url for url in prediction.output]
-        result = utils.upload_media(output, stage=True)
+        result = utils.upload_media(output, env=env)
         return result
 
     @Tool.handle_submit
@@ -414,7 +406,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     
     elif status == "succeeded":
         if output_handler == "normal":
-            result = utils.upload_media(output, stage=(env == "STAGE"))
+            result = utils.upload_media(output, env=env)
         
         elif output_handler in ["trainer", "eden"]:
             result = replicate_process_eden(output)
@@ -455,7 +447,7 @@ def replicate_process_eden(output):
     results = []
     
     for file, thumb in zip(output["files"], output["thumbnails"]):
-        file_url, _ = s3.upload_file_from_url(file, bucket_name=bucket_name)
+        file_url, _ = s3.upload_file_from_url(file, env=env)
         metadata = output.get("attributes")
         media_attributes, thumbnail = utils.get_media_attributes(file_url)
 
@@ -467,7 +459,7 @@ def replicate_process_eden(output):
 
         thumbnail = thumbnail or thumb or None
         if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', bucket_name=bucket_name)
+            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
             result["thumbnail"] = thumbnail_url
 
         results.append(result)
@@ -559,11 +551,7 @@ def get_tools(tools_folder: str):
         name = os.path.relpath(root, start=tools_folder)
         if "." in name or not required_files <= set(files):
             continue
-        # temp hack to load vton and remix as xhibit/vton and xhibit/remix
-        if "xhibit" in tools_folder:
-            tools[f"xhibit/{name}"] = load_tool(os.path.join(tools_folder, name), name)
-        else:
-            tools[name] = load_tool(os.path.join(tools_folder, name), name)
+        tools[name] = load_tool(os.path.join(tools_folder, name), name)
     return tools
 
 

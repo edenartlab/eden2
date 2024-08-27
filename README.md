@@ -1,20 +1,20 @@
 # ComfyUI
 
-Test a single workflow
+Test a single workspace
 
-    ENV=name_of_environment modal run comfyui.py
+    WORKSPACE=name_of_workspace modal run comfyui.py
 
-If you just want to test only a subset of workflows, use:
+If you just want to test only a subset of workflows in a workspace, use:
 
-    ENV=name_of_environment WORKFLOWS=workflow1,workflow2 modal run comfyui.py
+    WORKSPACE=name_of_workspace WORKFLOWS=workflow1,workflow2 modal run comfyui.py
 
-Deploy a single workflow to stage.
+Deploy a single workspace to stage.
 
-    ENV=name_of_environment modal deploy comfyui.py
+    WORKSPACE=name_of_workspace modal deploy comfyui.py
 
-If you want to deploy a private environment, use `PRIVATE=1`
+If you want to deploy a private workspace, use `PRIVATE=1`
 
-    ENV=name_of_private_env PRIVATE=1 modal deploy comfyui.py
+    WORKSPACE=name_of_private_workspace PRIVATE=1 modal deploy comfyui.py
 
 
 

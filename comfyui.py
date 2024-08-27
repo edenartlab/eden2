@@ -16,6 +16,7 @@ import subprocess
 
 from models import Task
 from mongo import mongo_client
+import s3
 import tool
 import utils
 
@@ -25,21 +26,17 @@ GPUs = {
     "A100-80GB": modal.gpu.A100(size="80GB")
 }
 
-prod_env = os.getenv("APP", "STAGE")
-env_name = os.getenv("ENV")
+if not os.getenv("WORKSPACE"):
+    raise Exception("No workspace selected")
 
-if not env_name:
-    raise Exception("No environment selected")
-if prod_env not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {prod_env}. Must be PROD or STAGE")
-
-app_name = f"comfyui-{env_name}"
+workspace_name = os.getenv("WORKSPACE")
+app_name = f"comfyui-{workspace_name}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
 
 
 def install_comfyui():
-    snapshot = json.load(open("/root/env/snapshot.json", 'r'))
+    snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
     subprocess.run(["git", "init", "."], check=True)
     subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True)
@@ -48,7 +45,7 @@ def install_comfyui():
 
 
 def install_custom_nodes():
-    snapshot = json.load(open("/root/env/snapshot.json", 'r'))
+    snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
         print(f"Installing custom node {url} with hash {hash}")
@@ -90,12 +87,30 @@ def install_custom_node(url, hash):
                 except Exception as e:
                     print(f"Error installing requirements: {e}")
 
+def download_files():
+    downloads = json.load(open("/root/workspace/downloads.json", 'r'))
+    for path, url in downloads.items():
+        comfy_path = pathlib.Path("/root") / path
+        vol_path = pathlib.Path("/data") / path
+        if vol_path.is_file():
+            print(f"Skipping download, getting {path} from cache")
+        else:
+            print(f"Downloading {url} to {vol_path}")
+            vol_path.parent.mkdir(parents=True, exist_ok=True)
+            utils.download_file(url, vol_path)
+            downloads_vol.commit()
+        try:
+            comfy_path.parent.mkdir(parents=True, exist_ok=True)
+            comfy_path.symlink_to(vol_path)
+        except Exception as e:
+            raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
+        if not pathlib.Path(comfy_path).exists():
+            raise Exception(f"No file found at {comfy_path}")
+
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({
-        "APP": prod_env, "ENV": env_name, "WORKFLOWS": test_workflows,
-        "COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models", 
-    }) 
+    .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
@@ -103,9 +118,13 @@ image = (
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
         "torchaudio", "pydub", "moviepy", "accelerate")
     .pip_install("bson").pip_install("pymongo") 
-    .copy_local_dir(f"../{root_workflows_folder}/environments/{env_name}", "/root/env")
+    .env({"WORKSPACE": workspace_name}) 
+    .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
+    .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+    .copy_local_dir(f"../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
+    .env({"WORKFLOWS": test_workflows})
 )
 
 gpu = modal.gpu.A100()
@@ -119,8 +138,8 @@ app = modal.App(
     name=app_name, 
     secrets=[
         modal.Secret.from_name("s3-credentials"),
+        modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
-        modal.Secret.from_name("mongo-credentials")
     ]
 )
 
@@ -145,17 +164,17 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict, db_name: str):
+    def _execute(self, workflow_name: str, args: dict, env: str):
         print("args", workflow_name, args)
         
         # hack to fix xhibit aliases
-        if "xhibit/" in workflow_name:
-            workflow_name = workflow_name.replace("xhibit/", "")
+        # if "xhibit/" in workflow_name:
+        #     workflow_name = workflow_name.replace("xhibit/", "")
         
-        tool_path = f"/root/env/workflows/{workflow_name}"
+        tool_path = f"/root/workspace/workflows/{workflow_name}"
         tool_ = tool.load_tool(tool_path)
         workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
-        workflow = self._inject_args_into_workflow(workflow, tool_, args, db_name=db_name)
+        workflow = self._inject_args_into_workflow(workflow, tool_, args, env=env)
         prompt_id = self._queue_prompt(workflow)['prompt_id']
         outputs = self._get_outputs(prompt_id)
         print("comfyui outputs", outputs)
@@ -165,13 +184,14 @@ class ComfyUI:
         return output
 
     @modal.method()
-    def run(self, workflow_name: str, args: dict, db_name: str = "eden-stg"):
-        output = self._execute(workflow_name, args, db_name=db_name)
-        result = utils.upload_media(output, stage=(db_name == "eden-stg"))
+    def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
+        output = self._execute(workflow_name, args, env=env)
+        result = utils.upload_media(output, env=env)
         return result
 
     @modal.method()
-    def run_task(self, task_id: str, db_name):
+    def run_task(self, task_id: str, env: str):
+        db_name = s3.envs[env]["db_name"]
         print("=====================")
         print("stage3", db_name, task_id)
         # task = Task(**task)
@@ -191,9 +211,9 @@ class ComfyUI:
 
         try:
             print(task.workflow, task.args)
-            output = self._execute(task.workflow, task.args, db_name=db_name)
+            output = self._execute(task.workflow, task.args, env=env)
             print("3", output)
-            result = utils.upload_media(output, stage=(db_name == "eden-stg"))
+            result = utils.upload_media(output, env=env)
             print("4", result)
             task_update = {
                 "status": "completed", 
@@ -219,34 +239,18 @@ class ComfyUI:
         self._start()
 
     @modal.build()
-    def download_files(self):
-        downloads = json.load(open("/root/env/downloads.json", 'r'))
-        for path, url in downloads.items():
-            comfy_path = pathlib.Path("/root") / path
-            vol_path = pathlib.Path("/data") / path
-            if vol_path.is_file():
-                print(f"Skipping download, getting {path} from cache")
-            else:
-                print(f"Downloading {url} to {vol_path}")
-                vol_path.parent.mkdir(parents=True, exist_ok=True)
-                utils.download_file(url, vol_path)
-                downloads_vol.commit()
-            try:
-                comfy_path.parent.mkdir(parents=True, exist_ok=True)
-                comfy_path.symlink_to(vol_path)
-            except Exception as e:
-                raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
-            if not pathlib.Path(comfy_path).exists():
-                raise Exception(f"No file found at {comfy_path}")
+    def downloads(self):
+        download_files()
             
     @modal.build()
     def test_workflows(self):
+        print(" ==== TEST WORKFLOWS ====")
         t1 = time.time()
         self._start()
         t2 = time.time()
 
         results = {"_performance": {"launch": t2 - t1}}
-        workflows_dir = pathlib.Path("/root/env/workflows")
+        workflows_dir = pathlib.Path("/root/workspace/workflows")
         workflow_names = [f.name for f in workflows_dir.iterdir() if f.is_dir()]
         test_workflows = os.getenv("WORKFLOWS")
         if test_workflows:
@@ -260,11 +264,11 @@ class ComfyUI:
 
         for workflow in workflow_names:
             t1 = time.time()
-            test_args = tool.load_tool(f"/root/env/workflows/{workflow}").test_args
-            output = self._execute(workflow, test_args, db_name="eden-stg")
+            test_args = tool.load_tool(f"/root/workspace/workflows/{workflow}").test_args
+            output = self._execute(workflow, test_args, env="STAGE")
             if not output:
                 raise Exception(f"No output from {workflow} test")
-            result = utils.upload_media(output, stage=True)
+            result = utils.upload_media(output, env="STAGE")
             t2 = time.time()
             results[workflow] = result
             results["_performance"][workflow] = t2 - t1
@@ -349,13 +353,11 @@ class ComfyUI:
             text = f"in the style of {reference}, {text}"
         return text
 
-    def _transport_lora(
-        self,
-        lora_url: str,
-        downloads_folder: str,
-        loras_folder: str,
-        embeddings_folder: str,
-    ):
+    def _transport_lora(self, lora_url: str):
+        downloads_folder = "/root/downloads"
+        loras_folder = "/root/models/loras"
+        embeddings_folder = "/root/models/embeddings"
+
         print("tl download lora", lora_url)
         if not re.match(r'^https?://', lora_url):
             raise ValueError(f"Lora URL Invalid: {lora_url}")
@@ -439,7 +441,9 @@ class ComfyUI:
             filename = name[:max_length - len(ext)] + ext
         return filename    
 
-    def _inject_args_into_workflow(self, workflow, tool_, args, db_name="eden-stg"):
+    def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
+        db_name = s3.envs[env]["db_name"]
+
         embedding_trigger = None
         
         # download and transport files
@@ -472,7 +476,7 @@ class ComfyUI:
                 pretrained_model = lora.get("args").get("sd_model_version")
                 embedding_trigger = f"{lora_name}_{pretrained_model}_embeddings"
 
-                print("THE EMEBEDDING TRIGGER IS", embedding_trigger)
+                print("Embedding Trigger", embedding_trigger)
                 
                 print("LORA URL", lora_url)
                 if not lora_url:
@@ -481,12 +485,7 @@ class ComfyUI:
                 # lora_url = args.get(param.name)
                 print("LORA URL 2", lora_url)
                 # if lora_url:
-                lora_filename = self._transport_lora(
-                    lora_url, 
-                    downloads_folder="/root/downloads",
-                    loras_folder="/root/models/loras",
-                    embeddings_folder="/root/models/embeddings"
-                )
+                lora_filename = self._transport_lora(lora_url)
                 args[param.name] = lora_filename        
             
         # inject args

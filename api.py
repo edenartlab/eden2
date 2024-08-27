@@ -23,16 +23,16 @@ api_tools = [
     "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
     "animate_3D", "txt2vid", "txt2vid_lora", "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
     "stable_audio", "audiocraft", "reel",
-    "xhibit/vton", "xhibit/remix", "beeple_ai",
+    "xhibit_vton", "xhibit_remix", "beeple_ai",
     "moodmix", "lora_trainer",
 ]
 
 agents = mongo_client[db_name]["agents"]
 threads = mongo_client[db_name]["threads"]
 
-tools = get_comfyui_tools("../workflows/environments") | get_comfyui_tools("../private_workflows/environments") | get_tools("tools")
+tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
 tools = {k: v for k, v in tools.items() if k in api_tools}
-
+print("YAY", tools.keys())
 
 async def get_or_create_thread(
     request: dict, 
@@ -153,33 +153,21 @@ async def chat(data, user):
         }
 
 
-
-import asyncio
-import asyncio
-
-def create_handl3er(task_handler):
+def create_handler(task_handler):
     async def websocket_handler(
         websocket: WebSocket, 
         user: dict = Depends(auth.authenticate_ws)
     ):
         await websocket.accept()
-        task = None
         try:
             async for data in websocket.iter_json():
-                async def process_task():
-                    try:
-                        async for response in task_handler(data, user):
-                            if websocket.application_state == WebSocketState.CONNECTED:
-                                await websocket.send_json(response)
-                            else:
-                                print("WebSocket disconnected, but continuing to process task")
-                    except Exception as e:
-                        print(f"Error in task_handler: {str(e)}")
-                        if websocket.application_state == WebSocketState.CONNECTED:
-                            await websocket.send_json({"error": str(e)})
-
-                task = asyncio.create_task(process_task())
-                await task
+                try:
+                    async for response in task_handler(data, user):
+                        await websocket.send_json(response)
+                    break
+                except Exception as e:
+                    await websocket.send_json({"error": str(e)})
+                    break
         except WebSocketDisconnect:
             print("WebSocket disconnected by client")
         except Exception as e:
@@ -188,44 +176,14 @@ def create_handl3er(task_handler):
             if websocket.application_state == WebSocketState.CONNECTED:
                 print("Closing WebSocket...")
                 await websocket.close()
-            if task and not task.done():
-                print("Task is still running, allowing it to continue...")
-    return websocket_handler
-
-
-def create_handler(task_handler):
-    async def websocket_handler(
-        websocket: WebSocket, 
-        user: dict = Depends(auth.authenticate_ws)
-    ):
-        await websocket.accept()
-        # try:
-        if 1:
-            async for data in websocket.iter_json():
-                # try:
-                if 1:
-                    async for response in task_handler(data, user):
-                        await websocket.send_json(response)
-                    break
-                # except Exception as e:
-                #     await websocket.send_json({"error": str(e)})
-                #     break
-        # except WebSocketDisconnect:
-        #     print("WebSocket disconnected by client")
-        # except Exception as e:
-        #     print(f"Unexpected error: {str(e)}")
-        # finally:
-        #     if websocket.application_state == WebSocketState.CONNECTED:
-        #         print("Closing WebSocket...")
-        #         await websocket.close()
     return websocket_handler
 
 
 def tools_list():
-    return [tools[t].get_info(include_params=False) for t in api_tools]
+    return [tools[t].get_info(include_params=False) for t in api_tools if t in tools]
 
 def tools_summary():
-    return [tools[t].get_info() for t in api_tools]
+    return [tools[t].get_info() for t in api_tools if t in tools]
 
 
 web_app = FastAPI()
@@ -247,8 +205,8 @@ app = modal.App(
     name=app_name,
     secrets=[
         modal.Secret.from_name("admin-key"),
-        modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("clerk-credentials"),
+        modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
@@ -258,11 +216,11 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"ENV": "PROD", "MODAL_SERVE": "0"}) # os.getenv("MODAL_SERVE")})
+    .env({"ENV": env, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
                  "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy",
-                 "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub")
+                 "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("../private_workflows", remote_path="/private_workflows")
     .copy_local_dir("tools", remote_path="/root/tools")

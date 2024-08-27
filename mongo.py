@@ -9,9 +9,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 
 load_dotenv()
-mongo_url = os.getenv("MONGO_URI")
-
-mongo_client = MongoClient(mongo_url)
+mongo_client = MongoClient(os.getenv("MONGO_URI"))
 
 
 class MongoBaseModel(BaseModel):
@@ -52,7 +50,6 @@ class MongoBaseModel(BaseModel):
         data["updatedAt"] = self.updatedAt
         return data
 
-    # @classmethod
     def reload(self): 
         if self.collection is None:
             raise Exception("Collection not set")
@@ -64,7 +61,6 @@ class MongoBaseModel(BaseModel):
             setattr(self, key, value)
         return self
 
-    # @classmethod
     def save(self):
         if self.collection is None:
             raise Exception("Collection not set")
@@ -84,7 +80,6 @@ class MongoBaseModel(BaseModel):
         else:
             return self.collection.insert_one(data)
 
-    # @classmethod
     def update(self, update_args):
         if self.collection is None:
             raise Exception("Collection not set")
@@ -103,4 +98,3 @@ class MongoBaseModel(BaseModel):
             return self.collection.update_one({'_id': document_id}, {'$set': update_args})
         else:
             raise Exception("Document not found")
-

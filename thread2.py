@@ -17,8 +17,35 @@ from mongo import MongoBaseModel, mongo_client
 from utils import custom_print, download_file, file_to_base64_data
 
 
+
+
+
+
+
+
+
+import sentry_sdk
+from sentry_sdk import add_breadcrumb
+from sentry_sdk import capture_exception, capture_message
+
+sentry_sdk.init(
+    dsn="https://09eeaaebc42fb91e01a5501a7e96adfa@o4505840416784384.ingest.us.sentry.io/4507796161167360",
+    traces_sample_rate=1.0,
+    profiles_sample_rate=1.0,
+)
+
+
+
+
+
+
+
+
+
+
+
 env = os.getenv("ENV", "STAGE")
-db_name = "eden-stg" if env == "STAGE" else "eden-prod"
+db_name = s3.envs[env]["db_name"]
 threads = mongo_client[db_name]["threads"]
 
 
@@ -30,7 +57,7 @@ eve_tools = [
     "stable_audio", "audiocraft", "reel", "lora_trainer",
 ]
 
-tools = get_comfyui_tools("../workflows/environments") | get_comfyui_tools("../private_workflows/environments") | get_tools("tools")
+tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
 default_tools = {k: v for k, v in tools.items() if k in eve_tools}
 
 anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
@@ -349,83 +376,81 @@ async def openai_prompt(messages, system_message):
 
 
 async def process_tool_calls(tool_calls, settings):
-    if 1:
-
-
-        tool_results = []
-        print("run tool calls")
-        for tool_call in tool_calls:
-            # try:
-            if 1:
-                tool_call.validate()
-                tool = default_tools[tool_call.name]
-                input = {k: v for k, v in tool_call.input.items() if v is not None}
-                input.update(settings)
-                updated_args = tool.get_base_model(**input).model_dump()
-                print("updated args", updated_args)
-                
-                
-                
-                #result = await tool.async_run(args=updated_args)
-
-
-                # print("THE RESULT")
-                # res = result[0]
-                # if res['url'].endswith('.tar'):
-                #     print("WE GOT A MDOEL)")
-                #     print(res)
-                #     print("-----")
-
-                print("DO A TOOL CALL")
-                print(db_name)
-                print(tool.key)
-                from models import Task
-                task = Task(
-                    workflow=tool.key,
-                    args=updated_args,
-                    user=ObjectId("65284b18f8bbb9bff13ebe65"),
-                    db_name=db_name
-                )
-                print("---- 1")
-                print(task)
-                result = await tool.async_submit_and_run(task)
-                # result = await asyncio.wait_for(tool.async_submit_and_run(task), timeout=3600)
+    tool_results = []
+    print("run tool calls")
+    for tool_call in tool_calls:
+        add_breadcrumb(category="tool_call", data=tool_call.model_dump())
+        # try:
+        if 1:
+            tool_call.validate()
+            tool = default_tools[tool_call.name]
+            input = {k: v for k, v in tool_call.input.items() if v is not None}
+            input.update(settings)
+            updated_args = tool.get_base_model(**input).model_dump()
+            print("updated args", updated_args)
             
-                print("------ 2")
-                print("result", result)
+            
+            
+            #result = await tool.async_run(args=updated_args)
 
 
-                if isinstance(result, list):
-                    result = ", ".join([r['url'] for r in result])
+            # print("THE RESULT")
+            # res = result[0]
+            # if res['url'].endswith('.tar'):
+            #     print("WE GOT A MDOEL)")
+            #     print(res)
+            #     print("-----")
 
-                result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
+            print("DO A TOOL CALL")
+            print(db_name)
+            print(tool.key)
+            from models import Task
+            task = Task(
+                workflow=tool.key,
+                args=updated_args,
+                user=ObjectId("65284b18f8bbb9bff13ebe65"),
+                db_name=db_name
+            )
+            print("---- 1")
+            print(task)
 
 
-            # except ToolNotFoundException as e:
-            #     error = f"Tool {tool_call.name} not found"
-            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+            add_breadcrumb(category="tool_call", data=task.model_dump())
 
-            # except ValidationError as err:
-            #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-            #     errors = ", ".join(errors)
-            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+            result = await tool.async_submit_and_run(task)
+            # result = await asyncio.wait_for(tool.async_submit_and_run(task), timeout=3600)
+        
+            print("------ 2")
+            print("result", result)
+            add_breadcrumb(category="tool_call", data={"result": result})
 
-            # except Exception as e:
-            #     error = f"An internal error occurred"
-            #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
 
-            # finally:
-            #     tool_results.append(result)
+            if isinstance(result, list):
+                result = ", ".join([r['url'] for r in result])
 
-            tool_results.append(result)
+            result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
-        return tool_results
-    
 
-    # except asyncio.TimeoutError:
-    #     print("TOOL CALL TIMED OUT")
-    #     raise Exception("Tool call timed out")
-    
+        # except ToolNotFoundException as e:
+        #     error = f"Tool {tool_call.name} not found"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+
+        # except ValidationError as err:
+        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
+        #     errors = ", ".join(errors)
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+
+        # except Exception as e:
+        #     error = f"An internal error occurred"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+
+        # finally:
+        #     tool_results.append(result)
+
+        tool_results.append(result)
+
+    return tool_results
+
 
 
 @retry(
@@ -449,46 +474,37 @@ async def prompt_llm_and_validate(messages, system_message, provider):
     num_attempts, max_attempts = 0, 3
     while num_attempts < max_attempts:
         num_attempts += 1 
-
         pretty_print_messages(messages, schema=provider)
 
-
-#         system_message += """
-# VERY IMPORTANT: If you are asked to use a Lora of Ygor, use "66b5162faec5413f19eb0036" as the Lora ID argument!!! Except if you are doing txt2vid_lora, then you should use "66b518c4aec5413f19eb0037" for Lora ID."""
-
-
-        # try:
-        if 1:
+        try:
             if provider == "anthropic":
                 content, tool_calls, stop = await anthropic_prompt(messages, system_message)
             elif provider == "openai":
                 content, tool_calls, stop = await openai_prompt(messages, system_message)
-
+            
             # check for hallucinated tools
             invalid_tools = [t.name for t in tool_calls if not t.name in default_tools]
             if invalid_tools:
+                add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
                 raise ToolNotFoundException(*invalid_tools)
 
             # check for hallucinated urls
-            url_pattern = r'https://(?:eden|edenartlab-stage-data)\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
+            #url_pattern = r'https://(?:eden|edenartlab-stage-data)\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
+            url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff)'
             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-            print("valid urls", valid_urls)
             valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result for url in re.findall(url_pattern, result.result)]  # output results 
-            print("valid urls 2", valid_urls)
             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
-            print("tool_calls_urls", tool_calls_urls)
             invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
-            print("invalid urls", invalid_urls)
             if invalid_urls:
-                print("INVALID URLS", invalid_urls)
+                add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
                 raise UrlNotFoundException(*invalid_urls)
                 
             return content, tool_calls, stop
 
         # if there are still hallucinations after max_attempts, just let the LLM deal with it
-        # except (ToolNotFoundException, UrlNotFoundException) as e:
-        #     if num_attempts == max_attempts:
-        #         return content, tool_calls, stop
+        except (ToolNotFoundException, UrlNotFoundException) as e:
+            if num_attempts == max_attempts:
+                return content, tool_calls, stop
 
 
 
@@ -505,15 +521,19 @@ async def prompt(
     user_message: UserMessage,
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
-    bucket_name = os.getenv("AWS_BUCKET_NAME_STAGE") if env == "STAGE" else os.getenv("AWS_BUCKET_NAME_PROD")
+    data = user_message.model_dump().update({"attachments": user_message.attachments, "agent": agent.id})
+    add_breadcrumb(category="prompt", data=data)
 
     # upload all attachments to s3
     attachments = user_message.attachments or []    
     for a, attachment in enumerate(attachments):
-        if not attachment.startswith(s3.get_root_url(bucket_name=bucket_name)):
-            attachment_url = s3.upload_file_from_url(attachment, bucket_name=bucket_name)
+        if not attachment.startswith(s3.get_root_url(env=env)):
+            attachment_url = s3.upload_file_from_url(attachment, env=env)
             attachments[a] = attachment_url
     user_message.attachments = attachments
+
+    if user_message.attachments:
+        add_breadcrumb(category="attachments", data=user_message.attachments)
 
     save = True
     settings = user_message.metadata.get("settings", {})
@@ -524,17 +544,26 @@ async def prompt(
     start_index = user_messages[-5] if len(user_messages) >= 5 else 0
     thread_messages = thread.messages[start_index:]
     new_messages = [user_message]
-    # if thread_messages:
-        # print("FIRST MSG", thread_messages[0])
+
+    th = {"messages": [m.model_dump() for m in thread_messages], "testfklag": "g"}
+    print(th)
+    add_breadcrumb(category="thread_messages", data=th)
 
     while True:
         messages = thread_messages + new_messages
 
         # try:
         if 1:
+            
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider
             )
+
+            print("tool_calls", tool_calls)
+            # print("stop", json.dumps([tool_calls]))
+
+            data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
+            add_breadcrumb(category="llm_response", data=data)
 
             print("----------")
             print("I GOT IT")
@@ -580,14 +609,30 @@ async def prompt(
         yield assistant_message
         
         if tool_calls:
+            print("LKETS dwfswdff PROCESS THE TOOL CALLS")
             tool_results = await process_tool_calls(tool_calls, settings)
             print("the tool results are", tool_results)
+
+            add_breadcrumb(category="tool_results", data=[t.model_dump() for t in tool_results])
+            add_breadcrumb(category="tool_results2", data={"tool_results": [t.model_dump() for t in tool_results]})
+            add_breadcrumb(category="tool_results3", data={"hello": "world"})
+
+            print("we ghave reached the end")
+
             tool_message = ToolResultMessage(tool_results=tool_results)
             new_messages.append(tool_message)
             yield tool_message
         
+            raise Exception("purposefully stopping 525")
+        
+        else:
+            raise Exception("purposefully stopping 3126")
+
+
         if not stop:
             break
+
+        
 
     # print("new_messages")
     # pretty_print_messages(new_messages)
