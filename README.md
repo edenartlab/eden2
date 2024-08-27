@@ -17,6 +17,21 @@ If you want to deploy a private workspace, use `PRIVATE=1`
     WORKSPACE=name_of_private_workspace PRIVATE=1 modal deploy comfyui.py
 
 
+# Testing deployed tools
+
+To test a tool directly, run:
+
+    python test_tools.py --tools tool1,tool2,etc
+
+To test a tool through the tools API, run:
+
+    python test_api.py --tools tool1,tool2,etc
+
+To test a tool from the SDK through the API, run:
+
+    python test_sdk.py --tools tool1,tool2,etc
+
+All of these will test using the staging API, so make sure you are running the API (see next section). If you want to test production, include the `--production` flag. If you want to test all the tools, omit the `--tools` parameter.
 
 
 # Tools API
