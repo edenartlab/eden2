@@ -98,7 +98,7 @@ image = (
     }) 
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install(
-        "httpx", "tqdm", "websocket-client", "gitpython", "boto3",
+        "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
         "torchaudio", "pydub", "moviepy", "accelerate")
