@@ -242,8 +242,9 @@ class ModalTool(Tool):
         if not task.handler_id:
             task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        result = await fc.get.aio()
-        return result 
+        await fc.get.aio()
+        task.reload()
+        return self.get_user_result(task.result)
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
@@ -270,13 +271,17 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        return await cls().run.remote.aio(self.key, args)
-
+        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        #return await cls().run.remote.aio(self.key, args)
+        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
+        return await func.remote.aio(self.key, args)
+        
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        job = await cls().run_task.spawn.aio(str(task.id), env=env)
+        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        #job = await cls().run_task.spawn.aio(str(task.id), env=env)
+        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run_task")
+        job = await func.spawn.aio(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
