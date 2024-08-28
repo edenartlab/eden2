@@ -7,7 +7,7 @@ model: edenartlab/audiocraft:c8681e518429d9ab930defb73593360726b4df6c3000525fc30
 parameters:
 - name: text_input
   label: Prompt
-  description: Name of the LoRA
+  description: Description of the type of music you want to generate
   type: string
   required: true
 - name: model_name
