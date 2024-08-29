@@ -534,7 +534,7 @@ def get_field_type_and_kwargs(
     return (field_type, Field(**field_kwargs))
 
 
-def load_tool(tool_path: str, name: str = None) -> Tool:
+def load_tool(tool_path: str, name: str = None, test_all: bool = False) -> Tool:
     api_path = f"{tool_path}/api.yaml"
     if not os.path.exists(api_path):
         raise ValueError(f"Tool {name} not found at {api_path}")
@@ -551,7 +551,22 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         tool = ReplicateTool(data, key=name)
     else:
         tool = ModalTool(data, key=name)
-    tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
+    if test_all: # Match any file starting with test and ending with .json:
+        print("Finding all tests...")
+        for f in os.listdir(tool_path):
+            print(f)
+        print("-----")
+        for f in os.listdir(tool_path):
+            if f.startswith("test") and f.endswith(".json"):
+                print(f)
+
+        tool.test_args = {
+            os.path.splitext(f)[0]: json.loads(open(f"{tool_path}/{f}", "r").read())
+            for f in os.listdir(tool_path) if f.startswith("test") and f.endswith(".json")
+        }
+    else:
+        print("Finding single test...")
+        tool.test_args = {"test": json.loads(open(f"{tool_path}/test.json", "r").read())}
     return tool
 
 

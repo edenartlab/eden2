@@ -12,8 +12,11 @@ Deploy a single workspace to stage.
 
     WORKSPACE=name_of_workspace modal deploy comfyui.py
 
-If you want to deploy a private workspace, use `PRIVATE=1`
+### Additional FLAGS:
+If you want to run all the test*.json tests, use `TEST_ALL=1`
+    WORKSPACE=img_tools WORKFLOWS=upscaler TEST_ALL=1 modal run comfyui.py
 
+If you want to deploy a private workspace, use `PRIVATE=1`
     WORKSPACE=name_of_private_workspace PRIVATE=1 modal deploy comfyui.py
 
 

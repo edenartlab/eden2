@@ -32,7 +32,11 @@ workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
+test_all = True if os.getenv("TEST_ALL") else False
 
+print('----------------------')
+print(f"test_all start: {test_all}")
+print('----------------------')
 
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -110,6 +114,7 @@ def download_files():
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
+    .env({"TEST_ALL": os.getenv("TEST_ALL")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
@@ -234,7 +239,7 @@ class ComfyUI:
             
     @modal.build()
     def test_workflows(self):
-        print(" ==== TEST WORKFLOWS ====")
+        print(" ==== TESTING WORKFLOWS ====")
         t1 = time.time()
         self._start()
         t2 = time.time()
@@ -253,15 +258,32 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
-            t1 = time.time()
-            test_args = tool.load_tool(f"/root/workspace/workflows/{workflow}").test_args
-            output = self._execute(workflow, test_args, env="STAGE")
-            if not output:
-                raise Exception(f"No output from {workflow} test")
-            result = utils.upload_media(output, env="STAGE")
-            t2 = time.time()
-            results[workflow] = result
-            results["_performance"][workflow] = t2 - t1
+            test_all = True if os.getenv("TEST_ALL") else False
+            
+            print('----------------------')
+            print('----------------------')
+            print(f"test_all mid: {test_all}")
+            print('----------------------')
+            print('----------------------')
+
+            test_arg_dict = tool.load_tool(tool_path = f"/root/workspace/workflows/{workflow}", test_all = test_all).test_args
+
+            print("---------------------------")
+            print(test_all)
+            print(test_arg_dict)
+            print("---------------------------")
+
+            for test_key in test_arg_dict.keys():
+                print("Running test", test_key)
+                test_args = test_arg_dict[test_key]
+                t1 = time.time()
+                output = self._execute(workflow, test_args, env="STAGE")
+                if not output:
+                    raise Exception(f"No output from {workflow} test")
+                result = utils.upload_media(output, env="STAGE")
+                t2 = time.time()
+                results[f"{workflow}_{test_key}"] = result
+                results["_performance"][workflow] = t2 - t1
         
         with open("_test_results_.json", "w") as f:
             json.dump(results, f, indent=4)
@@ -335,8 +357,8 @@ class ComfyUI:
             
             return outputs            
 
-    def _inject_embedding_mentions(self, text, embedding_name):
-        reference = f'embedding:{embedding_name}.safetensors'
+    def _inject_embedding_mentions(self, text, embedding_name, lora_mode):
+        reference = f'embedding:{embedding_name}'
         text = re.sub(rf'(<{embedding_name}>|{embedding_name})', reference, text, flags=re.IGNORECASE)
         text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
         if reference not in text:
@@ -390,7 +412,16 @@ class ComfyUI:
 
         lora_filename = next((f for f in extracted_files if lora_pattern.match(f)), None)
         embeddings_filename = next((f for f in extracted_files if embeddings_pattern.match(f)), None)
+        training_args_filename = next((f for f in extracted_files if f == "training_args.json"), None)
 
+        if training_args_filename:
+            with open(os.path.join(destination_folder, training_args_filename), "r") as f:
+                training_args = json.load(f)
+                lora_mode = training_args["concept_mode"]
+        else:
+            lora_mode = None
+
+        print("tl lora mode:", lora_mode)
         print("tl, lora filename:", lora_filename)
         print("tl, embeddings filename:", embeddings_filename)
 
@@ -426,7 +457,7 @@ class ComfyUI:
 
         embedding_trigger = embeddings_filename.rsplit('.safetensors', 1)[0]
         
-        return lora_filename, embedding_trigger
+        return lora_filename, embedding_trigger, lora_mode
 
     def _url_to_filename(self, url):
         filename = url.split('/')[-1]
@@ -477,7 +508,7 @@ class ComfyUI:
                 # lora_url = args.get(param.name)
                 print("LORA URL 2", lora_url)
                 # if lora_url:
-                lora_filename, embedding_trigger = self._transport_lora(lora_url)
+                lora_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
                 print("Embedding Trigger", embedding_trigger)
                 args[param.name] = lora_filename
             
@@ -494,7 +525,7 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
-                value = self._inject_embedding_mentions(value, embedding_trigger)
+                value = self._inject_embedding_mentions(value, embedding_trigger, lora_mode)
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:
