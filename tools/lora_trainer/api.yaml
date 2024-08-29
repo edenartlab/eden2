@@ -33,16 +33,16 @@ parameters:
   default: sdxl
 - name: max_train_steps
   label: Training steps
-  description: Maximum number of training steps to loop through your training dataset
+  description: Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
   tip: This should be left at the default 300 when SDXL is the base model, unless the user *specifically* instructs you otherwise. If the base model is SD15, then you should *change* this to 800, again unless the user specifically requests something else.
   type: int
-  default: 350
+  default: 300
   minimum: 100
   maximum: 1200
   step: 10
 - name: resolution
   label: Resolution
-  description: Target resolution which your images will be resized to for training
+  description: Resolution your images will be resized to for training (512 is great and your generations will still look perfect when rendering at eg 1024)
   tip: Do not change this unless you are specifically instructed to. Highly recommended to train at 512 for optimal speed and at 768 for best quality.
   type: int
   default: 512
