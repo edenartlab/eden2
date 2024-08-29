@@ -41,7 +41,7 @@ parameters:
   label: Height
   description: Height in pixels
   type: int
-  default: 768
-  minimum: 256
+  default: 1024
+  minimum: 512
   maximum: 2048
   step: 8
