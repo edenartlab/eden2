@@ -17,6 +17,13 @@ parameters:
   type: image[]
   required: true
   min_length: 1
+- name: concept_mode
+  label: Concept
+  description: Type of LoRA
+  type: string
+  choices: [face, object, style]
+  required: true
+  default: style
 - name: sd_model_version
   label: Base SD Model
   description: Base Stable Diffusion model to finetune from
@@ -24,12 +31,6 @@ parameters:
   type: string
   choices: [sdxl, sd15]
   default: sdxl
-- name: concept_mode
-  label: Concept
-  description: Type of LoRA
-  type: string
-  choices: [face, object, style]
-  default: style
 - name: max_train_steps
   label: Training steps
   description: Maximum number of training steps to loop through your training dataset
