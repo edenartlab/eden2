@@ -383,22 +383,26 @@ class ComfyUI:
                 break
 
         print("tl, base name", base_name)
-        
-        if base_name is None:
-            raise FileNotFoundError("No matching files found for pattern X_embeddings.safetensors.")
-        
-        lora_filename = f"{base_name}_lora.safetensors"
-        embeddings_filename = f"{base_name}_embeddings.safetensors"
+
+        # Find lora and embeddings files using regex
+        lora_pattern = re.compile(r'.*_lora\.safetensors$')
+        embeddings_pattern = re.compile(r'.*_embeddings\.safetensors$')
+
+        lora_filename = next((f for f in extracted_files if lora_pattern.match(f)), None)
+        embeddings_filename = next((f for f in extracted_files if embeddings_pattern.match(f)), None)
+
+        print("tl, lora filename:", lora_filename)
+        print("tl, embeddings filename:", embeddings_filename)
 
         # hack to correct for older lora naming convention
-        if str(lora_filename) not in extracted_files:
+        if not lora_filename:
             print("Old lora naming convention detected. Correcting...")
             lora_filename = f"{base_name}.safetensors"
             print("tl, old lora filename", lora_filename)
 
         for file in [lora_filename, embeddings_filename]:
             if str(file) not in extracted_files:
-                raise FileNotFoundError(f"Required file {file} does not exist in the extracted files.")
+                raise FileNotFoundError(f"Required file {file} does not exist in the extracted files: {extracted_files}")
 
         if not os.path.exists(loras_folder):
             os.makedirs(loras_folder)
@@ -419,8 +423,10 @@ class ComfyUI:
         embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
         shutil.copy(embeddings_path, embeddings_copy_path)
         print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
+
+        embedding_trigger = embeddings_filename.rsplit('.safetensors', 1)[0]
         
-        return lora_filename
+        return lora_filename, embedding_trigger
 
     def _url_to_filename(self, url):
         filename = url.split('/')[-1]
@@ -463,9 +469,6 @@ class ComfyUI:
                 lora_url = lora.get("checkpoint")
                 lora_name = lora.get("name")
                 pretrained_model = lora.get("args").get("sd_model_version")
-                embedding_trigger = f"{lora_name}_{pretrained_model}_embeddings"
-
-                print("Embedding Trigger", embedding_trigger)
                 
                 print("LORA URL", lora_url)
                 if not lora_url:
@@ -474,8 +477,9 @@ class ComfyUI:
                 # lora_url = args.get(param.name)
                 print("LORA URL 2", lora_url)
                 # if lora_url:
-                lora_filename = self._transport_lora(lora_url)
-                args[param.name] = lora_filename        
+                lora_filename, embedding_trigger = self._transport_lora(lora_url)
+                print("Embedding Trigger", embedding_trigger)
+                args[param.name] = lora_filename
             
         # inject args
         comfyui_map = {
