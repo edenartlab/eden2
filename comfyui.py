@@ -532,6 +532,9 @@ class ComfyUI:
                 if comfyui.preprocessing == "csv":
                     value = ",".join(value)
 
+                elif comfyui.preprocessing == "concat":
+                    value = ";\n".join(value)
+
                 elif comfyui.preprocessing == "folder":
                     temp_subfolder = tempfile.mkdtemp(dir="/root/input")
                     if isinstance(value, list):
