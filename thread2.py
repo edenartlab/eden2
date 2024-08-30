@@ -28,13 +28,15 @@ sentry_dsn = os.getenv("SENTRY_DSN")
 sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
 
 eve_tools = [
-    "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
-    "animate_3D", "txt2vid", "txt2vid_lora", "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
-    "stable_audio", "audiocraft", "reel", "lora_trainer",
+    "txt2img", "flux", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "clarity_upscaler", "face_styler", "upscaler",
+    "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
+    "stable_audio", "audiocraft", "reel",
+    "lora_trainer",
 ]
 
-tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
-default_tools = {k: v for k, v in tools.items() if k in eve_tools}
+default_tools = get_comfyui_tools("../workflows/workspaces") | get_tools("tools")
+if env == "PROD":
+    default_tools = {k: v for k, v in default_tools.items() if k in eve_tools}
 
 anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
@@ -369,6 +371,9 @@ async def process_tool_calls(tool_calls, settings):
             add_breadcrumb(category="tool_call_task", data=task.model_dump())
             
             result = await tool.async_submit_and_run(task)
+
+            #TODO: result should give us the url for all endpoints
+            # works for comfy, not modal. result["result"]
             add_breadcrumb(category="tool_result", data={"result": result})
 
             if isinstance(result, list):
@@ -533,7 +538,6 @@ async def prompt(
             break
 
     thread.add_messages(*new_messages, save=True, reload_messages=True)
-
 
 
 async def interactive_chat(initial_message=None):
