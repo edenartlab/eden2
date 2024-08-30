@@ -22,8 +22,8 @@ from models import Task
 from tool import get_tools, get_comfyui_tools, replicate_update_task
 
 api_tools = [
-    "txt2img", "flux", "SD3", "img2img", "controlnet", "remix", "inpaint", "outpaint", "background_removal", "clarity_upscaler", "face_styler", 
-    "animate_3D", "txt2vid", "txt2vid_lora", "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
+    "txt2img", "flux", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "clarity_upscaler", "face_styler", "upscaler",
+    "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
     "stable_audio", "audiocraft", "reel",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
     "moodmix", "lora_trainer",
@@ -33,7 +33,8 @@ agents = mongo_client[db_name]["agents"]
 threads = mongo_client[db_name]["threads"]
 
 tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
-tools = {k: v for k, v in tools.items() if k in api_tools}
+if env == "PROD":
+    tools = {k: v for k, v in tools.items() if k in api_tools}
 
 
 async def get_or_create_thread(
