@@ -64,6 +64,7 @@ class ToolParameter(BaseModel):
     tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
     required: bool = Field(False, description="Indicates if the field is mandatory")
+    visible_if: str = Field(None, description="Condition under which parameter is visible to UI")
     hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
     hide_from_ui: bool = Field(False, description="Hide from UI")
     default: Optional[Any] = Field(None, description="Default value")
@@ -365,6 +366,7 @@ class ReplicateTool(Tool):
         env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
         dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
         webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
+        print("get webhook url", webhook_url)
         return webhook_url
     
     def _create_prediction(self, args: dict, webhook=True):
@@ -551,22 +553,15 @@ def load_tool(tool_path: str, name: str = None, test_all: bool = False) -> Tool:
         tool = ReplicateTool(data, key=name)
     else:
         tool = ModalTool(data, key=name)
-    if test_all: # Match any file starting with test and ending with .json:
-        print("Finding all tests...")
-        for f in os.listdir(tool_path):
-            print(f)
-        print("-----")
-        for f in os.listdir(tool_path):
-            if f.startswith("test") and f.endswith(".json"):
-                print(f)
-
+    if test_all:
+        tests = [f for f in os.listdir(tool_path) if f.startswith("test") and f.endswith(".json")]
+        print("all tests", tests)
         tool.test_args = {
             os.path.splitext(f)[0]: json.loads(open(f"{tool_path}/{f}", "r").read())
-            for f in os.listdir(tool_path) if f.startswith("test") and f.endswith(".json")
+            for f in tests
         }
     else:
-        print("Finding single test...")
-        tool.test_args = {"test": json.loads(open(f"{tool_path}/test.json", "r").read())}
+        tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
     return tool
 
 
