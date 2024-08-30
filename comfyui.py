@@ -34,10 +34,6 @@ test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
 test_all = True if os.getenv("TEST_ALL") else False
 
-print('----------------------')
-print(f"test_all start: {test_all}")
-print('----------------------')
-
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
@@ -260,20 +256,7 @@ class ComfyUI:
 
         for workflow in workflow_names:
             test_all = True if os.getenv("TEST_ALL") else False
-            
-            print('----------------------')
-            print('----------------------')
-            print(f"test_all mid: {test_all}")
-            print('----------------------')
-            print('----------------------')
-
             test_args_ = tool.load_tool(tool_path = f"/root/workspace/workflows/{workflow}", test_all = test_all).test_args
-
-            print("---------------------------")
-            print(test_all)
-            print(test_args_)
-            print("---------------------------")
-            
             test_args_items = test_args_.items() if isinstance(test_args_, dict) else enumerate(test_args_)
             
             for test_key, test_args in test_args_items:
@@ -360,12 +343,24 @@ class ComfyUI:
             
             return outputs            
 
-    def _inject_embedding_mentions(self, text, embedding_name, lora_mode):
-        reference = f'embedding:{embedding_name}'
-        text = re.sub(rf'(<{embedding_name}>|{embedding_name})', reference, text, flags=re.IGNORECASE)
-        text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
-        if reference not in text:
-            text = f"in the style of {reference}, {text}"
+    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, token_weight = 1.0):
+        reference = f'embedding:{embeddings_filename}'
+
+        if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
+            # Match all variations of the embedding_trigger:
+            pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
+                re.escape(embedding_trigger),
+                re.escape(embedding_trigger.lower())
+            )
+            text = re.sub(pattern, reference, text, flags=re.IGNORECASE)
+            text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
+
+        if reference not in text: # Make sure the concept is always triggered:
+            if lora_mode == "style":
+                text = f"in the style of {reference}, {text}"
+            else:
+                text = f"{reference}, {text}"
+
         return text
 
     def _transport_lora(self, lora_url: str):
@@ -397,17 +392,6 @@ class ComfyUI:
 
         extracted_files = os.listdir(destination_folder)
         print("tl, extracted files", extracted_files)
-        
-        # find the base name X for the files X.safetensors and X_embeddings.safetensors
-        base_name = None
-        pattern = re.compile(r"^(.+)_embeddings\.safetensors$")
-        for file in extracted_files:
-            match = pattern.match(file)
-            if match:
-                base_name = match.group(1)
-                break
-
-        print("tl, base name", base_name)
 
         # Find lora and embeddings files using regex
         lora_pattern = re.compile(r'.*_lora\.safetensors$')
@@ -421,18 +405,22 @@ class ComfyUI:
             with open(os.path.join(destination_folder, training_args_filename), "r") as f:
                 training_args = json.load(f)
                 lora_mode = training_args["concept_mode"]
+                embedding_trigger = training_args["name"]
         else:
             lora_mode = None
-
-        print("tl lora mode:", lora_mode)
-        print("tl, lora filename:", lora_filename)
-        print("tl, embeddings filename:", embeddings_filename)
+            embedding_trigger = embeddings_filename.split('_embeddings.safetensors')[0]
 
         # hack to correct for older lora naming convention
         if not lora_filename:
-            print("Old lora naming convention detected. Correcting...")
-            lora_filename = f"{base_name}.safetensors"
-            print("tl, old lora filename", lora_filename)
+            print("Lora file not found with standard naming convention. Searching for alternative...")
+            lora_filename = next((f for f in extracted_files if f.endswith('.safetensors') and 'embedding' not in f.lower()), None)
+            if not lora_filename:
+                raise FileNotFoundError(f"Unable to find a lora *.safetensors file in {extracted_files}")
+            
+        print("tl, lora mode:", lora_mode)
+        print("tl, lora filename:", lora_filename)
+        print("tl, embeddings filename:", embeddings_filename)
+        print("tl, embedding_trigger:", embedding_trigger)
 
         for file in [lora_filename, embeddings_filename]:
             if str(file) not in extracted_files:
@@ -443,24 +431,19 @@ class ComfyUI:
         if not os.path.exists(embeddings_folder):
             os.makedirs(embeddings_folder)
 
-        lora_path = os.path.join(destination_folder, lora_filename)
-        embeddings_path = os.path.join(destination_folder, embeddings_filename)
-
         # copy lora file to loras folder
-        # lora_filename = lora_filename.replace("_lora.safetensors", ".safetensors")  
+        lora_path = os.path.join(destination_folder, lora_filename)
         lora_copy_path = os.path.join(loras_folder, lora_filename)
         shutil.copy(lora_path, lora_copy_path)
-        print(f"LoRA {lora_path} has been moved to {lora_copy_path}.")
+        print(f"LoRA {lora_path} has been moved to {lora_copy_path}")
 
         # copy embedding file to embeddings folder
-        # embeddings_filename = embeddings_filename.replace("_embeddings.safetensors", ".safetensors") 
+        embeddings_path = os.path.join(destination_folder, embeddings_filename)
         embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
         shutil.copy(embeddings_path, embeddings_copy_path)
-        print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}.")
-
-        embedding_trigger = embeddings_filename.rsplit('.safetensors', 1)[0]
+        print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}")
         
-        return lora_filename, embedding_trigger, lora_mode
+        return lora_filename, embeddings_filename, embedding_trigger, lora_mode
 
     def _url_to_filename(self, url):
         filename = url.split('/')[-1]
@@ -485,6 +468,9 @@ class ComfyUI:
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
+
+        print(type(args))
+        print(args)
         
         # download and transport files
         for param in tool_.parameters: 
@@ -513,18 +499,18 @@ class ComfyUI:
                     raise Exception(f"Lora {lora_id} not found")
 
                 lora_url = lora.get("checkpoint")
-                lora_name = lora.get("name")
-                pretrained_model = lora.get("args").get("sd_model_version")
-                
-                print("LORA URL", lora_url)
+                #lora_name = lora.get("name")
+                #pretrained_model = lora.get("args").get("sd_model_version")
+
                 if not lora_url:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
+                else:
+                    print("LORA URL", lora_url)
                 
                 # lora_url = args.get(param.name)
-                print("LORA URL 2", lora_url)
-                # if lora_url:
-                lora_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
-                print("Embedding Trigger", embedding_trigger)
+                # print("LORA URL 2", lora_url)
+
+                lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
                 args[param.name] = lora_filename
             
         # inject args
@@ -540,7 +526,7 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
-                value = self._inject_embedding_mentions(value, embedding_trigger, lora_mode)
+                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode)
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:

@@ -561,7 +561,7 @@ def load_tool(tool_path: str, name: str = None, test_all: bool = False) -> Tool:
             for f in tests
         }
     else:
-        tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
+        tool.test_args = {"test": json.loads(open(f"{tool_path}/test.json", "r").read())}
     return tool
 
 
