@@ -267,25 +267,27 @@ class ComfyUI:
             print('----------------------')
             print('----------------------')
 
-            test_arg_dict = tool.load_tool(tool_path = f"/root/workspace/workflows/{workflow}", test_all = test_all).test_args
+            test_args_ = tool.load_tool(tool_path = f"/root/workspace/workflows/{workflow}", test_all = test_all).test_args
 
             print("---------------------------")
             print(test_all)
-            print(test_arg_dict)
+            print(test_args_)
             print("---------------------------")
-
-            for test_key in test_arg_dict.keys():
-                print("Running test", test_key)
-                test_args = test_arg_dict[test_key]
+            
+            test_args_items = test_args_.items() if isinstance(test_args_, dict) else enumerate(test_args_)
+            
+            for test_key, test_args in test_args_items:
+                test_name = f"{workflow}_{test_key}" if isinstance(test_args_, dict) else f"{workflow}_test{test_key}"
+                print(f"Running test: {test_name}")
                 t1 = time.time()
                 output = self._execute(workflow, test_args, env="STAGE")
                 if not output:
-                    raise Exception(f"No output from {workflow} test")
+                    raise Exception(f"No output from {test_name}")
                 result = utils.upload_media(output, env="STAGE")
-                t2 = time.time()
-                results[f"{workflow}_{test_key}"] = result
-                results["_performance"][workflow] = t2 - t1
-        
+                t2 = time.time()                
+                results[test_name] = result
+                results["_performance"][test_name] = t2 - t1
+
         with open("_test_results_.json", "w") as f:
             json.dump(results, f, indent=4)
 
@@ -479,7 +481,6 @@ class ComfyUI:
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
-                    print("NODE ID NOT FOUND!!!!")
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
