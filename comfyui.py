@@ -240,7 +240,7 @@ class ComfyUI:
         t1 = time.time()
         self._start()
         t2 = time.time()
-
+        
         results = {"_performance": {"launch": t2 - t1}}
         workflows_dir = pathlib.Path("/root/workspace/workflows")
         workflow_names = [f.name for f in workflows_dir.iterdir() if f.is_dir()]

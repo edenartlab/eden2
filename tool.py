@@ -555,7 +555,7 @@ def load_tool(tool_path: str, name: str = None, test_all: bool = False) -> Tool:
         tool = ModalTool(data, key=name)
     if test_all:
         tests = [f for f in os.listdir(tool_path) if f.startswith("test") and f.endswith(".json")]
-        print("all tests", tests)
+        print("Running all tests: ", tests)
         tool.test_args = {
             os.path.splitext(f)[0]: json.loads(open(f"{tool_path}/{f}", "r").read())
             for f in tests
