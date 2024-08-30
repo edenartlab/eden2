@@ -475,7 +475,7 @@ class ComfyUI:
         for param in tool_.parameters: 
             if param.type in tool.FILE_TYPES:
                 url = args.get(param.name)
-                args[param.name] = utils.download_file(url, f"/root/input{self._url_to_filename(url)}") if url else None
+                args[param.name] = utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
             
             elif param.type in tool.FILE_ARRAY_TYPES:
                 urls = args.get(param.name)
