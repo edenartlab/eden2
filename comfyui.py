@@ -173,6 +173,7 @@ class ComfyUI:
         tool_path = f"/root/workspace/workflows/{workflow_name}"
         tool_ = tool.load_tool(tool_path)
         workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
+        self._validate_comfyui_args(workflow, tool_)
         workflow = self._inject_args_into_workflow(workflow, tool_, args, env=env)
         prompt_id = self._queue_prompt(workflow)['prompt_id']
         outputs = self._get_outputs(prompt_id)
@@ -467,6 +468,19 @@ class ComfyUI:
             name, ext = os.path.splitext(filename)
             filename = name[:max_length - len(ext)] + ext
         return filename    
+
+    def _validate_comfyui_args(self, workflow, tool_):
+        comfyui_map = {
+            param.name: param.comfyui 
+            for param in tool_.parameters if param.comfyui
+        }
+        for _, comfyui in comfyui_map.items():
+            node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
+            subfields = [s.strip() for s in subfield.split(",")]
+            for subfield in subfields:
+                if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
+                    print("NODE ID NOT FOUND!!!!")
+                    raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
