@@ -187,7 +187,7 @@ def download_image_to_PIL(url):
 
 
 def PIL_to_bytes(image, ext="JPEG", quality=95):
-    if image.mode == 'RGBA' and ext.upper() != 'PNG':
+    if image.mode == 'RGBA' and ext.upper() not in ['PNG', 'WEBP']:
         image = image.convert('RGB')
     img_byte_arr = BytesIO()
     image.save(img_byte_arr, format=ext, quality=quality)
