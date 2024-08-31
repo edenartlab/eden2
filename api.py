@@ -17,7 +17,7 @@ app_name = "tools" if env == "PROD" else "tools-dev"
 import auth
 from mongo import mongo_client
 from agent import Agent
-from thread2 import Thread, UserMessage, prompt
+from thread import Thread, UserMessage, prompt
 from models import Task
 from tool import get_tools, get_comfyui_tools, replicate_update_task
 
