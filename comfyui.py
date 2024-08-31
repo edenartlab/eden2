@@ -6,6 +6,7 @@ import re
 import git
 import time
 import json
+import glob
 import modal
 import shutil
 import urllib
@@ -255,12 +256,15 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
-            test_all = True if os.getenv("TEST_ALL") else False
-            test_args_ = tool.load_tool(tool_path = f"/root/workspace/workflows/{workflow}", test_all = test_all).test_args
-            test_args_items = test_args_.items() if isinstance(test_args_, dict) else enumerate(test_args_)
-            
-            for test_key, test_args in test_args_items:
-                test_name = f"{workflow}_{test_key}" if isinstance(test_args_, dict) else f"{workflow}_test{test_key}"
+            test_all = os.getenv("TEST_ALL", False)
+            if test_all:
+                tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
+            else:
+                tests = [f"/root/workspace/workflows/{workflow}/test.json"]
+            print("Running tests: ", tests)
+            for test in tests:
+                test_args = json.loads(open(test, "r").read())
+                test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
                 output = self._execute(workflow, test_args, env="STAGE")
