@@ -53,7 +53,7 @@ async def submit(task_id: str, env: str):
     task = Task.from_id(document_id=task_id, env=env)
     print(task)
     
-    start_time = datetime.now(datetime.UTC)
+    start_time = datetime.utcnow()
     queue_time = (start_time - task.createdAt).total_seconds()
     
     task.update({
@@ -77,7 +77,7 @@ async def submit(task_id: str, env: str):
         task_update = {"status": "failed", "error": str(e)}
 
     finally:
-        run_time = datetime.now(datetime.UTC) - start_time
+        run_time = datetime.utcnow() - start_time
         task_update["performance.runTime"] = run_time.total_seconds()
         task.update(task_update)
 

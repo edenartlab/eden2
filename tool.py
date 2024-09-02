@@ -275,7 +275,7 @@ class ComfyUITool(Tool):
         #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
         #return await cls().run.remote.aio(self.key, args)
         func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
-        return await func.remote.aio(self.key, args)
+        return await func.remote.aio(self.key, args, env=env)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
