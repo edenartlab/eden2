@@ -35,8 +35,8 @@ mongo_client = MongoClient(MONGO_URI)
 
 class MongoBaseModel(BaseModel):
     id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id")
-    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-    updatedAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)    
+    createdAt: datetime = Field(default_factory=datetime.now(datetime.UTC), exclude=True)
+    updatedAt: datetime = Field(default_factory=datetime.now(datetime.UTC), exclude=True)    
     collection: SkipJsonSchema[Collection] = Field(None, exclude=True)
 
     class Config:
@@ -98,7 +98,7 @@ class MongoBaseModel(BaseModel):
         document_id = data.get('_id')
 
         if document_id:
-            data["updatedAt"] = datetime.utcnow()
+            data["updatedAt"] = datetime.now(datetime.UTC)
             return self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             return self.collection.insert_one(data)
@@ -118,7 +118,7 @@ class MongoBaseModel(BaseModel):
         document_id = data.get('_id')
 
         if document_id:
-            update_args["updatedAt"] = datetime.utcnow()
+            update_args["updatedAt"] = datetime.now(datetime.UTC)
             return self.collection.update_one({'_id': document_id}, {'$set': update_args})
         else:
             raise Exception("Document not found")

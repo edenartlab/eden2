@@ -191,7 +191,7 @@ class ComfyUI:
         task = Task.from_id(document_id=task_id, env=env)
         print("1", task)
 
-        start_time = datetime.utcnow()
+        start_time = datetime.now(datetime.UTC)
         queue_time = (start_time - task.createdAt).total_seconds()
         boot_time = queue_time - self.launch_time if self.launch_time else 0
 
@@ -221,7 +221,7 @@ class ComfyUI:
             raise e
         
         finally:
-            run_time = datetime.utcnow() - start_time
+            run_time = datetime.now(datetime.UTC) - start_time
             task_update["performance.runTime"] = run_time.total_seconds()
             print(task_update)
             task.update(task_update)
