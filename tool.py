@@ -158,7 +158,7 @@ class Tool(BaseModel):
             value = None
             if param.default is not None:
                 value = param.default
-            if user_args.get(key):
+            if user_args.get(key) is not None:
                 value = user_args[key]
             if value == "random":
                 value = random.randint(param.minimum, param.maximum)
