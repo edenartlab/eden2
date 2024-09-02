@@ -362,6 +362,7 @@ async def process_tool_calls(tool_calls, settings):
 
             task = Task(
                 workflow=tool.key,
+                output_type=tool.output_type,
                 args=updated_args,
                 user=ObjectId("65284b18f8bbb9bff13ebe65"),
                 env=env

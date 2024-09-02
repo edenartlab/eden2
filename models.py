@@ -43,6 +43,7 @@ class Model(MongoBaseModel):
 
 class Task(MongoBaseModel):
     workflow: str
+    output_type: str
     args: Dict[str, Any]
     user: ObjectId
     handler_id: Optional[str] = None

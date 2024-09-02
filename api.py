@@ -53,8 +53,11 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
-        task = Task(env=env, **request)
-        tool = tools[task.workflow]
+        workflow = request.get("workflow")
+        if workflow not in tools:
+            raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
+        tool = tools[workflow]
+        task = Task(env=env, output_type=tool.output_type, **request)
         tool.submit(task)
         task.reload()
         return task
