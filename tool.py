@@ -82,6 +82,7 @@ class Tool(BaseModel):
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
     output_type: ParameterType = Field(None, description="Output type from the tool")
+    resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
     private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API", exclude=True)
