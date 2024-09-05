@@ -15,6 +15,7 @@ import utils
 eleven = ElevenLabs()
 
 
+
 def run(
     text: str,
     voice_id: str,    
@@ -67,36 +68,70 @@ def clone_voice(name, description, voice_urls):
 def select_random_voice(
     description: str = None,
     gender: str = None, 
+    autofilter_by_gender: bool = False,
+    exclude: List[str] = None,
 ):
     response = eleven.voices.get_all()
     voices = response.voices
+    random.shuffle(voices)
+
+    client = instructor.from_openai(OpenAI())
+
+    if autofilter_by_gender and not gender:
+        prompt = f"""You are given the following description of a person:
+
+        ---
+        {description}
+        ---
+
+        Predict the most likely gender of this person."""
+        
+        gender = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            response_model=Literal["male", "female"],
+            max_retries=2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at predicting the gender of a person based on their description.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        )
 
     if gender:
+        assert gender in ["male", "female"], "Gender must be either 'male' or 'female'"
         voices = [v for v in voices if v.labels.get('gender') == gender]
-    
+
+    if exclude:
+        voices = [v for v in voices if v.voice_id not in exclude]
+        
     if not description:
         return random.choice(voices)
-    
-    voice_ids = [v.voice_id for v in voices]
-    voice_descriptions = "\n".join([f"{v.voice_id}: {v.name}, {v.labels.values()}, {v.description}" for v in voices])
+
+    voice_ids = {v.name: v.voice_id for v in voices}
+    voice_descriptions = "\n".join([f"{v.name}: {', '.join(v.labels.values())}, {v.description or ''}" for v in voices])
+
     prompt = f"""You are given the follow list of voices and their descriptions.
-    
+
     ---
     {voice_descriptions}
     ---
 
     You are given the following description of a desired character:
-    
+
     ---
     {description}
     ---
 
     Select the voice that best matches the description of the character."""
 
-    client = instructor.from_openai(OpenAI())
     selected_voice = client.chat.completions.create(
         model="gpt-3.5-turbo",
-        response_model=Literal[*voice_ids],
+        response_model=Literal[*voice_ids.keys()],
         max_retries=2,
         messages=[
             {
@@ -110,4 +145,4 @@ def select_random_voice(
         ],
     )
 
-    return selected_voice
+    return voice_ids[selected_voice]
