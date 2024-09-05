@@ -62,7 +62,7 @@ def install_custom_node_with_retries(url, hash, max_retries=3):
             return
         except Exception as e:
             if attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed. Retrying...")
+                print(f"Attempt {attempt + 1} failed because: {e}. Retrying...")
                 time.sleep(5)
             else:
                 print(f"All attempts failed. Error: {e}")

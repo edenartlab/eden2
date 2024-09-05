@@ -19,7 +19,7 @@ parameters:
 - name: duration_seconds
   label: Seconds
   description: Duration in seconds
-  type: int
+  type: float
   default: 10
   minimum: 1
   maximum: 120

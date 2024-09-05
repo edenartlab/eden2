@@ -137,7 +137,7 @@ def exponential_backoff(
             if attempt == max_attempts:
                 raise e
             jitter = random.uniform(-max_jitter, max_jitter)
-            print(f"Attempt {attempt} failed. Retrying in {delay} seconds...") 
+            print(f"Attempt {attempt} failed because: {e}. Retrying in {delay} seconds...") 
             time.sleep(delay + jitter)
             delay = delay * 2
             
@@ -154,11 +154,11 @@ def mock_image(args):
     return [url]
 
 
-def get_media_duration(video_file):
+def get_media_duration(media_file):
     cmd = [
         "ffprobe", "-v", "error", "-show_entries",
         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
-        video_file,
+        media_file,
     ]
     duration = subprocess.check_output(cmd).decode().strip()
     return float(duration)
@@ -293,7 +293,9 @@ def concatenate_videos(video_files, output_file, fps=30):
             output_video = temp.name
             convert_command = [
                 "ffmpeg", "-y", "-loglevel", "panic",
-                "-i", video, "-r", str(fps), "-c:a", "copy",
+                "-i", video, "-r", str(fps), 
+                "-c:v", "libx264", "-crf", "19", "-preset", "fast",
+                "-c:a", "aac", "-b:a", "128k",
                 output_video
             ]
             subprocess.run(convert_command)
@@ -309,68 +311,87 @@ def concatenate_videos(video_files, output_file, fps=30):
         [
             "-y", "-loglevel", "panic",
             "-filter_complex", filter_complex, "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-crf", "23", "-preset", "fast",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
             output_file,
         ],
     )
     subprocess.run(concat_command)
     for video in converted_videos:
-        os.remove(video)
+       os.remove(video)
 
 
-def mix_video_audio(video_path, audio_path, output_path):
+def get_file_handler(suffix, input_data):
+    if isinstance(input_data, str) and os.path.exists(input_data):
+        return input_data
+    temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    if isinstance(input_data, str) and input_data.startswith("http"):
+        download_file(input_data, temp_file.name, overwrite=True)
+    elif isinstance(input_data, bytes):
+        temp_file.write(input_data)
+    elif isinstance(input_data, BytesIO):
+        temp_file.write(input_data.getvalue())
+    else:
+        raise ValueError("input_data must be either a URL string or a BytesIO object")
+    temp_file.close()
+    return temp_file.name
+
+
+def make_audiovideo_clip(video_input, audio_input):
+    video_file = get_file_handler(".mp4", video_input)
+    output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+
+    if audio_input:
+        audio_file = get_file_handler(".mp3", audio_input)
+        audio_duration = get_media_duration(audio_file)
+
+        # loop the video to match the audio duration
+        looped_video = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "panic", "-stream_loop", "-1", 
+            "-i", video_file,
+            "-c", "copy", "-t", str(audio_duration),
+            looped_video.name,
+        ]
+        subprocess.run(cmd)
+
+        # merge the audio and the looped video
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "panic",
+            "-i", looped_video.name, "-i", audio_file,
+            "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", "-shortest",
+            output_file.name,
+        ]
+
+    else:
+        # if no audio, create a silent audio track with same duration as video
+        video_duration = get_media_duration(video_file)
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "panic",
+            "-i", video_file,
+            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100:duration={video_duration}",
+            "-c:v", "copy", "-c:a", "aac", "-strict", "experimental",
+            output_file.name,
+        ]
+
+    subprocess.run(cmd)
+
+    return output_file.name
+
+
+def add_audio_to_audiovideo(video_input, audio_input, output_path):
+    video_file = get_file_handler(".mp4", video_input)
+    audio_file = get_file_handler(".mp3", audio_input)
+
     cmd = [
         "ffmpeg", "-y", 
-        "-i", video_path, "-i",audio_path,
+        "-i", video_file, "-i", audio_file,
         "-filter_complex", "[1:a]volume=1.0[a1];[0:a][a1]amerge=inputs=2[a]",
         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-ac", "2",
         output_path,
     ]
     subprocess.run(cmd, check=True)
-
-
-def combine_audio_video(audio_input, video_input):
-    def get_temp_file(suffix, input_data):
-        temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
-        if isinstance(input_data, str):  # URL
-            subprocess.run(["wget", "-nv", "-O", temp_file.name, input_data])
-        elif isinstance(input_data, BytesIO):  # BytesIO
-            with open(temp_file.name, 'wb') as f:
-                f.write(input_data.getvalue())
-        return temp_file
-
-    audio_file = get_temp_file(".mp3", audio_input)
-    video_file = get_temp_file(".mp4", video_input)
-    output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-
-    # get the duration of the audio file
-    cmd = [
-        "ffprobe", "-v", "error", "-show_entries",
-        "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
-        audio_file.name,
-    ]
-    audio_duration = subprocess.check_output(cmd).decode().strip()
-
-    # loop the video
-    looped_video = tempfile.NamedTemporaryFile(suffix=".mp4", delete=True)
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "panic", "-stream_loop", "-1", 
-        "-i", video_file.name,
-        "-c", "copy", "-t", audio_duration,
-        looped_video.name,
-    ]
-    subprocess.run(cmd)
-
-    # merge the audio and the looped video
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "panic",
-        "-i", looped_video.name,
-        "-i", audio_file.name,
-        "-c:v", "copy", "-c:a", "aac", "-strict", "experimental","-shortest",
-        output_file.name,
-    ]
-    subprocess.run(cmd)
-
-    return output_file.name
 
 
 def stitch_image_video(image_file: str, video_file: str, image_left: bool = False):

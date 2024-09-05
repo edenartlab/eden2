@@ -28,6 +28,7 @@ def test_trainer_task():
 
     task = Task(
         workflow="lora_trainer",
+        output_type="lora",
         args=args,
         user=user
     )
@@ -49,6 +50,7 @@ def test_creation_task():
 
     task = Task(
         workflow="txt2img",
+        output_type="image",
         args=args,
         user=user
     )
@@ -68,6 +70,7 @@ def test_upscaler_task():
 
     task = Task(
         workflow="clarity_upscaler",
+        output_type="image",
         args=args,
         user=user
     )
