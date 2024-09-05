@@ -6,7 +6,7 @@ import asyncio
 import modal
 from enum import Enum
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, Literal
+from typing import Any, Tuple, Dict, List, Optional, Type, Literal
 from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
@@ -314,7 +314,8 @@ class ReplicateTool(Tool):
         elif self.output_handler == "trainer":
             output = [prediction.output[-1]["thumbnails"][0]]
         else:
-            output = [url for url in prediction.output]
+            output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
+            output = [url for url in output]
         result = utils.upload_media(output, env=env)
         return result
 
@@ -358,6 +359,7 @@ class ReplicateTool(Tool):
 
     def _format_args_for_replicate(self, args):
         new_args = args.copy()
+        new_args = {k: v for k, v in new_args.items() if v is not None}
         for param in self.parameters:
             if param.type in ARRAY_TYPES:
                 new_args[param.name] = "|".join([str(p) for p in args[param.name]])
@@ -367,7 +369,6 @@ class ReplicateTool(Tool):
         env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
         dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
         webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
-        print("get webhook url", webhook_url)
         return webhook_url
     
     def _create_prediction(self, args: dict, webhook=True):
@@ -416,6 +417,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     
     elif status == "succeeded":
         if output_handler == "normal":
+            output = output if isinstance(output, list) else [output]
             result = utils.upload_media(output, env=env)
         
         elif output_handler in ["trainer", "eden"]:
@@ -494,7 +496,7 @@ def create_tool_base_model(tool: Tool, remove_hidden_fields=False):
 def get_field_type_and_kwargs(
     param: ToolParameter,
     remove_hidden_fields: bool = False
-) -> (Type, Dict[str, Any]):
+) -> Tuple[Type, Dict[str, Any]]:
     field_kwargs = {
         'description': param.description,
     }
