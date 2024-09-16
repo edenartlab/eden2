@@ -3,11 +3,13 @@ from eden import EdenClient
 eden_client = EdenClient()
 
 args = {   
-    "prompt": "A professioanl photo of <concept> as a fashion model",
-    "lora": "66904ec042b902d8eb3b41e6",
-    "look_image": "https://xhibitapp.s3.us-east-1.amazonaws.com/lookbook/1719403835835-853b29593f22b453cd63351e050bd823_exif.jpg",
-    "face_image": "https://www.refinery29.com/images/11118508.jpg"
+    "prompt": "A professional photo of <concept> as a fashion model looking fresh, beautiful, youthful, easeful, bright.",
+    "lora": "66df0f78634f1d2968c89f98",
+    "look_image": "https://storage.googleapis.com/public-assets-xander/Random/remove/xhibit/test2.jpeg",
+    "face_image": "https://storage.googleapis.com/public-assets-xander/Random/remove/xhibit/face.jpeg",
+    "resolution": 1152
 }
+
 response = eden_client.create(
     workflow="xhibit_vton",
     args=args
