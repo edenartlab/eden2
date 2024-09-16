@@ -345,10 +345,13 @@ class ComfyUI:
             if not outputs:
                 raise Exception("No outputs found")
             
-            return outputs            
+            return outputs
 
-    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, token_weight = 1.0):
-        reference = f'embedding:{embeddings_filename}'
+    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength = 1.0):
+        # Hardcoded computation of the token_strength for the embedding trigger:
+        token_strength = 0.5 + lora_strength / 2
+
+        reference = f'(embedding:{embeddings_filename}:{token_strength})'
 
         if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
             # Match all variations of the embedding_trigger:
@@ -473,7 +476,7 @@ class ComfyUI:
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
 
-        print(type(args))
+        print("args:")
         print(args)
         
         # download and transport files
@@ -530,7 +533,14 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
-                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode)
+                lora_strength = args.get("lora_strength", None)
+                if value is None:
+                    raise Exception("Trying to inject embedding mentions, but could not find lora_strength in api.yaml args...")
+                
+                print("Lora strength:")
+                print(lora_strength)
+
+                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:
