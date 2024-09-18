@@ -249,7 +249,7 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
-            api_yaml_path = glob.glob(f"/root/workspace/workflows/{workflow}/api.yaml")
+            api_yaml_path = f"/root/workspace/workflows/{workflow}/api.yaml"
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
