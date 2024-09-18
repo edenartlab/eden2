@@ -10,7 +10,7 @@ from elevenlabs.client import ElevenLabs, VoiceSettings, Voice
 from openai import OpenAI
 from typing import Iterator
 import instructor
-import utils
+import eden_utils
 
 eleven = ElevenLabs()
 
@@ -41,7 +41,7 @@ def run(
             model="eleven_multilingual_v2"
         )
 
-    audio = utils.exponential_backoff(
+    audio = eden_utils.exponential_backoff(
         generate_with_params,
         max_attempts=max_attempts,
         initial_delay=initial_delay,
@@ -57,7 +57,7 @@ def clone_voice(name, description, voice_urls):
     voice_files = []
     for url in voice_urls:
         with NamedTemporaryFile(delete=False) as file:
-            file = utils.download_file(url, file.name)
+            file = eden_utils.download_file(url, file.name)
             voice_files.append(file)
     voice = eleven.clone(name, description, voice_files)    
     for file in voice_files:

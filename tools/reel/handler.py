@@ -12,7 +12,7 @@ import instructor
 import s3
 import voice
 import tool
-import utils
+import eden_utils
 
 
 client = instructor.from_openai(OpenAI())
@@ -204,7 +204,7 @@ async def reel(args: dict, user: str = None):
         if audio:
             buffer = BytesIO()
             audio.export(buffer, format="mp3")
-            output = utils.combine_audio_video(buffer, output_url)
+            output = eden_utils.combine_audio_video(buffer, output_url)
             output_url, _ = s3.upload_file(output)
 
         print("output_url", output_url)

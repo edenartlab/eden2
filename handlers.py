@@ -6,7 +6,7 @@ import modal
 from datetime import datetime
 from tools import reel, story
 from models import Task
-import utils
+import eden_utils
 
 handlers = {
     "reel": reel,
@@ -65,7 +65,7 @@ async def submit(task_id: str, env: str):
         output = await _execute(
             task.workflow, task.args, task.user
         )
-        result = utils.upload_media(output, env=env)
+        result = eden_utils.upload_media(output, env=env)
         task_update = {
             "status": "completed", 
             "result": result

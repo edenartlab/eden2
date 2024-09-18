@@ -16,7 +16,7 @@ import s3
 from agent import Agent, get_default_agent
 from tool import get_tools, get_comfyui_tools
 from mongo import MongoBaseModel, mongo_client, envs
-from utils import custom_print, download_file, file_to_base64_data
+from eden_utils import custom_print, download_file, file_to_base64_data
 from models import Task
 
 

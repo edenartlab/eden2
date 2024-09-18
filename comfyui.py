@@ -18,8 +18,7 @@ import subprocess
 from models import Task
 from mongo import mongo_client, envs
 import tool
-import utils
-
+import eden_utils
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -97,7 +96,7 @@ def download_files():
         else:
             print(f"Downloading {url} to {vol_path}")
             vol_path.parent.mkdir(parents=True, exist_ok=True)
-            utils.download_file(url, vol_path)
+            eden_utils.download_file(url, vol_path)
             downloads_vol.commit()
         try:
             comfy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,14 +182,12 @@ class ComfyUI:
     @modal.method()
     def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
         output = self._execute(workflow_name, args, env=env)
-        result = utils.upload_media(output, env=env)
+        result = eden_utils.upload_media(output, env=env)
         return result
 
     @modal.method()
     def run_task(self, task_id: str, env: str):
         task = Task.from_id(document_id=task_id, env=env)
-        print("1", task)
-
         start_time = datetime.utcnow()
         queue_time = (start_time - task.createdAt).total_seconds()
         boot_time = queue_time - self.launch_time if self.launch_time else 0
@@ -201,14 +198,10 @@ class ComfyUI:
         })
         task_update = {}
 
-        print("2", task)
-
         try:
             print(task.workflow, task.args)
             output = self._execute(task.workflow, task.args, env=env)
-            print("3", output)
-            result = utils.upload_media(output, env=env)
-            print("4", result)
+            result = eden_utils.upload_media(output, env=env)
             task_update = {
                 "status": "completed", 
                 "result": result
@@ -270,7 +263,7 @@ class ComfyUI:
                 output = self._execute(workflow, test_args, env="STAGE")
                 if not output:
                     raise Exception(f"No output from {test_name}")
-                result = utils.upload_media(output, env="STAGE")
+                result = eden_utils.upload_media(output, env="STAGE")
                 t2 = time.time()                
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -388,7 +381,7 @@ class ComfyUI:
             print("Lora bundle already extracted. Skipping.")
         else:
             try:
-                lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
+                lora_tarfile = eden_utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
                 if not os.path.exists(lora_tarfile):
                     raise FileNotFoundError(f"The LoRA tar file {lora_tarfile} does not exist.")
                 with tarfile.open(lora_tarfile, "r:*") as tar:
@@ -483,12 +476,12 @@ class ComfyUI:
         for param in tool_.parameters: 
             if param.type in tool.FILE_TYPES:
                 url = args.get(param.name)
-                args[param.name] = utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
+                args[param.name] = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
             
             elif param.type in tool.FILE_ARRAY_TYPES:
                 urls = args.get(param.name)
                 args[param.name] = [
-                    utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
+                    eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
                     for url in urls
                 ] if urls else None
             
