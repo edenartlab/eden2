@@ -249,6 +249,7 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
+            api_yaml_path = glob.glob(f"/root/workspace/workflows/{workflow}/api.yaml")
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
@@ -256,7 +257,7 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                test_args = json.loads(open(test, "r").read())
+                test_args = eden_utils.load_and_combine_args(test, api_yaml_path)
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
