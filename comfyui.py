@@ -340,7 +340,7 @@ class ComfyUI:
             
             return outputs
 
-    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength = 1.0):
+    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
         # Hardcoded computation of the token_strength for the embedding trigger:
         token_strength = 0.5 + lora_strength / 2
 
@@ -506,9 +506,6 @@ class ComfyUI:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
                 else:
                     print("LORA URL", lora_url)
-                
-                # lora_url = args.get(param.name)
-                # print("LORA URL 2", lora_url)
 
                 lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
                 args[param.name] = lora_filename
@@ -526,13 +523,7 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
-                lora_strength = args.get("lora_strength", None)
-                if value is None:
-                    raise Exception("Trying to inject embedding mentions, but could not find lora_strength in api.yaml args...")
-                
-                print("Lora strength:")
-                print(lora_strength)
-
+                lora_strength = args.get("lora_strength", 0.5)
                 value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                 print("prompt updated:", value)
 
