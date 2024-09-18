@@ -1,6 +1,9 @@
 import os
 import re
+import random
 import time
+import yaml
+import json
 import math
 import magic
 import httpx
@@ -19,8 +22,6 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import s3
-import yaml
-import json
 
 def load_and_combine_args(json_path, api_yaml_path = None):
     # Load test arguments from JSON
@@ -43,6 +44,10 @@ def load_and_combine_args(json_path, api_yaml_path = None):
     # Combine default args with test args, ensuring test_args take precedence
     final_args = default_args.copy()
     final_args.update(test_args)
+    
+    # Handle the special case for 'seed'
+    if 'seed' in final_args and isinstance(final_args['seed'], str):
+        final_args['seed'] = random.randint(0, 999)
 
     return final_args
 
