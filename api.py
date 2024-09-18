@@ -22,7 +22,7 @@ from models import Task
 from tool import get_tools, get_comfyui_tools, replicate_update_task
 
 api_tools = [
-    "txt2img", "flux", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "clarity_upscaler", "face_styler", "upscaler",
+    "txt2img", "flux", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
     "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
     "stable_audio", "audiocraft", "reel",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
