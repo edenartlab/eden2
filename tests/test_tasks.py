@@ -69,7 +69,7 @@ def test_upscaler_task():
     }
 
     task = Task(
-        workflow="clarity_upscaler",
+        workflow="upscaler",
         output_type="image",
         args=args,
         user=user
