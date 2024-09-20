@@ -15,9 +15,9 @@ import sentry_sdk
 import s3
 from agent import Agent, get_default_agent
 from tool import get_tools, get_comfyui_tools
-from mongo import MongoBaseModel, mongo_client, envs
-from utils import custom_print, download_file, file_to_base64_data
-from models import Task
+from mongo import MongoBaseModel, get_collection
+from utils import custom_print, download_file, image_to_base64
+from models import Task, User
 
 
 env = os.getenv("ENV", "STAGE")
@@ -33,11 +33,9 @@ eve_tools = [
 ]
 
 default_tools = get_comfyui_tools("../workflows/workspaces") | get_tools("tools")
+default_tools.update(get_tools("writing_tools"))
 if env == "PROD":
     default_tools = {k: v for k, v in default_tools.items() if k in eve_tools}
-
-anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
-openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in default_tools.values()]
 
 openai_client = openai.AsyncOpenAI()
 anthropic_client = anthropic.AsyncAnthropic()
@@ -70,7 +68,6 @@ class UserMessage(ChatMessage):
         content = content_str
         
         if self.attachments:
-            print("attachments", self.attachments)
             attachment_files = [
                 download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
                 for attachment in self.attachments
@@ -82,14 +79,14 @@ class UserMessage(ChatMessage):
                     "source": {
                         "type": "base64", 
                         "media_type": "image/jpeg",
-                        "data": file_to_base64_data(file_path, max_size=512, quality=95, truncate=truncate_images)
+                        "data": image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)
                     }
                 } for file_path in attachment_files]
             elif schema == "openai":
                 content = [{
                     "type": "image_url", 
                     "image_url": {
-                        "url": f"data:image/jpeg;base64,{file_to_base64_data(file_path, max_size=512, quality=95, truncate=truncate_images)}"
+                        "url": f"data:image/jpeg;base64,{image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)}"
                     }
                 } for file_path in attachment_files]
 
@@ -268,18 +265,20 @@ class Thread(MongoBaseModel):
         return thread
 
     @classmethod
-    def from_name(self, name: str, user: dict, env: str, create_if_missing: bool = False):
-        db_name = envs[env]["db_name"]
-        threads = mongo_client[db_name]["threads"]
-        thread = threads.find_one({"name": name, "user": user["_id"]})
+    def from_name(self, name: str, user_id: dict, env: str, create_if_missing: bool = False):
+        user = User.from_id(user_id, env=env)
+        threads = get_collection("threads", env=env)
+        thread = threads.find_one({"name": name, "user": user.id})
 
         if not thread:
             if create_if_missing:
-                thread = self(name=name, user=user["_id"], env=env)
+                thread = self(name=name, user=user.id, env=env)
                 thread.save()
             else:
                 raise Exception(f"Thread {name} not found")
         else:
+            if thread["user"] != user.id:
+                raise Exception(f"Thread {name} does not belong to user {user.username}")
             thread = self(env=env, **thread)
         return thread
 
@@ -316,11 +315,12 @@ class UrlNotFoundException(Exception):
         super().__init__(f"UrlNotFoundException: {invalid_urls} not found in user messages") 
 
 
-async def anthropic_prompt(messages, system_message):
+async def async_anthropic_prompt(messages, system_message, tools=default_tools):
     messages_json = [item for msg in messages for item in msg.anthropic_schema()]
+    anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in tools.values()] or None
     response = await anthropic_client.messages.create(
         model="claude-3-5-sonnet-20240620",
-        max_tokens=1024,
+        max_tokens=8192,
         tools=anthropic_tools,
         messages=messages_json,
         system=system_message,
@@ -331,20 +331,27 @@ async def anthropic_prompt(messages, system_message):
     stop = response.stop_reason == "tool_use"
     return content, tool_calls, stop
 
+def anthropic_prompt(messages, system_message, tools=default_tools):
+    return asyncio.run(async_anthropic_prompt(messages, system_message, tools))
 
-async def openai_prompt(messages, system_message):
+
+async def async_openai_prompt(messages, system_message, tools=default_tools):
     messages_json = [{"role": "system", "content": system_message}]
     messages_json.extend([item for msg in messages for item in msg.openai_schema()])
+    openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in tools.values()] or None
     response = await openai_client.chat.completions.create(
         model="gpt-4-turbo",
         tools=openai_tools,
         messages=messages_json,
-    )
+    )    
     response = response.choices[0]        
     content = response.message.content or ""
     tool_calls = [ToolCall.from_openai(tool_call) for tool_call in response.message.tool_calls or []]
     stop = response.finish_reason == "tool_calls"
     return content, tool_calls, stop
+
+def openai_prompt(messages, system_message, tools=default_tools):
+    return asyncio.run(async_openai_prompt(messages, system_message, tools))
 
 
 async def process_tool_calls(tool_calls, settings):
@@ -356,28 +363,26 @@ async def process_tool_calls(tool_calls, settings):
             tool_call.validate()
             tool = default_tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
-            input.update(settings)
+            input.update(settings)        
             updated_args = tool.get_base_model(**input).model_dump()
-            print("updated args", updated_args)
 
-            task = Task(
-                workflow=tool.key,
-                output_type=tool.output_type,
-                args=updated_args,
-                user=ObjectId("65284b18f8bbb9bff13ebe65"),
-                env=env
-            )
-            add_breadcrumb(category="tool_call_task", data=task.model_dump())
-            
-            result = await tool.async_submit_and_run(task)
+            if tool.handler == "mongo":
+                result = await tool.async_run(updated_args)
+                print("the mongo result", result)
+            else:
+                task = Task(
+                    workflow=tool.key,
+                    output_type=tool.output_type,
+                    args=updated_args,
+                    #user=ObjectId("65284b18f8bbb9bff13ebe65"),
+                    user=ObjectId("6526f38042a1043421aa28e6"),
+                    env=env
+                )
+                add_breadcrumb(category="tool_call_task", data=task.model_dump())
+                result = await tool.async_submit_and_run(task)
 
-            #TODO: result should give us the url for all endpoints
-            # works for comfy, not modal. result["result"]
             add_breadcrumb(category="tool_result", data={"result": result})
-
-            if isinstance(result, list):
-                result = ", ".join([r['url'] for r in result])
-
+            result = json.dumps(result)
             result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
         except ToolNotFoundException as err:
@@ -423,13 +428,13 @@ async def prompt_llm_and_validate(messages, system_message, provider):
     num_attempts, max_attempts = 0, 3
     while num_attempts < max_attempts:
         num_attempts += 1 
-        pretty_print_messages(messages, schema=provider)
+        # pretty_print_messages(messages, schema=provider)
 
         try:
             if provider == "anthropic":
-                content, tool_calls, stop = await anthropic_prompt(messages, system_message)
+                content, tool_calls, stop = await async_anthropic_prompt(messages, system_message)
             elif provider == "openai":
-                content, tool_calls, stop = await openai_prompt(messages, system_message)
+                content, tool_calls, stop = await async_openai_prompt(messages, system_message)
             
             # check for hallucinated tools
             invalid_tools = [t.name for t in tool_calls if not t.name in default_tools]
@@ -469,12 +474,16 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 # ]
 
 
-async def prompt(
+async def async_prompt(
     thread: Thread,
     agent: Agent,
     user_message: UserMessage,
-    provider: Literal["anthropic", "openai"] = "anthropic"
+    provider: Literal["anthropic", "openai"] = "anthropic",
+    auto_save: bool = True
 ):
+    print("async_prompt")
+    print("user_message", user_message)
+
     settings = user_message.metadata.get("settings", {})
     system_message = agent.get_system_message(default_tools)
 
@@ -536,16 +545,38 @@ async def prompt(
         if not stop:
             break
 
-    thread.add_messages(*new_messages, save=True, reload_messages=True)
+    if auto_save:
+        thread.add_messages(*new_messages, save=True, reload_messages=True)
+
+
+def prompt(
+    thread: Thread,
+    agent: Agent,
+    user_message: UserMessage,
+    provider: Literal["anthropic", "openai"] = "anthropic",
+    auto_save: bool = True
+):
+    async def async_wrapper():
+        return [message async for message in async_prompt(
+            thread, agent, user_message, provider, auto_save
+        )]
+    return asyncio.run(async_wrapper())
 
 
 async def interactive_chat(initial_message=None):
-    user = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
+    user_id = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
     agent = get_default_agent()
 
-    thread = Thread(
-        name="my_test_interactive_thread", 
-        user=user
+    # thread = Thread(
+    #     name="my_test_interactive_thread", 
+    #     user=user,
+    #     env=env
+    # )
+    thread = Thread.from_name(
+        name="my_test_interactive_thread",
+        user_id=user_id,
+        env=env, 
+        create_if_missing=True
     )
     
     while True:
@@ -567,7 +598,7 @@ async def interactive_chat(initial_message=None):
                 attachments=attachments
             )
 
-            async for message in prompt(thread, agent, user_message): 
+            async for message in async_prompt(thread, agent, user_message): 
                 print(message)
 
         except KeyboardInterrupt:
@@ -604,5 +635,4 @@ def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "op
 
 if __name__ == "__main__":
     import asyncio
-    # asyncio.run(interactive_chat("describe this image to me and outpaint it [https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg]")) 
     asyncio.run(interactive_chat()) 

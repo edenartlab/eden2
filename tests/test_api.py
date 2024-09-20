@@ -73,11 +73,11 @@ def test_api_tool(tool_name, args):
             "args": args,
             "user": EDEN_USER
         }
-        task = {
-            "workflow": tool_name,
-            "args": {"prompt": "a blue cat", "width": 50000},
-            "user": EDEN_USER
-        }
+        # task = {
+        #     "workflow": tool_name,
+        #     "args": {"prompt": "a blue cat", "width": 50000},
+        #     "user": EDEN_USER
+        # }
         # print(task)
         response = requests.post(MODAL_DEV_API_URL, json=task, headers=headers)
         # print(response)

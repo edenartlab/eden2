@@ -49,14 +49,14 @@ else:
     tools.update(get_tools("tools"))
     
 async def test_tool(workflow_name):
-    # try:
-    tool = tools[workflow_name]
-    output = await tool.async_run(tool.test_args)
-    result = tool.get_user_result(output)
-    print(json.dumps({workflow_name: result}, indent=4))
-    return {"result": result}
-    # except Exception as e:
-    #     return {"error": f"{e}"}
+    try:
+        tool = tools[workflow_name]
+        output = await tool.async_run(tool.test_args)
+        result = tool.get_user_result(output)
+        print(json.dumps({workflow_name: result}, indent=4))
+        return {"result": result}
+    except Exception as e:
+        return {"error": f"{e}"}
 
 async def run_all_tests():
     print(f"Running tests: {', '.join(tools.keys())}")

@@ -1,5 +1,6 @@
 name: Reel
 description: Generate a short reel-sized film 
+cost_estimate: 20
 handler: reel
 output_type: video
 parameters:

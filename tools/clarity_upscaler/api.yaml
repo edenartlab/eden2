@@ -2,6 +2,7 @@ name: Clarity Upscaler
 description: Upscale an image.
 tip: This tool can **only** upscale images. It **cannot** upscale videos.
 output_type: image
+cost_estimate: 2
 handler: replicate
 output_handler: normal
 model: philz1337x/clarity-upscaler:dfad41707589d68ecdccd1dfa600d55a208f9310748e44bfe35b4a6291453d5e

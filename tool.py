@@ -1,3 +1,25 @@
+"""
+from models import Story
+story = Story.from_id("66de2dfa5286b9dc656291c1", env="STAGE")
+print(story.current)
+story.update({"screenplay": {"scenes": "test"}})
+
+import json
+from tool import load_tool
+t = load_tool("writing_tools/write")
+print(json.dumps(t.openai_tool_schema(), indent=2))
+
+
+import json
+from tool import load_tool
+t = load_tool("../workflows/workspaces/txt2img/workflows/storydiffusion")
+print(json.dumps(t.openai_tool_schema(), indent=2))
+
+
+"""
+
+
+import re
 import os
 import yaml
 import json
@@ -11,16 +33,17 @@ from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
-from models import Task, Model
+from models import Task, Model, User
+from models import Story3 as Story
 import utils
 import s3
 
 env = os.getenv("ENV", "STAGE")
 
-
 TYPE_MAPPING = {
     "bool": bool, "string": str, "int": int, "float": float, 
-    "image": str, "video": str, "audio": str, "zip": str, "lora": str
+    "image": str, "video": str, "audio": str, "zip": str, "lora": str, 
+    "dict": dict
 }
 
 class ParameterType(str, Enum):
@@ -42,6 +65,7 @@ class ParameterType(str, Enum):
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
     LORA_ARRAY = "lora[]"
+    DICT = "dict"
 
 FILE_TYPES = [
     ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
@@ -63,6 +87,7 @@ class ToolParameter(BaseModel):
     description: str = Field(None, description="Human-readable description of what parameter does")
     tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
+    keys: Optional[List[Dict[str, Any]]] = Field(None, description="Keys for dict type")
     required: bool = Field(False, description="Indicates if the field is mandatory")
     visible_if: str = Field(None, description="Condition under which parameter is visible to UI")
     hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
@@ -81,11 +106,13 @@ class Tool(BaseModel):
     name: str
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
+    cost_estimate: str = Field(None, description="A formula which estimates the inference cost as a function of the parameters")
     output_type: ParameterType = Field(None, description="Output type from the tool")
     resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
     private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API", exclude=True)
+    handler: SkipJsonSchema[str] = Field(False, description="Which type of tool", exclude=True)
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -132,6 +159,7 @@ class Tool(BaseModel):
             "name": self.name,
             "description": self.description,
             "outputType": self.output_type,
+            "costEstimate": self.cost_estimate,
             "private": self.private
         } 
         if include_params:
@@ -143,14 +171,70 @@ class Tool(BaseModel):
         tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
         schema = openai_schema(tool_model).anthropic_schema
         schema["input_schema"].pop("description")  # duplicated
+        schema = self.expand_schema_for_dicts(schema, provider="anthropic")
         return schema
 
     def openai_tool_schema(self, remove_hidden_fields=False):
         tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
+        schema = openai_schema(tool_model).openai_schema
+        schema = self.expand_schema_for_dicts(schema, provider="openai")
         return {
             "type": "function",
-            "function": openai_schema(tool_model).openai_schema
+            "function": schema
         }
+
+    # def expand_schema_for_dicts2(self, schema, provider=Literal["openai", "anthropic"]):
+    #     for param in self.parameters:
+    #         if param.type == ParameterType.DICT:
+    #             sub_schema = {
+    #                 "type": "object",
+    #                 "properties": {
+    #                     key['name']: {
+    #                         "type": key['type'],
+    #                         "title": key['name'],
+    #                         "description": key['description']
+    #                     } for key in param.keys
+    #                 }
+    #             }
+    #             if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
+    #                 schema['input_schema']['properties'][param.name] = sub_schema
+    #             elif provider == "openai" and schema['parameters']['properties'].get(param.name):
+    #                 schema['parameters']['properties'][param.name] = sub_schema
+    #     return schema
+
+    def expand_schema_for_dicts(self, schema, provider=Literal["openai", "anthropic"]):
+        for param in self.parameters:
+            if param.type == ParameterType.DICT:
+                sub_schema = {
+                    "type": "object",
+                    "properties": {}
+                }
+                for key in param.keys:
+                    is_list = key['type'].endswith('[]')
+                    field_type = key['type'].rstrip('[]')
+                    is_dict = field_type == "dict"
+                    if is_list:
+                        sub_schema["properties"][key['name']] = {
+                            "type": "array",
+                            "items": {
+                                "type": field_type
+                            },
+                            "minItems": 1,
+                            "title": key['name'],
+                            "description": key['description']
+                        }
+                    else:
+                        sub_schema["properties"][key['name']] = {
+                            "type": key['type'],
+                            "title": key['name'],
+                            "description": key['description']
+                        }
+                    # print("sub_schema", sub_schema)             
+                if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
+                    schema['input_schema']['properties'][param.name] = sub_schema
+                elif provider == "openai" and schema['parameters']['properties'].get(param.name):
+                    schema['parameters']['properties'][param.name] = sub_schema
+        return schema
 
     def prepare_args(self, user_args):
         args = {}
@@ -182,6 +266,9 @@ class Tool(BaseModel):
             if "filename" in r:
                 filename = r.pop("filename")
                 r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+            if "model" in r:
+                r["model"] = str(r["model"])
+                r.pop("metadata")  # don't need to return model metadata here
         return result
     
     def handle_run(run_function):
@@ -191,19 +278,35 @@ class Tool(BaseModel):
             return self.get_user_result(result)
         return wrapper
 
+    def calculate_cost(self, args):
+        if not self.cost_estimate:
+            return 0
+        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', self.cost_estimate) # js to py
+        cost_estimate = eval(cost_formula, args)
+        assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
+        return cost_estimate
+
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
+            print("task", task)
+            user = User.from_id(task.user, env=env)
+            print("user", user)
             task.args = self.prepare_args(task.args)
+            task.cost = self.calculate_cost(task.args.copy())
+            user.verify_manna_balance(task.cost)
             task.status = "pending"
             task.save()
             handler_id = await submit_function(self, task, *args, **kwargs)
             task.update({"handler_id": handler_id})
+            user.spend_manna(task.cost)
             return handler_id
         return wrapper
 
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
+            user = User.from_id(task.user, env=env)
+            user.refund_manna(task.cost or 0)
             task.status = "cancelled"
             task.save()
         return wrapper
@@ -224,6 +327,52 @@ class Tool(BaseModel):
     
     def cancel(self, task: Task):
         return asyncio.run(self.async_cancel(task))
+
+
+class MongoTool(Tool):
+    object_type: str
+
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        object_types = {"Story": Story}
+        document_id = args.pop("id")
+        print("document_id!!", document_id)
+        if document_id:
+            # print(" ----> OLD!!!")
+            document = object_types[self.object_type].from_id(document_id, env=env)
+        else:
+            # print(" ----> NEW!!!")
+            document = object_types[self.object_type](env=env)
+        # print("document!!", document)
+        # print("args!!", args)
+        # remove all null, empty, or none values
+        args = {k: v for k, v in args.items() if v is not None}
+        document.update_current(args)
+        result = {"document_id": str(document.id)}
+        # print("result!!", result)
+        return result
+
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        args = task.args
+        return "ok"
+    
+    async def async_process(self, task: Task):
+        # if not task.handler_id:
+        #     task.reload()
+        # fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        # await fc.get.aio()
+        # task.reload()
+        # print("THE RETURN RESULT 22")
+        # print(task.result)
+        return "ok"
+        #return self.get_user_result(task.result)
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        #fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        #await fc.cancel.aio()
+        pass
 
 
 
@@ -354,8 +503,11 @@ class ReplicateTool(Tool):
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         import replicate
-        prediction = replicate.predictions.get(task.handler_id)
-        prediction.cancel()
+        try:
+            prediction = replicate.predictions.get(task.handler_id)
+            prediction.cancel()
+        except Exception as e:
+            print("Replicate cancel error, probably task is timed out or already finished", e)
 
     def _format_args_for_replicate(self, args):
         new_args = args.copy()
@@ -402,11 +554,15 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "error"
         task.error = error
         task.save()
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(task.cost or 0)
         return {"status": "error", "error": error}
     
     elif status == "canceled":
         task.status = "cancelled"
         task.save()
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(task.cost or 0)
         return {"status": "cancelled"}
     
     elif status == "processing":
@@ -547,11 +703,14 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
     try:
         data = yaml.safe_load(open(api_path, "r"))
+        data['cost_estimate'] = str(data['cost_estimate'])
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {api_path}: {e}")
     if data['handler'] == 'comfyui':
         data["env"] = tool_path.split("/")[-3]
-        tool = ComfyUITool(data, key=name)
+        tool = ComfyUITool(data, key=name) 
+    elif data['handler'] == 'mongo':
+        tool = MongoTool(data, key=name)
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
     else:

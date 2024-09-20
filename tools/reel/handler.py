@@ -204,7 +204,7 @@ async def reel(args: dict, user: str = None):
         if audio:
             buffer = BytesIO()
             audio.export(buffer, format="mp3")
-            output = utils.combine_audio_video(buffer, output_url)
+            output = utils.make_audiovideo_clip(output_url, buffer)
             output_url, _ = s3.upload_file(output)
 
         print("output_url", output_url)

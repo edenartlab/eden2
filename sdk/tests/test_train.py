@@ -1,6 +1,6 @@
 from eden import EdenClient
 
-client = EdenClient()
+client = EdenClient(stage=True)
 
 result = client.create("lora_trainer", {
     "name": "Verdelis",
@@ -15,7 +15,7 @@ result = client.create("lora_trainer", {
         "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1716502852/user_uploads/fvgtfar6ivjlnxx86kp4.jpg",
         "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1716502856/user_uploads/ovpw8eub0kwjshqiwfcy.jpg"
     ],
-    "sd_model_version": "sd15",
+    "sd_model_version": "sdxl",
     "concept_mode": "face",
     "max_train_steps": 220
 })

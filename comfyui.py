@@ -15,8 +15,8 @@ import pathlib
 import tempfile
 import subprocess
 
-from models import Task
-from mongo import mongo_client, envs
+from models import Task, User
+from mongo import mongo_client, get_collection
 import tool
 import utils
 
@@ -218,6 +218,8 @@ class ComfyUI:
         except Exception as e:
             print("Error", e)   
             task_update = {"status": "failed", "error": str(e)}
+            user = User.from_id(task.user, env=env)
+            user.refund_manna(task.cost or 0)
             raise e
         
         finally:
@@ -493,10 +495,13 @@ class ComfyUI:
                 lora_id = args.get(param.name)
                 print("LORA ID", lora_id)
                 if not lora_id:
+                    args[param.name] = None
+                    args["lora_strength"] = 0
+                    print("NO LORA NOW")
+                    print(args)
                     continue
                 
-                db_name = envs[env]["db_name"]
-                models = mongo_client[db_name]["models"]
+                models = get_collection("models", env=env)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 print("LORA", lora)
                 if not lora:
@@ -516,6 +521,7 @@ class ComfyUI:
 
                 lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
                 args[param.name] = lora_filename
+                print("LORA FILENAME", lora_filename)
             
         # inject args
         comfyui_map = {

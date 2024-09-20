@@ -6,31 +6,30 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from mongo import envs
+from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
-db_name = envs[env]["db_name"]
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
         
 import auth
-from mongo import mongo_client
 from agent import Agent
-from thread import Thread, UserMessage, prompt
+from thread import Thread, UserMessage, async_prompt
 from models import Task
 from tool import get_tools, get_comfyui_tools, replicate_update_task
 
 api_tools = [
-    "txt2img", "flux", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "clarity_upscaler", "face_styler", "upscaler",
+    "txt2img", "flux-schnell", "flux-dev", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
     "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
     "stable_audio", "audiocraft", "reel",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
     "moodmix", "lora_trainer",
+    "news",
 ]
 
-agents = mongo_client[db_name]["agents"]
-threads = mongo_client[db_name]["threads"]
+agents = get_collection("agents", env=env)
+threads = get_collection("threads", env=env)
 
 tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
 if env == "PROD":
@@ -44,7 +43,7 @@ async def get_or_create_thread(
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = Thread.from_name(thread_name, user, env=env, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user_id=user["_id"], env=env, create_if_missing=True)
     return {"thread_id": str(thread.id)}
 
 
@@ -53,13 +52,16 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
+        print("task request", request)
         workflow = request.get("workflow")
         if workflow not in tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
         tool = tools[workflow]
         task = Task(env=env, output_type=tool.output_type, **request)
+        print("task 1", task)
         tool.submit(task)
         task.reload()
+        print("task 2", task)
         return task
     except Exception as e:
         print(e)
@@ -98,14 +100,7 @@ async def replicate_update(request: Request):
     status = body.get("status")
     error = body.get("error")
 
-    tasks = mongo_client[db_name]["tasks2"]
-    task = tasks.find_one({"handler_id": handler_id})
-    if not task:
-        raise Exception("Task not found")
-    
-    task = Task.from_id(document_id=task["_id"], env=env)
-    #task = Task(**task, db_name=db_name)
- 
+    task = Task.from_handler_id(handler_id, env=env)
     tool = tools[task.workflow]
     output_handler = tool.output_handler
 
@@ -125,14 +120,11 @@ class ChatRequest(BaseModel):
 
 async def chat(data, user):
     request = ChatRequest(**data)
-    print("======= chat request ---- ", request)
     agent = agents.find_one({"_id": ObjectId(request.agent_id)})
     if not agent:
         raise Exception(f"Agent not found")
     
-    #agent = Agent(**agent)
     agent = Agent.from_id(request.agent_id, env=env)
-
     # todo: check if user owns this agent
 
     if request.thread_id:
@@ -143,7 +135,7 @@ async def chat(data, user):
     else:
         thread = Thread(env=env)
 
-    async for response in prompt(thread, agent, request.message):
+    async for response in async_prompt(thread, agent, request.message):
         yield {
             "message": response.model_dump_json()
         }

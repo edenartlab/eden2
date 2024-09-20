@@ -4,13 +4,16 @@ dotenv.load_dotenv()
 import asyncio
 import modal
 from datetime import datetime
-from tools import reel, story
-from models import Task
+from tools import reel, story, news
+from writing_tools import write
+from models import Task, User, Story
 import utils
 
 handlers = {
     "reel": reel,
-    "story": story
+    "story": story,
+    "news": news,
+    "write": write
 }
 
 app = modal.App(
@@ -21,6 +24,7 @@ app = modal.App(
         modal.Secret.from_name("replicate"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("elevenlabs"),
+        modal.Secret.from_name("newsapi"),
     ],   
 )
 
@@ -65,7 +69,23 @@ async def submit(task_id: str, env: str):
         output = await _execute(
             task.workflow, task.args, task.user
         )
-        result = utils.upload_media(output, env=env)
+        print("OUT!!PUT")
+        print(output)
+        if task.output_type == "string":
+            result = output
+            
+            print("OUTPUT")
+            print(output)
+            print("STORY")
+            print(Story)
+            story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
+            print("STORY")
+            story.update(output)
+            print("WE ARE DONE...")
+        else:
+            result = utils.upload_media(output, env=env)
+        print("RESULT")
+        print(result)
         task_update = {
             "status": "completed", 
             "result": result
@@ -75,6 +95,8 @@ async def submit(task_id: str, env: str):
     except Exception as e:
         print("Task failed", e)
         task_update = {"status": "failed", "error": str(e)}
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(task.cost or 0)
 
     finally:
         run_time = datetime.utcnow() - start_time
@@ -97,13 +119,20 @@ def main():
 
 if __name__ == "__main__":
     async def run_example_local():
+        # output = await _execute(
+        #     tool_name="reel",
+        #     args={
+        #         "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
+        #         "narrator": True,
+        #         "music": True,
+        #         "min_duration": 10
+        #     },
+        #     user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
+        # )
         output = await _execute(
-            tool_name="reel",
+            tool_name="news",
             args={
-                "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
-                "narrator": True,
-                "music": True,
-                "min_duration": 10
+                "subject": "entertainment"
             },
             user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
         )

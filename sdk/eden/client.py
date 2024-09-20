@@ -7,7 +7,6 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-
 class EdenClient:
     def __init__(self, stage=False):
         if stage:

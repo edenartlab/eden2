@@ -2,7 +2,7 @@ import os
 from bson import ObjectId
 from mongo import MongoBaseModel, mongo_client
 from tool import get_tools_summary
-from s3 import envs
+from mongo import get_collection
 
 DEFAULT_AGENT_ID = "6678c3495ecc0b3ed1f4fd8f"
 
