@@ -16,7 +16,7 @@ import s3
 from agent import Agent, get_default_agent
 from tool import get_tools, get_comfyui_tools
 from mongo import MongoBaseModel, get_collection
-from utils import custom_print, download_file, image_to_base64
+from eden_utils import custom_print, download_file, image_to_base64
 from models import Task, User
 
 
@@ -26,7 +26,7 @@ sentry_dsn = os.getenv("SENTRY_DSN")
 sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
 
 eve_tools = [
-    "txt2img", "flux", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "clarity_upscaler", "face_styler", "upscaler",
+    "txt2img", "flux", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
     "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
     "stable_audio", "audiocraft", "reel",
     "lora_trainer",

@@ -35,7 +35,7 @@ from instructor.function_calls import openai_schema
 
 from models import Task, Model, User
 from models import Story3 as Story
-import utils
+import eden_utils
 import s3
 
 env = os.getenv("ENV", "STAGE")
@@ -465,7 +465,7 @@ class ReplicateTool(Tool):
         else:
             output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
             output = [url for url in output]
-        result = utils.upload_media(output, env=env)
+        result = eden_utils.upload_media(output, env=env)
         return result
 
     @Tool.handle_submit
@@ -574,7 +574,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     elif status == "succeeded":
         if output_handler == "normal":
             output = output if isinstance(output, list) else [output]
-            result = utils.upload_media(output, env=env)
+            result = eden_utils.upload_media(output, env=env)
         
         elif output_handler in ["trainer", "eden"]:
             result = replicate_process_eden(output)
@@ -621,7 +621,7 @@ def replicate_process_eden(output):
         file_url, _ = s3.upload_file_from_url(file, env=env)
         filename = file_url.split("/")[-1]
         metadata = output.get("attributes")
-        media_attributes, thumbnail = utils.get_media_attributes(file_url)
+        media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
 
         result = {
             "filename": filename,

@@ -18,8 +18,7 @@ import subprocess
 from models import Task, User
 from mongo import mongo_client, get_collection
 import tool
-import utils
-
+import eden_utils
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -97,7 +96,7 @@ def download_files():
         else:
             print(f"Downloading {url} to {vol_path}")
             vol_path.parent.mkdir(parents=True, exist_ok=True)
-            utils.download_file(url, vol_path)
+            eden_utils.download_file(url, vol_path)
             downloads_vol.commit()
         try:
             comfy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,14 +182,12 @@ class ComfyUI:
     @modal.method()
     def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
         output = self._execute(workflow_name, args, env=env)
-        result = utils.upload_media(output, env=env)
+        result = eden_utils.upload_media(output, env=env)
         return result
 
     @modal.method()
     def run_task(self, task_id: str, env: str):
         task = Task.from_id(document_id=task_id, env=env)
-        print("1", task)
-
         start_time = datetime.utcnow()
         queue_time = (start_time - task.createdAt).total_seconds()
         boot_time = queue_time - self.launch_time if self.launch_time else 0
@@ -201,14 +198,10 @@ class ComfyUI:
         })
         task_update = {}
 
-        print("2", task)
-
         try:
             print(task.workflow, task.args)
             output = self._execute(task.workflow, task.args, env=env)
-            print("3", output)
-            result = utils.upload_media(output, env=env)
-            print("4", result)
+            result = eden_utils.upload_media(output, env=env)
             task_update = {
                 "status": "completed", 
                 "result": result
@@ -258,6 +251,7 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
+            api_yaml_path = f"/root/workspace/workflows/{workflow}/api.yaml"
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
@@ -265,14 +259,14 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                test_args = json.loads(open(test, "r").read())
+                test_args = eden_utils.load_and_combine_args(test, api_yaml_path)
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
                 output = self._execute(workflow, test_args, env="STAGE")
                 if not output:
                     raise Exception(f"No output from {test_name}")
-                result = utils.upload_media(output, env="STAGE")
+                result = eden_utils.upload_media(output, env="STAGE")
                 t2 = time.time()                
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -347,10 +341,13 @@ class ComfyUI:
             if not outputs:
                 raise Exception("No outputs found")
             
-            return outputs            
+            return outputs
 
-    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, token_weight = 1.0):
-        reference = f'embedding:{embeddings_filename}'
+    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
+        # Hardcoded computation of the token_strength for the embedding trigger:
+        token_strength = 0.5 + lora_strength / 2
+
+        reference = f'(embedding:{embeddings_filename}:{token_strength})'
 
         if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
             # Match all variations of the embedding_trigger:
@@ -387,7 +384,7 @@ class ComfyUI:
             print("Lora bundle already extracted. Skipping.")
         else:
             try:
-                lora_tarfile = utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
+                lora_tarfile = eden_utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
                 if not os.path.exists(lora_tarfile):
                     raise FileNotFoundError(f"The LoRA tar file {lora_tarfile} does not exist.")
                 with tarfile.open(lora_tarfile, "r:*") as tar:
@@ -475,19 +472,19 @@ class ComfyUI:
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
 
-        print(type(args))
+        print("args:")
         print(args)
         
         # download and transport files
         for param in tool_.parameters: 
             if param.type in tool.FILE_TYPES:
                 url = args.get(param.name)
-                args[param.name] = utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
+                args[param.name] = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
             
             elif param.type in tool.FILE_ARRAY_TYPES:
                 urls = args.get(param.name)
                 args[param.name] = [
-                    utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
+                    eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
                     for url in urls
                 ] if urls else None
             
@@ -515,9 +512,6 @@ class ComfyUI:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
                 else:
                     print("LORA URL", lora_url)
-                
-                # lora_url = args.get(param.name)
-                # print("LORA URL 2", lora_url)
 
                 lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
                 args[param.name] = lora_filename
@@ -536,7 +530,8 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
-                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode)
+                lora_strength = args.get("lora_strength", 0.5)
+                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:

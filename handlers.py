@@ -7,7 +7,7 @@ from datetime import datetime
 from tools import reel, story, news
 from writing_tools import write
 from models import Task, User, Story
-import utils
+import eden_utils
 
 handlers = {
     "reel": reel,
@@ -83,7 +83,7 @@ async def submit(task_id: str, env: str):
             story.update(output)
             print("WE ARE DONE...")
         else:
-            result = utils.upload_media(output, env=env)
+            result = eden_utils.upload_media(output, env=env)
         print("RESULT")
         print(result)
         task_update = {

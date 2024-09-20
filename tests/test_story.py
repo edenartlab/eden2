@@ -16,7 +16,7 @@ from openai import OpenAI
 import s3
 import voice
 import tool
-import utils
+import eden_utils
 from tool import load_tool
 
 txt2img = load_tool("../workflows/workspaces/img_tools/workflows/txt2img")
@@ -361,7 +361,7 @@ def generate_clip(frame: StoryboardFrame):
     print("video", video)
     video = video[0]["url"]
  
-    clip = utils.make_audiovideo_clip(video, audio)
+    clip = eden_utils.make_audiovideo_clip(video, audio)
     return clip
 
 
@@ -370,8 +370,8 @@ video_output = f"full_video_{idx}.mp4"
 final_output = f"final_{idx}.mp4"
 
 video_files = [generate_clip(frame) for frame in storyboard.frames]
-utils.concatenate_videos(video_files, video_output)
-total_duration = utils.get_media_duration(video_output)
+eden_utils.concatenate_videos(video_files, video_output)
+total_duration = eden_utils.get_media_duration(video_output)
 
 audiocraft = load_tool("tools/audiocraft")
 music = audiocraft.run({
@@ -387,4 +387,4 @@ music_audio -= 12
 music_audio = music_audio.fade_out(duration=min(3000, len(music_audio)))
 music_audio_bytes = music_audio.export(format="mp3").read()
 
-utils.add_audio_to_audiovideo(video_output, music_audio_bytes, final_output)
+eden_utils.add_audio_to_audiovideo(video_output, music_audio_bytes, final_output)
