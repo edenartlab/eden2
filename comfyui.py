@@ -198,29 +198,46 @@ class ComfyUI:
         })
         task_update = {}
 
-        try:
-            print(task.workflow, task.args)
-            output = self._execute(task.workflow, task.args, env=env)
-            result = eden_utils.upload_media(output, env=env)
-            task_update = {
-                "status": "completed", 
-                "result": result
-            }
+        result = []
+        n_samples = task.args.get("n_samples", 1)
+        print("======\nargs", task.workflow, task.args)
+
+        try:            
+            for i in range(n_samples):
+                args = task.args.copy()
+                if "seed" in args:
+                    args["seed"] = args["seed"] + i
+                output = self._execute(task.workflow, args, env=env)
+                result_ = eden_utils.upload_media(output, env=env)
+                result.extend(result_)
+                if i == n_samples - 1:
+                    task_update = {
+                        "status": "completed", 
+                        "result": result
+                    }
+                else:
+                    task_update = {
+                        "status": "running", 
+                        "result": result
+                    }
+                    task.update(task_update)
+    
             return task_update
         
         except Exception as e:
             print("Error", e)   
             task_update = {"status": "failed", "error": str(e)}
+            refund_amount = (task.cost or 0) * (n_samples - len(result)) / n_samples
             user = User.from_id(task.user, env=env)
-            user.refund_manna(task.cost or 0)
+            user.refund_manna(refund_amount)
             raise e
         
         finally:
             run_time = datetime.utcnow() - start_time
             task_update["performance.runTime"] = run_time.total_seconds()
-            print(task_update)
             task.update(task_update)
             self.launch_time = 0
+            print("task_update", task_update)
 
     @modal.enter()
     def enter(self):
