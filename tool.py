@@ -305,8 +305,10 @@ class Tool(BaseModel):
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
+            n_samples = task.args.get("n_samples", 1)
+            refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
             user = User.from_id(task.user, env=env)
-            user.refund_manna(task.cost or 0)
+            user.refund_manna(refund_amount)
             task.status = "cancelled"
             task.save()
         return wrapper
@@ -554,15 +556,19 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "error"
         task.error = error
         task.save()
+        n_samples = task.args.get("n_samples", 1)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
         user = User.from_id(task.user, env=env)
-        user.refund_manna(task.cost or 0)
+        user.refund_manna(refund_amount)
         return {"status": "error", "error": error}
     
     elif status == "canceled":
         task.status = "cancelled"
         task.save()
+        n_samples = task.args.get("n_samples", 1)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
         user = User.from_id(task.user, env=env)
-        user.refund_manna(task.cost or 0)
+        user.refund_manna(refund_amount)
         return {"status": "cancelled"}
     
     elif status == "processing":
