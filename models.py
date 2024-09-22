@@ -95,17 +95,34 @@ class User(MongoBaseModel):
 
     def verify_manna_balance(self, amount: float):
         manna = self.mannas.find_one({"user": self.id})
-        if manna["balance"] < amount:
-            raise Exception(f"Insufficient manna balance. Need {amount} but only have {manna['balance']}")
+        balance = manna.get("balance") + manna.get("subscriptionBalance")
+        if balance < amount:
+            raise Exception(f"Insufficient manna balance. Need {amount} but only have {balance}")
 
     def spend_manna(self, amount: float):
         if amount == 0:
             return
-        self.mannas.update_one({"user": self.id}, {"$inc": {"balance": -amount}})
+        manna = self.mannas.find_one({"user": self.id})
+        subscription_balance = manna.get("subscriptionBalance", 0)
+        # Use subscription balance first
+        if subscription_balance > 0:
+            subscription_spend = min(subscription_balance, amount)
+            self.mannas.update_one(
+                {"user": self.id},
+                {"$inc": {"subscriptionBalance": -subscription_spend}}
+            )
+            amount -= subscription_spend
+        # If there's remaining amount, use regular balance
+        if amount > 0:
+            self.mannas.update_one(
+                {"user": self.id},
+                {"$inc": {"balance": -amount}}
+            )
         
     def refund_manna(self, amount: float):
         if amount == 0:
             return
+        # todo: make it refund to subscription balance first
         self.mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
 
 

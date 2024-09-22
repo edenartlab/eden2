@@ -7,7 +7,7 @@ from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from dotenv import load_dotenv
-from utils import deep_filter, deep_update
+from eden_utils import deep_filter, deep_update
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")
