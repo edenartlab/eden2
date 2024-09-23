@@ -476,15 +476,28 @@ class ComfyUI:
 
     def _validate_comfyui_args(self, workflow, tool_):
         comfyui_map = {
-            param.name: param.comfyui 
+            param.name: param 
             for param in tool_.parameters if param.comfyui
         }
-        for _, comfyui in comfyui_map.items():
-            node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
+        for _, param in comfyui_map.items():
+            comfyui = param.comfyui
+            node_id, field, subfield, remap = str(comfyui.node_id), comfyui.field, comfyui.subfield, comfyui.remap
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
+            for r in remap:
+                subfields = [s.strip() for s in r.subfield.split(",")]
+                for subfield in subfields:
+                    if r.node_id not in workflow or r.field not in workflow[r.node_id] or subfield not in workflow[r.node_id][r.field]:
+                        raise Exception(f"Node ID {r.node_id}, field {r.field}, subfield {subfield} not found in workflow")
+                values = {v.input: v.output for v in r.value}
+                if not param.choices:
+                    raise Exception(f"Remap parameter {param.name} has no original choices")
+                if not all(choice in param.choices for choice in values.values()):
+                    raise Exception(f"Remap parameter {param.name} has invalid choices: {values}")
+                if not all(choice in values.values() for choice in param.choices):
+                    raise Exception(f"Remap parameter {param.name} is missing original choices: {param.choices}")
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
@@ -573,9 +586,15 @@ class ComfyUI:
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 print("inject", node_id, field, subfield, " = ", value)
-                if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
-                    raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
                 workflow[node_id][field][subfield] = value  
+
+            for r in comfyui.remap:
+                subfields = [s.strip() for s in r.subfield.split(",")]
+                for subfield in subfields:
+                    values = {v.input: v.output for v in r.value}
+                    output_value = values.get(value)
+                    print("remap", r.node_id, r.field, subfield, " = ", output_value)
+                    workflow[r.node_id][r.field][subfield] = output_value
 
         return workflow
 
