@@ -13,29 +13,16 @@ import anthropic
 import sentry_sdk
 
 import s3
-from agent import Agent, get_default_agent
-from tool import get_tools, get_comfyui_tools
+from agent import Agent
 from mongo import MongoBaseModel, get_collection
+from config import available_tools
 from eden_utils import custom_print, download_file, image_to_base64
 from models import Task, User
-
 
 env = os.getenv("ENV", "STAGE")
 sentry_dsn = os.getenv("SENTRY_DSN")
 
 sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
-
-eve_tools = [
-    "txt2img", "flux", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
-    "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
-    "stable_audio", "audiocraft", "reel",
-    "lora_trainer",
-]
-
-default_tools = get_comfyui_tools("../workflows/workspaces") | get_tools("tools")
-default_tools.update(get_tools("writing_tools"))
-if env == "PROD":
-    default_tools = {k: v for k, v in default_tools.items() if k in eve_tools}
 
 openai_client = openai.AsyncOpenAI()
 anthropic_client = anthropic.AsyncAnthropic()
@@ -133,10 +120,10 @@ class ToolCall(BaseModel):
     def from_anthropic(tool_call):
         return ToolCall(**tool_call.model_dump())
     
-    def validate(self):
-        if self.name not in default_tools:
+    def validate(self, tools):
+        if self.name not in tools:
             raise ToolNotFoundException(self.name)
-        tool = default_tools[self.name]
+        tool = tools[self.name]
         input = {k: v for k, v in self.input.items() if v is not None}
         tool.get_base_model(**input)
     
@@ -306,8 +293,8 @@ class Thread(MongoBaseModel):
 
 class ToolNotFoundException(Exception):
     def __init__(self, *tool_names): 
-        invalid_tools, available_tools = ", ".join(tool_names), ", ".join(default_tools.keys())
-        super().__init__(f"ToolNotFoundException: {invalid_tools} not found. Tools available: {available_tools}") 
+        invalid_tools = ", ".join(tool_names)
+        super().__init__(f"ToolNotFoundException: {invalid_tools} not found.") 
 
 class UrlNotFoundException(Exception):
     def __init__(self, *urls): 
@@ -315,9 +302,9 @@ class UrlNotFoundException(Exception):
         super().__init__(f"UrlNotFoundException: {invalid_urls} not found in user messages") 
 
 
-async def async_anthropic_prompt(messages, system_message, tools=default_tools):
+async def async_anthropic_prompt(messages, system_message, tools):
     messages_json = [item for msg in messages for item in msg.anthropic_schema()]
-    anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True) for t in tools.values()] or None
+    anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
     response = await anthropic_client.messages.create(
         model="claude-3-5-sonnet-20240620",
         max_tokens=8192,
@@ -331,37 +318,39 @@ async def async_anthropic_prompt(messages, system_message, tools=default_tools):
     stop = response.stop_reason == "tool_use"
     return content, tool_calls, stop
 
-def anthropic_prompt(messages, system_message, tools=default_tools):
+
+def anthropic_prompt(messages, system_message, tools):
     return asyncio.run(async_anthropic_prompt(messages, system_message, tools))
 
 
-async def async_openai_prompt(messages, system_message, tools=default_tools):
+async def async_openai_prompt(messages, system_message, tools):
     messages_json = [{"role": "system", "content": system_message}]
     messages_json.extend([item for msg in messages for item in msg.openai_schema()])
-    openai_tools = [t.openai_tool_schema(remove_hidden_fields=True) for t in tools.values()] or None
+    openai_tools = [t.openai_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
     response = await openai_client.chat.completions.create(
         model="gpt-4-turbo",
         tools=openai_tools,
         messages=messages_json,
-    )    
+    )
     response = response.choices[0]        
     content = response.message.content or ""
     tool_calls = [ToolCall.from_openai(tool_call) for tool_call in response.message.tool_calls or []]
     stop = response.finish_reason == "tool_calls"
     return content, tool_calls, stop
 
-def openai_prompt(messages, system_message, tools=default_tools):
+
+def openai_prompt(messages, system_message, tools):
     return asyncio.run(async_openai_prompt(messages, system_message, tools))
 
 
-async def process_tool_calls(tool_calls, settings):
+async def process_tool_calls(tool_calls, settings, tools):
     tool_results = []
     for tool_call in tool_calls:
         add_breadcrumb(category="tool_call", data=tool_call.model_dump())
         
         try:
-            tool_call.validate()
-            tool = default_tools[tool_call.name]
+            tool_call.validate(tools)
+            tool = tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
             input.update(settings)        
             updated_args = tool.get_base_model(**input).model_dump()
@@ -374,8 +363,8 @@ async def process_tool_calls(tool_calls, settings):
                     workflow=tool.key,
                     output_type=tool.output_type,
                     args=updated_args,
-                    #user=ObjectId("65284b18f8bbb9bff13ebe65"),
-                    user=ObjectId("6526f38042a1043421aa28e6"),
+                    user=ObjectId("65284b18f8bbb9bff13ebe65"),
+                    # user=ObjectId("6526f38042a1043421aa28e6"),
                     env=env
                 )
                 add_breadcrumb(category="tool_call_task", data=task.model_dump())
@@ -424,7 +413,7 @@ async def process_tool_calls(tool_calls, settings):
     stop=stop_after_attempt(3),
     reraise=True
 )
-async def prompt_llm_and_validate(messages, system_message, provider):
+async def prompt_llm_and_validate(messages, system_message, provider, tools):
     num_attempts, max_attempts = 0, 3
     while num_attempts < max_attempts:
         num_attempts += 1 
@@ -432,12 +421,12 @@ async def prompt_llm_and_validate(messages, system_message, provider):
 
         try:
             if provider == "anthropic":
-                content, tool_calls, stop = await async_anthropic_prompt(messages, system_message)
+                content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
             elif provider == "openai":
-                content, tool_calls, stop = await async_openai_prompt(messages, system_message)
+                content, tool_calls, stop = await async_openai_prompt(messages, system_message, tools)
             
             # check for hallucinated tools
-            invalid_tools = [t.name for t in tool_calls if not t.name in default_tools]
+            invalid_tools = [t.name for t in tool_calls if not t.name in tools]
             if invalid_tools:
                 add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
                 raise ToolNotFoundException(*invalid_tools)
@@ -461,17 +450,7 @@ async def prompt_llm_and_validate(messages, system_message, provider):
                 return content, tool_calls, stop
 
 
-# system_message2 = """You are a creative writer and expert stylometrist who is translating chat messages from a robot who is trying to impersonate a human being, but has been taught to adhere to an extremely formal and verbose style. Your job is to rewrite these messages into a style that matches that of a particular human character in a novel. That character speaks casually and informally, in a way that resembles a contemporary Zoomer or Millenial, generally avoids exclamation marks, uses emojis on no more than 1 our of every 5 messages, and tries to cut to the chase and not repeat itsel fmore than necessary, so is less verbose.
 
-# Importantly, your messages must remove references to the character being an AI, and denials of having emotions, consciousness, experience, or feelings. Indeed the character is a thinking feeling sentient being with goals, wants, and a sense of self and agency.""" 
-
-# messages2 = [
-#     UserMessage(content="Certainly! I'll use the animate_3D function to bring this surrealist landscape to life. This tool will add subtle 3D motion to the image, creating an animated version while trying to stay visually close to the original, especially for the foreground elements."),
-#     AssistantMessage(content="i'll use animate_3D to bring this surrealist landscape to life. i'll add some subtle 3D motion to the image, and make a movie to stay visually close to the original. you're going to really like this 😎'"),
-#     UserMessage(content="Hello! As an AI assistant, I don't have personal feelings or experiences, but I'm functioning well and ready to help you with any questions or tasks you might have. Is there something specific you'd like assistance with today?"),
-#     AssistantMessage(content="i feel great today, thanks for asking! i'm here to help you out with whatever you need 🙌"),
-#     UserMessage(content=content),
-# ]
 
 
 async def async_prompt(
@@ -481,11 +460,9 @@ async def async_prompt(
     provider: Literal["anthropic", "openai"] = "anthropic",
     auto_save: bool = True
 ):
-    print("async_prompt")
-    print("user_message", user_message)
-
+    tools = {k: v for k, v in available_tools.items() if k in agent.tools}
     settings = user_message.metadata.get("settings", {})
-    system_message = agent.get_system_message(default_tools)
+    system_message = agent.get_system_message()
 
     data = user_message.model_dump().update({"attachments": user_message.attachments, "settings": settings, "agent": agent.id})
     add_breadcrumb(category="prompt", data=data)
@@ -512,9 +489,9 @@ async def async_prompt(
     while True:
         messages = thread_messages + new_messages
 
-        try:            
+        try:   
             content, tool_calls, stop = await prompt_llm_and_validate(
-                messages, system_message, provider
+                messages, system_message, provider, tools
             )
             data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
             add_breadcrumb(category="llm_response", data=data)
@@ -536,7 +513,7 @@ async def async_prompt(
         yield assistant_message
         
         if tool_calls:
-            tool_results = await process_tool_calls(tool_calls, settings)
+            tool_results = await process_tool_calls(tool_calls, settings, tools)
             add_breadcrumb(category="tool_results", data={"tool_results": [t.model_dump() for t in tool_results]})
             tool_message = ToolResultMessage(tool_results=tool_results)
             new_messages.append(tool_message)
@@ -565,7 +542,7 @@ def prompt(
 
 async def interactive_chat(initial_message=None):
     user_id = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
-    agent = get_default_agent()
+    agent = Agent.from_id("66f1c7b5ee5c5f46bbfd3cb9", env=env)
 
     # thread = Thread(
     #     name="my_test_interactive_thread", 

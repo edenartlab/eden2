@@ -6,34 +6,21 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+import auth
+from agent import Agent
+from thread import Thread, UserMessage, async_prompt
+from models import Task
+from tool import replicate_update_task
+from config import available_tools
 from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
-        
-import auth
-from agent import Agent
-from thread import Thread, UserMessage, async_prompt
-from models import Task
-from tool import get_tools, get_comfyui_tools, replicate_update_task
-
-api_tools = [
-    "txt2img", "flux-schnell", "flux-dev", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
-    "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
-    "stable_audio", "audiocraft", "reel",
-    "xhibit_vton", "xhibit_remix", "beeple_ai",
-    "moodmix", "lora_trainer",
-    "news",
-]
 
 agents = get_collection("agents", env=env)
 threads = get_collection("threads", env=env)
-
-tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
-if env == "PROD":
-    tools = {k: v for k, v in tools.items() if k in api_tools}
 
 
 async def get_or_create_thread(
@@ -52,16 +39,13 @@ def task_handler(
     _: dict = Depends(auth.authenticate_admin)
 ):
     try:
-        print("task request", request)
         workflow = request.get("workflow")
-        if workflow not in tools:
+        if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
-        tool = tools[workflow]
+        tool = available_tools[workflow]
         task = Task(env=env, output_type=tool.output_type, **request)
-        print("task 1", task)
         tool.submit(task)
         task.reload()
-        print("task 2", task)
         return task
     except Exception as e:
         print(e)
@@ -81,7 +65,7 @@ def cancel(
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
-    tool = tools[task.workflow]
+    tool = available_tools[task.workflow]
     try:
         tool.cancel(task)
         return {"status": task.status}
@@ -91,17 +75,15 @@ def cancel(
     
 
 async def replicate_update(request: Request):
-    print("receive replicate update request")
     body = await request.json()
     body.pop("logs")
-    print("body", body)
     output = body.get("output") 
     handler_id = body.get("id")
     status = body.get("status")
     error = body.get("error")
 
     task = Task.from_handler_id(handler_id, env=env)
-    tool = tools[task.workflow]
+    tool = available_tools[task.workflow]
     output_handler = tool.output_handler
 
     _ = replicate_update_task(
@@ -115,18 +97,13 @@ async def replicate_update(request: Request):
 
 class ChatRequest(BaseModel):
     message: UserMessage
-    thread_id: Optional[str] = None
-    agent_id: str = "6678c3495ecc0b3ed1f4fd8f"
+    thread_id: Optional[str]
+    agent_id: str
 
 async def chat(data, user):
     request = ChatRequest(**data)
-    agent = agents.find_one({"_id": ObjectId(request.agent_id)})
-    if not agent:
-        raise Exception(f"Agent not found")
-    
     agent = Agent.from_id(request.agent_id, env=env)
-    # todo: check if user owns this agent
-
+    
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
@@ -168,10 +145,10 @@ def create_handler(task_handler):
 
 
 def tools_list():
-    return [tools[t].get_info(include_params=False) for t in api_tools if t in tools]
+    return [available_tools[t].get_info(include_params=False) for t in available_tools]
 
 def tools_summary():
-    return [tools[t].get_info() for t in api_tools if t in tools]
+    return [available_tools[t].get_info() for t in available_tools]
 
 
 web_app = FastAPI()
@@ -185,8 +162,8 @@ web_app.post("/update")(replicate_update)
 
 web_app.get("/tools")(tools_summary)
 web_app.get("/tools/list")(tools_list)
-for t in tools:
-    web_app.get(f"/tool/{t}")(lambda key=t: tools[key].get_info())
+for t in available_tools:
+    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_info())
 
 
 app = modal.App(

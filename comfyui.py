@@ -121,7 +121,7 @@ image = (
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
-    .run_function(install_comfyui)
+    .run_function(install_comfyui, force_build=True)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .copy_local_dir(f"../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows})
@@ -486,24 +486,23 @@ class ComfyUI:
             for subfield in subfields:
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
-            for r in remap:
+            for r in remap or []:
                 subfields = [s.strip() for s in r.subfield.split(",")]
                 for subfield in subfields:
-                    if r.node_id not in workflow or r.field not in workflow[r.node_id] or subfield not in workflow[r.node_id][r.field]:
+                    if str(r.node_id) not in workflow or r.field not in workflow[str(r.node_id)] or subfield not in workflow[str(r.node_id)][r.field]:
                         raise Exception(f"Node ID {r.node_id}, field {r.field}, subfield {subfield} not found in workflow")
                 values = {v.input: v.output for v in r.value}
                 if not param.choices:
                     raise Exception(f"Remap parameter {param.name} has no original choices")
-                if not all(choice in param.choices for choice in values.values()):
+                if not all(choice in param.choices for choice in values.keys()):
                     raise Exception(f"Remap parameter {param.name} has invalid choices: {values}")
-                if not all(choice in values.values() for choice in param.choices):
+                if not all(choice in values.keys() for choice in param.choices):
                     raise Exception(f"Remap parameter {param.name} is missing original choices: {param.choices}")
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
 
-        print("args:")
-        print(args)
+        print("args:", args)
         
         # download and transport files
         for param in tool_.parameters: 
@@ -524,8 +523,7 @@ class ComfyUI:
                 if not lora_id:
                     args[param.name] = None
                     args["lora_strength"] = 0
-                    print("NO LORA NOW")
-                    print(args)
+                    print("REMOVE LORA")
                     continue
                 
                 models = get_collection("models", env=env)
@@ -588,13 +586,13 @@ class ComfyUI:
                 print("inject", node_id, field, subfield, " = ", value)
                 workflow[node_id][field][subfield] = value  
 
-            for r in comfyui.remap:
+            for r in comfyui.remap or []:
                 subfields = [s.strip() for s in r.subfield.split(",")]
                 for subfield in subfields:
                     values = {v.input: v.output for v in r.value}
                     output_value = values.get(value)
-                    print("remap", r.node_id, r.field, subfield, " = ", output_value)
-                    workflow[r.node_id][r.field][subfield] = output_value
+                    print("remap", str(r.node_id), r.field, subfield, " = ", output_value)
+                    workflow[str(r.node_id)][r.field][subfield] = output_value
 
         return workflow
 

@@ -84,10 +84,11 @@ class EdenClient:
             return [message async for message in self.async_chat(message, thread_id)]
         return asyncio.run(consume_chat())
 
-    async def async_chat(self, message, thread_id):
+    async def async_chat(self, message, thread_id, agent_id):
         payload = {
             "message": message,
-            "thread_id": thread_id
+            "thread_id": thread_id,
+            "agent_id": agent_id
         }
         async for response in self.async_run_ws("/ws/chat", payload):
             yield response

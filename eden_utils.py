@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import s3
 
+
 def load_and_combine_args(json_path, api_yaml_path = None):
     # Load test arguments from JSON
     with open(json_path, 'r') as f:
@@ -571,3 +572,7 @@ def custom_print(string, color):
         "white": "\033[97m"
     }
     return f"{colors[color]}{string}\033[0m"
+
+
+def concat_sentences(*sentences):
+    return ' '.join([s.strip().rstrip('.') + '.' for s in sentences if s and s.strip()])
