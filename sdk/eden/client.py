@@ -7,7 +7,6 @@ from aiofiles import open as aio_open
 from pydantic import SecretStr
 
 
-
 class EdenClient:
     def __init__(self, stage=False):
         if stage:
@@ -80,15 +79,16 @@ class EdenClient:
         except Exception as e:
             raise Exception(f"An error occurred: {str(e)}")
         
-    def chat(self, message, thread_id):
+    def chat(self, message, thread_id, agent_id):
         async def consume_chat():
-            return [message async for message in self.async_chat(message, thread_id)]
+            return [message async for message in self.async_chat(message, thread_id, agent_id)]
         return asyncio.run(consume_chat())
 
-    async def async_chat(self, message, thread_id):
+    async def async_chat(self, message, thread_id, agent_id):
         payload = {
             "message": message,
-            "thread_id": thread_id
+            "thread_id": thread_id,
+            "agent_id": agent_id
         }
         async for response in self.async_run_ws("/ws/chat", payload):
             yield response
