@@ -79,9 +79,9 @@ class EdenClient:
         except Exception as e:
             raise Exception(f"An error occurred: {str(e)}")
         
-    def chat(self, message, thread_id):
+    def chat(self, message, thread_id, agent_id):
         async def consume_chat():
-            return [message async for message in self.async_chat(message, thread_id)]
+            return [message async for message in self.async_chat(message, thread_id, agent_id)]
         return asyncio.run(consume_chat())
 
     async def async_chat(self, message, thread_id, agent_id):
