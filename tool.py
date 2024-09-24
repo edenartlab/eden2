@@ -1,24 +1,3 @@
-"""
-from models import Story
-story = Story.from_id("66de2dfa5286b9dc656291c1", env="STAGE")
-print(story.current)
-story.update({"screenplay": {"scenes": "test"}})
-
-import json
-from tool import load_tool
-t = load_tool("writing_tools/write")
-print(json.dumps(t.openai_tool_schema(), indent=2))
-
-
-import json
-from tool import load_tool
-t = load_tool("../workflows/workspaces/txt2img/workflows/storydiffusion")
-print(json.dumps(t.openai_tool_schema(), indent=2))
-
-
-"""
-
-
 import re
 import os
 import yaml
@@ -99,6 +78,7 @@ class ToolParameter(BaseModel):
     min_length: Optional[int] = Field(None, description="Minimum length for array type")
     max_length: Optional[int] = Field(None, description="Maximum length for array type")
     choices: Optional[List[Any]] = Field(None, description="Allowed values")
+    choice_labels: Optional[List[Any]] = Field(None, description="Labels for choices")
 
 
 class Tool(BaseModel):
@@ -121,11 +101,10 @@ class Tool(BaseModel):
     def get_base_model(self, **kwargs):
         base_model = create_tool_base_model(self)
         return base_model(**kwargs)
-
+    
     def summary(self, include_params=True, include_requirements=False):
-        summary = f'"{self.key}" :: {self.name} - {self.description}.'
-        if self.tip:
-            summary += f" {self.tip}."
+        summary = f'"{self.key}" :: {self.name} - '
+        summary += eden_utils.concat_sentences(self.description, self.tip)
         if include_requirements:
             required_params = [f"{p.label} ({p.type})" for p in self.parameters if p.required]
             if required_params:
@@ -137,9 +116,8 @@ class Tool(BaseModel):
     def parameters_summary(self):
         summary = "Parameters\n---"
         for param in self.parameters:
-            summary += f"\n{param.name}: {param.label}, {param.description}."
-            if param.tip:
-                summary += f" {param.tip}."
+            summary += f"\n{param.name}: {param.label}, "
+            summary += eden_utils.concat_sentences(param.description, param.tip)
             requirements = ["Type: " + param.type.name]
             if not param.default:
                 requirements.append("Field required")
@@ -167,40 +145,21 @@ class Tool(BaseModel):
             data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
         return data
 
-    def anthropic_tool_schema(self, remove_hidden_fields=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
+    def anthropic_tool_schema(self, remove_hidden_fields=False, include_tips=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
         schema = openai_schema(tool_model).anthropic_schema
         schema["input_schema"].pop("description")  # duplicated
         schema = self.expand_schema_for_dicts(schema, provider="anthropic")
         return schema
 
-    def openai_tool_schema(self, remove_hidden_fields=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
+    def openai_tool_schema(self, remove_hidden_fields=False, include_tips=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
         schema = openai_schema(tool_model).openai_schema
         schema = self.expand_schema_for_dicts(schema, provider="openai")
         return {
             "type": "function",
             "function": schema
         }
-
-    # def expand_schema_for_dicts2(self, schema, provider=Literal["openai", "anthropic"]):
-    #     for param in self.parameters:
-    #         if param.type == ParameterType.DICT:
-    #             sub_schema = {
-    #                 "type": "object",
-    #                 "properties": {
-    #                     key['name']: {
-    #                         "type": key['type'],
-    #                         "title": key['name'],
-    #                         "description": key['description']
-    #                     } for key in param.keys
-    #                 }
-    #             }
-    #             if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
-    #                 schema['input_schema']['properties'][param.name] = sub_schema
-    #             elif provider == "openai" and schema['parameters']['properties'].get(param.name):
-    #                 schema['parameters']['properties'][param.name] = sub_schema
-    #     return schema
 
     def expand_schema_for_dicts(self, schema, provider=Literal["openai", "anthropic"]):
         for param in self.parameters:
@@ -229,7 +188,6 @@ class Tool(BaseModel):
                             "title": key['name'],
                             "description": key['description']
                         }
-                    # print("sub_schema", sub_schema)             
                 if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
                     schema['input_schema']['properties'][param.name] = sub_schema
                 elif provider == "openai" and schema['parameters']['properties'].get(param.name):
@@ -254,7 +212,7 @@ class Tool(BaseModel):
             raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
 
         try:
-            create_tool_base_model(self)(**args)  # validate args
+            create_tool_base_model(self)(**args, include_tips=True)  # validate args
         except ValidationError as e:
             error_str = get_human_readable_error(e.errors())
             raise ValueError(error_str)
@@ -288,9 +246,7 @@ class Tool(BaseModel):
 
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
-            print("task", task)
             user = User.from_id(task.user, env=env)
-            print("user", user)
             task.args = self.prepare_args(task.args)
             task.cost = self.calculate_cost(task.args.copy())
             user.verify_manna_balance(task.cost)
@@ -338,20 +294,13 @@ class MongoTool(Tool):
     async def async_run(self, args: Dict):
         object_types = {"Story": Story}
         document_id = args.pop("id")
-        print("document_id!!", document_id)
         if document_id:
-            # print(" ----> OLD!!!")
             document = object_types[self.object_type].from_id(document_id, env=env)
         else:
-            # print(" ----> NEW!!!")
             document = object_types[self.object_type](env=env)
-        # print("document!!", document)
-        # print("args!!", args)
-        # remove all null, empty, or none values
         args = {k: v for k, v in args.items() if v is not None}
         document.update_current(args)
         result = {"document_id": str(document.id)}
-        # print("result!!", result)
         return result
 
     @Tool.handle_submit
@@ -365,8 +314,6 @@ class MongoTool(Tool):
         # fc = modal.functions.FunctionCall.from_id(task.handler_id)
         # await fc.get.aio()
         # task.reload()
-        # print("THE RETURN RESULT 22")
-        # print(task.result)
         return "ok"
         #return self.get_user_result(task.result)
 
@@ -405,11 +352,23 @@ class ModalTool(Tool):
         await fc.cancel.aio()
 
 
+
+class ComfyUIParameterMap(BaseModel):
+    input: str
+    output: str
+
+class ComfyUIRemap(BaseModel):
+    node_id: int
+    field: str
+    subfield: str
+    value: List[ComfyUIParameterMap]
+
 class ComfyUIInfo(BaseModel):
     node_id: int
     field: str
     subfield: str
     preprocessing: Optional[str] = None
+    remap: Optional[List[ComfyUIRemap]] = None
 
 class ComfyUIParameter(ToolParameter):
     comfyui: Optional[ComfyUIInfo] = Field(None)
@@ -645,22 +604,24 @@ def replicate_process_eden(output):
     return results
     
 
-def create_tool_base_model(tool: Tool, remove_hidden_fields=False):
+def create_tool_base_model(tool: Tool, remove_hidden_fields=False, include_tips=False):
     fields = {
-        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields)
+        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields, include_tip=include_tips)
         for param in tool.parameters
     }
     ToolBaseModel = create_model(tool.key, **fields)
-    ToolBaseModel.__doc__ = f'{tool.description}. {tool.tip}.'
+    ToolBaseModel.__doc__ = eden_utils.concat_sentences(tool.description, tool.tip)
     return ToolBaseModel
 
 
 def get_field_type_and_kwargs(
     param: ToolParameter,
-    remove_hidden_fields: bool = False
+    remove_hidden_fields: bool = False,
+    include_tip: bool = False
 ) -> Tuple[Type, Dict[str, Any]]:
     field_kwargs = {
-        'description': param.description,
+        'description': eden_utils.concat_sentences(param.description, param.tip) \
+            if include_tip else param.description
     }
 
     is_list = param.type.endswith('[]')
