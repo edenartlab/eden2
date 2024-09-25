@@ -11,7 +11,7 @@ from agent import Agent
 from thread import Thread, UserMessage, async_prompt
 from models import Task
 from tool import replicate_update_task
-from config import available_tools
+from config import available_tools, api_tools
 from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
@@ -145,10 +145,10 @@ def create_handler(task_handler):
 
 
 def tools_list():
-    return [available_tools[t].get_info(include_params=False) for t in available_tools]
+    return [available_tools[t].get_info(include_params=False) for t in api_tools if t in available_tools]
 
 def tools_summary():
-    return [available_tools[t].get_info() for t in available_tools]
+    return [available_tools[t].get_info() for t in api_tools if t in available_tools]
 
 
 web_app = FastAPI()
