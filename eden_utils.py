@@ -24,34 +24,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
-def load_and_combine_args(json_path, api_yaml_path = None):
-    # Load test arguments from JSON
-    with open(json_path, 'r') as f:
-        test_args = json.load(f)
-
-    if api_yaml_path is None:
-        return test_args
-
-    # Load API configuration from YAML
-    with open(api_yaml_path, 'r') as f:
-        api_config = yaml.safe_load(f)
-
-    # Extract default values from API configuration
-    default_args = {}
-    for param in api_config['parameters']:
-        if 'default' in param:
-            default_args[param['name']] = param['default']
-
-    # Combine default args with test args, ensuring test_args take precedence
-    final_args = default_args.copy()
-    final_args.update(test_args)
-    
-    # Handle the special case for 'seed'
-    if 'seed' in final_args and isinstance(final_args['seed'], str):
-        final_args['seed'] = random.randint(0, 999)
-
-    return final_args
-
 def upload_media(output, env):
     result = []
     for o in output:

@@ -146,6 +146,7 @@ app = modal.App(
 @app.cls(
     image=image,
     gpu=gpu,
+    cpu=8.0,
     volumes={"/data": downloads_vol},
     concurrency_limit=3,
     container_idle_timeout=60,
@@ -268,7 +269,6 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
-            api_yaml_path = f"/root/workspace/workflows/{workflow}/api.yaml"
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
@@ -276,7 +276,9 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                test_args = eden_utils.load_and_combine_args(test, api_yaml_path)
+                tool_ = tool.load_tool(f"/root/workspace/workflows/{workflow}")
+                test_args = json.loads(open(test, "r").read())
+                test_args = tool_.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
@@ -579,6 +581,9 @@ class ComfyUI:
                     else:
                         shutil.copy(value, temp_subfolder)
                     value = temp_subfolder
+
+            print("comfyui mapping")
+            print(comfyui)
 
             node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
             subfields = [s.strip() for s in subfield.split(",")]
