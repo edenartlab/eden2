@@ -137,6 +137,7 @@ class Tool(BaseModel):
             "name": self.name,
             "description": self.description,
             "outputType": self.output_type,
+            "resolutions": self.resolutions,
             "costEstimate": self.cost_estimate,
             "private": self.private
         } 
@@ -451,7 +452,7 @@ class ReplicateTool(Tool):
                     prediction.output, 
                     self.output_handler
                 )
-                if result["status"] in ["error", "cancelled", "completed"]:
+                if result["status"] in ["failed", "cancelled", "completed"]:
                     return self.get_user_result(result["result"])
             await asyncio.sleep(0.5)
             prediction.reload()
@@ -519,7 +520,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
         user = User.from_id(task.user, env=env)
         user.refund_manna(refund_amount)
-        return {"status": "error", "error": error}
+        return {"status": "failed", "error": error}
     
     elif status == "canceled":
         task.status = "cancelled"
