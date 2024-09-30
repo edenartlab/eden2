@@ -175,15 +175,25 @@ class ComfyUI:
         prompt_id = self._queue_prompt(workflow)['prompt_id']
         outputs = self._get_outputs(prompt_id)
         print("comfyui outputs", outputs)
-        output = outputs.get(str(tool_.comfyui_output_node_id))
+        output = outputs[str(tool_.comfyui_output_node_id)]
+        intermediate_outputs = {
+            io.name: outputs[str(io.node_id)]
+            for io in tool_.comfyui_intermediate_outputs or []
+        }
+        print("outputs ", output)
         if not output:
             raise Exception(f"No output found for {workflow_name} at output node {tool_.comfyui_output_node_id}") 
-        return output
+        return output, intermediate_outputs
 
     @modal.method()
     def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
-        output = self._execute(workflow_name, args, env=env)
-        result = eden_utils.upload_media(output, env=env)
+        output, intermediate_outputs = self._execute(workflow_name, args, env=env)
+        print("intermediate outputs", intermediate_outputs)
+        result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
+        result[0]["intermediateOutputs"] = {
+            k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
+            for k, v in intermediate_outputs.items()
+        }
         return result
 
     @modal.method()
@@ -208,9 +218,19 @@ class ComfyUI:
                 args = task.args.copy()
                 if "seed" in args:
                     args["seed"] = args["seed"] + i
-                output = self._execute(task.workflow, args, env=env)
+
+                output, intermediate_outputs = self._execute(task.workflow, args, env=env)
+                print("intermediate_outputs", intermediate_outputs)
+
                 result_ = eden_utils.upload_media(output, env=env)
+                if intermediate_outputs:
+                    result_[0]["intermediateOutputs"] = {
+                        k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
+                        for k, v in intermediate_outputs.items()
+                    }
+                
                 result.extend(result_)
+
                 if i == n_samples - 1:
                     task_update = {
                         "status": "completed", 
@@ -282,10 +302,15 @@ class ComfyUI:
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                output = self._execute(workflow, test_args, env="STAGE")
+                output, intermediate_outputs = self._execute(workflow, test_args, env="STAGE")
                 if not output:
                     raise Exception(f"No output from {test_name}")
                 result = eden_utils.upload_media(output, env="STAGE")
+                if intermediate_outputs:
+                    result[0]["intermediateOutputs"] = {
+                        k: eden_utils.upload_media(v, env="STAGE", save_thumbnails=False)
+                        for k, v in intermediate_outputs.items()
+                    }
                 t2 = time.time()                
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1

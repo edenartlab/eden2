@@ -14,7 +14,7 @@ from typing import List, Optional, Literal
 import s3
 import voice
 import tool
-import utils
+import eden_utils
 
 NEWSAPI_API_KEY = os.environ['NEWSAPI_API_KEY']
 print(NEWSAPI_API_KEY)

@@ -4,7 +4,8 @@ output_type: audio
 cost_estimate: 0.1 * duration_seconds
 handler: replicate
 output_handler: eden
-model: edenartlab/audiocraft:c8681e518429d9ab930defb73593360726b4df6c3000525fc30fa1fca2c05f53
+model: edenartlab/audiocraft
+version: c8681e518429d9ab930defb73593360726b4df6c3000525fc30fa1fca2c05f53
 parameters:
 - name: text_input
   label: Prompt

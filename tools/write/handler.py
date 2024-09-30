@@ -14,7 +14,7 @@ from typing import List, Optional, Literal
 import s3
 import voice
 import tool
-import utils
+import eden_utils
 
 client = instructor.from_openai(OpenAI())
 

@@ -1,9 +1,10 @@
 from mongo import MongoBaseModel#, mongo_client
 from typing import List
-
+from bson import ObjectId
 
 class Agent(MongoBaseModel):
     name: str
+    owner: ObjectId
     description: str
     instructions: str
     tools: List[str]

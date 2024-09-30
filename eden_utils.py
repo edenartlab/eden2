@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
-def upload_media(output, env):
+def upload_media(output, env, save_thumbnails=True):
     result = []
     for o in output:
         file_url, sha = s3.upload_file(o, env=env)
@@ -32,7 +32,7 @@ def upload_media(output, env):
 
         media_attributes, thumbnail = get_media_attributes(o)
 
-        if thumbnail:
+        if save_thumbnails and thumbnail:
             for width in [384, 768, 1024, 2560]:
                 img = thumbnail.copy()
                 img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail

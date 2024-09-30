@@ -343,12 +343,13 @@ def openai_prompt(messages, system_message, tools):
     return asyncio.run(async_openai_prompt(messages, system_message, tools))
 
 
-async def process_tool_calls(tool_calls, settings, tools):
+async def process_tool_calls(agent, tool_calls, settings, tools):
     tool_results = []
     for tool_call in tool_calls:
         add_breadcrumb(category="tool_call", data=tool_call.model_dump())
         
         try:
+        # if 1:
             tool_call.validate(tools)
             tool = tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
@@ -363,8 +364,7 @@ async def process_tool_calls(tool_calls, settings, tools):
                     workflow=tool.key,
                     output_type=tool.output_type,
                     args=updated_args,
-                    user=ObjectId("65284b18f8bbb9bff13ebe65"),
-                    # user=ObjectId("6526f38042a1043421aa28e6"),
+                    user=agent.owner,
                     env=env
                 )
                 add_breadcrumb(category="tool_call_task", data=task.model_dump())
@@ -420,6 +420,7 @@ async def prompt_llm_and_validate(messages, system_message, provider, tools):
         # pretty_print_messages(messages, schema=provider)
 
         try:
+        # if 1:
             if provider == "anthropic":
                 content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
             elif provider == "openai":
@@ -490,6 +491,7 @@ async def async_prompt(
         messages = thread_messages + new_messages
 
         try:   
+        # if 1:
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider, tools
             )
@@ -513,7 +515,7 @@ async def async_prompt(
         yield assistant_message
         
         if tool_calls:
-            tool_results = await process_tool_calls(tool_calls, settings, tools)
+            tool_results = await process_tool_calls(agent, tool_calls, settings, tools)
             add_breadcrumb(category="tool_results", data={"tool_results": [t.model_dump() for t in tool_results]})
             tool_message = ToolResultMessage(tool_results=tool_results)
             new_messages.append(tool_message)
@@ -558,6 +560,7 @@ async def interactive_chat(initial_message=None):
     
     while True:
         try:
+        # if 1:
             if initial_message:
                 message_input = initial_message
                 initial_message = None

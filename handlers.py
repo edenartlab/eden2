@@ -4,7 +4,7 @@ dotenv.load_dotenv()
 import asyncio
 import modal
 from datetime import datetime
-from tools import reel, story, news
+from tools import reel, story, news, chat
 from writing_tools import write
 from models import Task, User, Story
 import eden_utils
@@ -13,36 +13,44 @@ handlers = {
     "reel": reel,
     "story": story,
     "news": news,
-    "write": write
+    "write": write,
+    "chat": chat
 }
 
 app = modal.App(
     name="handlers",
     secrets=[
+
+        modal.Secret.from_name("admin-key"),
+        modal.Secret.from_name("clerk-credentials"), # ?
+        
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("replicate"),
         modal.Secret.from_name("openai"),
+        modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("elevenlabs"),
         modal.Secret.from_name("newsapi"),
+        modal.Secret.from_name("sentry"),
     ],   
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install("pyyaml", "elevenlabs", "openai", 
-                 "instructor", "Pillow", "pydub", 
+    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
+                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo",
                  "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
-    .pip_install("bson").pip_install("pymongo")
+    # .pip_install("bson").pip_install("pymongo")
     .copy_local_dir("../workflows", remote_path="/workflows")
+    .copy_local_dir("../private_workflows", remote_path="/private_workflows")
     .copy_local_dir("tools", remote_path="/root/tools")
 )
 
 
-async def _execute(tool_name: str, args: dict, user: str = None):
+async def _execute(tool_name: str, args: dict, user: str = None, env: str = "STAGE"):
     handler = handlers[tool_name]
-    result = await handler(args, user)
+    result = await handler(args, user, env=env)
     return result
         
 
@@ -67,24 +75,18 @@ async def submit(task_id: str, env: str):
 
     try:
         output = await _execute(
-            task.workflow, task.args, task.user
+            task.workflow, task.args, task.user, env=env
         )
-        print("OUT!!PUT")
-        print(output)
         if task.output_type == "string":
             result = output
-            
-            print("OUTPUT")
             print(output)
-            print("STORY")
             print(Story)
             story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
-            print("STORY")
             story.update(output)
-            print("WE ARE DONE...")
+        elif task.output_type == "message":
+            result = output
         else:
             result = eden_utils.upload_media(output, env=env)
-        print("RESULT")
         print(result)
         task_update = {
             "status": "completed", 

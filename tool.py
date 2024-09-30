@@ -22,7 +22,9 @@ env = os.getenv("ENV", "STAGE")
 TYPE_MAPPING = {
     "bool": bool, "string": str, "int": int, "float": float, 
     "image": str, "video": str, "audio": str, "zip": str, "lora": str, 
-    "dict": dict
+    "image|video": str,
+    "dict": dict,
+    "message": str,
 }
 
 class ParameterType(str, Enum):
@@ -32,6 +34,7 @@ class ParameterType(str, Enum):
     STRING = "string"
     IMAGE = "image"
     VIDEO = "video"
+    IMAGE_VIDEO = "image|video"
     AUDIO = "audio"
     ZIP = "zip"
     LORA = "lora"
@@ -41,22 +44,24 @@ class ParameterType(str, Enum):
     STRING_ARRAY = "string[]"
     IMAGE_ARRAY = "image[]"
     VIDEO_ARRAY = "video[]"
+    IMAGE_VIDEO_ARRAY = "image|video[]"
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
     LORA_ARRAY = "lora[]"
     DICT = "dict"
+    MESSAGE = "message"
 
 FILE_TYPES = [
     ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
 ]
 
 FILE_ARRAY_TYPES = [
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO, ParameterType.AUDIO_ARRAY
 ]
 
 ARRAY_TYPES = [
     ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, 
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
 ]
 
 
@@ -221,6 +226,11 @@ class Tool(BaseModel):
         return args
 
     def get_user_result(self, result):
+        print("PROCESS THE RESULT")
+        print("result", result)
+        print("type", type(result))
+        if isinstance(result, str) or isinstance(result, list):
+            return result
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
@@ -325,7 +335,6 @@ class MongoTool(Tool):
         pass
 
 
-
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
@@ -374,9 +383,14 @@ class ComfyUIInfo(BaseModel):
 class ComfyUIParameter(ToolParameter):
     comfyui: Optional[ComfyUIInfo] = Field(None)
 
+class ComfyUIIntermediateOutput(BaseModel):
+    name: str
+    node_id: int
+
 class ComfyUITool(Tool):
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
+    comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")
     env: str
 
     def __init__(self, data, key):
@@ -384,17 +398,17 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        #return await cls().run.remote.aio(self.key, args)
-        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
-        return await func.remote.aio(self.key, args, env=env)
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        return await cls().run.remote.aio(self.key, args)
+        # func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
+        # return await func.remote.aio(self.key, args, env=env)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        #job = await cls().run_task.spawn.aio(str(task.id), env=env)
-        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run_task")
-        job = await func.spawn.aio(str(task.id), env=env)
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        job = await cls().run_task.spawn.aio(str(task.id), env=env)
+        # func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run_task")
+        # job = await func.spawn.aio(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -411,51 +425,134 @@ class ComfyUITool(Tool):
         await fc.cancel.aio()
 
 
-class ReplicateTool(Tool):
-    model: str
-    output_handler: str = "normal"
+"""
+class ChatTool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        args = self._format_args_for_replicate(args)
-        prediction = self._create_prediction(args, webhook=False)        
-        prediction.wait()
-        if self.output_handler == "eden":
-            output = [prediction.output[-1]["files"][0]]
-        elif self.output_handler == "trainer":
-            output = [prediction.output[-1]["thumbnails"][0]]
+        print("args", args) # args {'content': 'Hi, who are you?', 'attachments': []}
+        
+        from agent import Agent
+        from mongo import get_collection
+        from bson import ObjectId
+        from thread import UserMessage, async_prompt, Thread
+
+        agent = Agent.from_id(args["agent_id"], env=env)
+        print("agent", agent)
+        if args["thread_id"]:
+            threads = get_collection("threads", env=env)
+            thread = threads.find_one({"_id": ObjectId(args["thread_id"])})
+            if not thread:
+                raise Exception("Thread not found")
+            thread = Thread.from_id(args["thread_id"], env=env)
         else:
-            output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
-            output = [url for url in output]
+            thread = Thread(env=env)
+
+        message = UserMessage(
+            content=args["content"],
+            attachments=args["attachments"]
+        )
+        print("message", message)
+
+        # result = prompt(thread, agent, message)
+        # print("result!!!", result)
+        results = []
+        async for response in async_prompt(thread, agent, message):
+            results.append(response.model_dump_json())
+            
+        # output = ["https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"]
+        # result = eden_utils.upload_media(output, env=env)
+        return results
+        
+    @Tool.handle_submit
+    async def async_submit(self, task: Task, webhook: bool = True):
+        task.handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))
+        task.status = "pending"
+        task.save()
+        return task.handler_id
+
+    async def async_process(self, task: Task):
+        if not task.handler_id:
+            task.reload()
+        result = await self.async_run(task.args)
+        task.status = "completed"
+        task.result = result
+        task.save()
+        # return self.get_user_result(result)
+        return result
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        print("Unimplemented")
+"""
+
+class ReplicateParameter(ToolParameter):
+    alias: Optional[str] = None
+
+class ReplicateTool(Tool):
+    model: str
+    version: Optional[str] = Field(None, description="Replicate version to use")
+    output_handler: str = "normal"
+    parameters: List[ReplicateParameter]
+
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        import replicate
+        args = self._format_args_for_replicate(args)
+        if self.version:
+            prediction = self._create_prediction(args, webhook=False)        
+            prediction.wait()
+            if self.output_handler == "eden":
+                output = [prediction.output[-1]["files"][0]]
+            elif self.output_handler == "trainer":
+                output = [prediction.output[-1]["thumbnails"][0]]
+            else:
+                output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
+                output = [url for url in output]
+        else:
+            output = replicate.run(self.model, input=args)
         result = eden_utils.upload_media(output, env=env)
         return result
 
     @Tool.handle_submit
     async def async_submit(self, task: Task, webhook: bool = True):
+        import replicate
         args = self._format_args_for_replicate(task.args)
-        prediction = self._create_prediction(args, webhook=webhook)
-        return prediction.id
+        if self.version:
+            prediction = self._create_prediction(args, webhook=webhook)
+            return prediction.id
+        else:
+            # Replicate doesn't support spawning tasks for models without a version so just run it immediately
+            output = replicate.run(self.model, input=task.args)
+            replicate_update_task(task, "succeeded", None, output, "normal")
+            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up Replicate id
+            return handler_id
 
     async def async_process(self, task: Task):
+        import replicate
+
         if not task.handler_id:
             task.reload()
-        import replicate
-        prediction = await replicate.predictions.async_get(task.handler_id)
-        status = "starting"
-        while True: 
-            if prediction.status != status:
-                status = prediction.status
-                result = replicate_update_task(
-                    task,
-                    status, 
-                    prediction.error, 
-                    prediction.output, 
-                    self.output_handler
-                )
-                if result["status"] in ["failed", "cancelled", "completed"]:
-                    return self.get_user_result(result["result"])
-            await asyncio.sleep(0.5)
-            prediction.reload()
+
+        if self.version is None:
+            return self.get_user_result(task.result)        
+        else:
+            prediction = await replicate.predictions.async_get(task.handler_id)
+            status = "starting"
+            while True: 
+                if prediction.status != status:
+                    status = prediction.status
+                    result = replicate_update_task(
+                        task,
+                        status, 
+                        prediction.error, 
+                        prediction.output, 
+                        self.output_handler
+                    )
+                    if result["status"] in ["failed", "cancelled", "completed"]:
+                        return self.get_user_result(result["result"])
+                await asyncio.sleep(0.5)
+                prediction.reload()
 
     async def async_submit_and_run(self, task: Task):
         await self.async_submit(task, webhook=False)
@@ -477,6 +574,8 @@ class ReplicateTool(Tool):
         for param in self.parameters:
             if param.type in ARRAY_TYPES:
                 new_args[param.name] = "|".join([str(p) for p in args[param.name]])
+            if param.alias:
+                new_args[param.alias] = new_args.pop(param.name)
         return new_args
 
     def _get_webhook_url(self):
@@ -488,11 +587,10 @@ class ReplicateTool(Tool):
     def _create_prediction(self, args: dict, webhook=True):
         import replicate
         user, model = self.model.split('/', 1)
-        model, version = model.split(':', 1)
         webhook_url = self._get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
 
-        if version == "deployment":
+        if self.version == "deployment":
             deployment = replicate.deployments.get(f"{user}/{model}")
             prediction = deployment.predictions.create(
                 input=args,
@@ -501,7 +599,7 @@ class ReplicateTool(Tool):
             )
         else:
             model = replicate.models.get(f"{user}/{model}")
-            version = model.versions.get(version)
+            version = model.versions.get(self.version)
             prediction = replicate.predictions.create(
                 version=version,
                 input=args,

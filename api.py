@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 import auth
 from agent import Agent
-from thread import Thread, UserMessage, async_prompt
+from thread import Thread, UserMessage, async_prompt, prompt
 from models import Task
 from tool import replicate_update_task
 from config import available_tools, api_tools
@@ -100,7 +100,7 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str]
     agent_id: str
 
-async def chat(data, user):
+async def ws_chat(data, user):
     request = ChatRequest(**data)
     agent = Agent.from_id(request.agent_id, env=env)
     
@@ -153,7 +153,7 @@ def tools_summary():
 
 web_app = FastAPI()
 
-web_app.websocket("/ws/chat")(create_handler(chat))
+web_app.websocket("/ws/chat")(create_handler(ws_chat))
 web_app.post("/thread/create")(get_or_create_thread)
 
 web_app.post("/create")(task_handler)

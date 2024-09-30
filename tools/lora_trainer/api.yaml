@@ -5,7 +5,8 @@ output_type: lora
 cost_estimate: 0.15 * max_train_steps
 handler: replicate
 output_handler: trainer
-model: edenartlab/lora-trainer:deployment
+model: edenartlab/lora-trainer
+version: deployment
 parameters:
 - name: name
   label: Name

@@ -25,6 +25,7 @@ dotenv.load_dotenv()
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 EDEN_USER = os.getenv("EDEN_USER")
 MODAL_DEV_API_URL = os.getenv("MODAL_DEV_API_URL") 
+print("MODAL_DEV_API_URL", MODAL_DEV_API_URL)
 
 envs_dir = pathlib.Path("../workflows/workspaces")
 envs = [f.name for f in envs_dir.iterdir() if f.is_dir()]

@@ -14,8 +14,16 @@ client = EdenClient(stage=True)
 #     "height": 768,
 # })
 
-result = client.create("stable_audio", {
-    "prompt": "drum and bass",
+# result = client.create("stable_audio", {
+#     "prompt": "drum and bass",
+# })
+
+result = client.create("flux-dev", {
+    "prompt": "Alien forest with bioluminescent flora.",
+    "lora_strength": 0.3,
+    "seed": 19,
+    "n_samples": 4,
 })
+
 
 print(result)
