@@ -85,6 +85,8 @@ class MongoBaseModel(BaseModel):
         data = self.to_mongo()
         document_id = data.get('_id')
 
+        print("SAVE", self.collection.name, document_id)
+
         if document_id:
             data["updatedAt"] = datetime.utcnow()
             return self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
@@ -176,7 +178,7 @@ story.update({"screenplay": {"scenes": "test"}})
 
 import json
 from tool import load_tool
-t = load_tool("writing_tools/write")
+t = load_tool("tools/write")
 print(json.dumps(t.openai_tool_schema(), indent=2))
 
 """

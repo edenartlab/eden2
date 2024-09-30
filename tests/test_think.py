@@ -9,7 +9,7 @@ from tool import get_tools
 from thread import Thread, UserMessage, prompt
 
 #tools = get_tools("../workflows/workspaces")
-tools = get_tools("writing_tools")
+tools = get_tools("tools")
 user = ObjectId("65284b18f8bbb9bff13ebe65")  # user = gene3
 agent = get_default_agent() # eve
 

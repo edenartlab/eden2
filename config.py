@@ -19,6 +19,5 @@ api_tools = [
 available_tools = get_comfyui_tools("../workflows/workspaces")
 available_tools.update(get_comfyui_tools("../private_workflows/workspaces"))
 available_tools.update(get_tools("tools"))
-available_tools.update(get_tools("writing_tools"))
 if env == "PROD":
     available_tools = {k: v for k, v in available_tools.items() if k in api_tools}

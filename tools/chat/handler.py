@@ -17,7 +17,11 @@ async def chat(args: dict, user: str = None, env: str = "STAGE"):
             raise Exception("Thread not found")
         thread = Thread.from_id(args["thread_id"], env=env)
     else:
-        thread = Thread(env=env)
+        print("creating new thread")
+        thread = Thread(env=env, user=user)
+        thread.save()  # this should be encapsulated
+        print("thread created")
+        print(user)
 
     message = UserMessage(
         content=args["content"],
@@ -28,5 +32,6 @@ async def chat(args: dict, user: str = None, env: str = "STAGE"):
         response.model_dump_json() 
         async for response in async_prompt(thread, agent, message)
     ]
+    print("results", results)
         
     return {"messages": results}

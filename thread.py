@@ -230,7 +230,7 @@ class ToolResultMessage(ChatMessage):
         ])
         return custom_print(string, "blue")
 
-
+import uuid
 class Thread(MongoBaseModel):
     name: str
     user: ObjectId
@@ -238,6 +238,12 @@ class Thread(MongoBaseModel):
     has_id: bool = Field(False, exclude=True)
 
     def __init__(self, env, **data):
+        if "name" not in data:
+            data["name"] = str(uuid.uuid4())
+        if isinstance(data["user"], str):
+            data["user"] = ObjectId(data["user"])
+        print("thread init")
+        print(data)
         super().__init__(collection_name="threads", env=env, **data)
         message_types = {
             "user": UserMessage,
@@ -281,10 +287,17 @@ class Thread(MongoBaseModel):
             return [item for m in self.messages for item in m.anthropic_schema()]
 
     def add_messages(self, *new_messages, save=False, reload_messages=False):
+        print("add_messages")
+        print(self.collection.name)
         if reload_messages and not self.collection is None:
             self.reload_messages()
+        print("before extend")
         self.messages.extend(new_messages)
+        print("adding messages")
+        print(self.messages)
+        print("save", save)
         if save:
+            print("saving")
             self.save()
 
     def reload_messages(self):
