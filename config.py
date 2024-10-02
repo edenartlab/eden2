@@ -12,8 +12,8 @@ api_tools = [
     "upscaler", "background_removal", "background_removal_video",     
     "animate_3D", "style_mixing", "txt2vid", "vid2vid_sdxl", "img2vid", "video_upscaler", 
     "reel", "story",
-    "stable_audio", "audiocraft", "musicgen",
-    "lora_trainer", "news", "moodmix",
+    "stable_audio", "musicgen",
+    "lora_trainer", "flux_trainer", "news", "moodmix",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
 ]
 available_tools = get_comfyui_tools("../workflows/workspaces")

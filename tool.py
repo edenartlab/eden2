@@ -16,6 +16,7 @@ from models import Task, Model, User
 from models import Story3 as Story
 import eden_utils
 import s3
+import gcp
 
 env = os.getenv("ENV", "STAGE")
 
@@ -425,67 +426,6 @@ class ComfyUITool(Tool):
         await fc.cancel.aio()
 
 
-"""
-class ChatTool(Tool):
-
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        print("args", args) # args {'content': 'Hi, who are you?', 'attachments': []}
-        
-        from agent import Agent
-        from mongo import get_collection
-        from bson import ObjectId
-        from thread import UserMessage, async_prompt, Thread
-
-        agent = Agent.from_id(args["agent_id"], env=env)
-        print("agent", agent)
-        if args["thread_id"]:
-            threads = get_collection("threads", env=env)
-            thread = threads.find_one({"_id": ObjectId(args["thread_id"])})
-            if not thread:
-                raise Exception("Thread not found")
-            thread = Thread.from_id(args["thread_id"], env=env)
-        else:
-            thread = Thread(env=env)
-
-        message = UserMessage(
-            content=args["content"],
-            attachments=args["attachments"]
-        )
-        print("message", message)
-
-        # result = prompt(thread, agent, message)
-        # print("result!!!", result)
-        results = []
-        async for response in async_prompt(thread, agent, message):
-            results.append(response.model_dump_json())
-            
-        # output = ["https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"]
-        # result = eden_utils.upload_media(output, env=env)
-        return results
-        
-    @Tool.handle_submit
-    async def async_submit(self, task: Task, webhook: bool = True):
-        task.handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))
-        task.status = "pending"
-        task.save()
-        return task.handler_id
-
-    async def async_process(self, task: Task):
-        if not task.handler_id:
-            task.reload()
-        result = await self.async_run(task.args)
-        task.status = "completed"
-        task.result = result
-        task.save()
-        # return self.get_user_result(result)
-        return result
-
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        print("Unimplemented")
-"""
-
 class ReplicateParameter(ToolParameter):
     alias: Optional[str] = None
 
@@ -653,6 +593,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     args=task.args,
                     task=task.id,
                     checkpoint=url, 
+                    base_model="sdxl",
                     thumbnail=thumbnail,
                     env=env
                 )
@@ -779,6 +720,8 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         tool = MongoTool(data, key=name)
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
+    elif data['handler'] == 'gcp':
+        tool = GCPTool(data, key=name)
     else:
         tool = ModalTool(data, key=name)
     tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
@@ -851,3 +794,37 @@ def get_human_readable_error(error_list):
     error_str = ", ".join(errors)
     error_str = f"Invalid args: {error_str}"
     return error_str
+
+
+class GCPTool(Tool):
+    gcr_image_uri: str
+    machine_type: str
+    gpu: str
+    
+    # Todo: make work without task ID
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        raise NotImplementedError("Not implemented yet, need a Task ID")
+        
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        handler_id = gcp.submit_job(
+            gcr_image_uri=self.gcr_image_uri,
+            machine_type=self.machine_type,
+            gpu=self.gpu,
+            gpu_count=1,
+            task_id=str(task.id),
+            env=env
+        )
+        return handler_id
+    
+    async def async_process(self, task: Task):
+        if not task.handler_id:
+            task.reload()
+        await gcp.poll_job_status(task.handler_id)
+        task.reload()
+        return self.get_user_result(task.result)
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        await gcp.cancel_job(task.handler_id)

@@ -185,7 +185,7 @@ image = (
     .env({"ENV": env, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy",
+                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy", "google-cloud-aiplatform",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("../private_workflows", remote_path="/private_workflows")

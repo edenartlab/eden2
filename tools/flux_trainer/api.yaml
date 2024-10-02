@@ -1,8 +1,13 @@
 name: Flux LoRA trainer
 description: Finetune a model on top of Flux-dev
 tip: This will create a LoRA model from a base Flux-dev which captures and integrates the style, human face, or object represented in the training data.
+output_type: lora
 cost_estimate: 0.5 * max_train_steps
 handler: gcp
+gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
+machine_type: a2-highgpu-1g
+gpu: A100
+private: true
 parameters:
 - name: name
   label: Name
@@ -47,3 +52,11 @@ parameters:
   minimum: 0.00001
   maximum: 0.001
   step: 0.000001
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set to a random value.
+  tip: You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank! 
+  type: int
+  default: random
+  minimum: 0
+  maximum: 2147483647
