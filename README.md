@@ -58,3 +58,18 @@ To interact with an agent, run
 
     python thread.py
 
+
+
+# Generic flow for adding a new endpoint (`background_removal` in this example) on Eden:
+1. Build the workflow on ComfyUI Localhost
+2. Create api.yaml for mapping parameters to comfyui nodes, add documentation and agent tips. Also create test.json file(s)
+3. Export workflow_api.json and your local snapshot.json
+4. Use tools in https://github.com/edenartlab/workflows/tree/main/_utils to auto-generate downloads.json and snapshot.json for this workflow
+5. Merge workflow downloads and snapshot into workspace downloads and snapshot (using `workflows/_utils/generate_environment.py`)
+6. Run modal test, eg: `WORKSPACE=txt2img WORKFLOWS=background_removal modal run comfyui.py`
+7. When base test looks good, optionally run all tests to validate multiple pathways and auto-download all dependencies into the image: `WORKSPACE=txt2img WORKFLOWS=background_removal TEST_ALL=1 modal run comfyui.py`
+8. Now, deploy the full workspace (to staging): `WORKSPACE=txt2img modal deploy comfyui.py`
+9. Test the new tool through the (staging) API: `python test_api.py --tools background_removal`
+10. Deploy updated workspace to production: `ENV=PROD WORKSPACE=txt2img modal deploy comfyui.py`
+11. Test deployed tool through production api: `python test_api.py --tools background_removal --production`
+
