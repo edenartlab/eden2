@@ -115,7 +115,7 @@ image = (
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
-        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging", "google-cloud-aiplatform"
+        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging", "google-cloud-aiplatform",
         "torchaudio", "pydub", "moviepy", "accelerate")
     .pip_install("bson").pip_install("pymongo") 
     .env({"WORKSPACE": workspace_name}) 
