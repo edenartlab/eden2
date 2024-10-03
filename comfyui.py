@@ -111,10 +111,11 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
-    
+
     # hacky way to pass GCP credentials:
     .env({"GCP_TYPE": os.getenv("GCP_TYPE")})
     .env({"GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID")})
+    .env({"GCP_PRIVATE_KEY": os.getenv("GCP_PRIVATE_KEY")})
     .env({"GCP_PRIVATE_KEY_ID": os.getenv("GCP_PRIVATE_KEY_ID")})
     .env({"GCP_CLIENT_EMAIL": os.getenv("GCP_CLIENT_EMAIL")})
     .env({"GCP_CLIENT_ID": os.getenv("GCP_CLIENT_ID")})
