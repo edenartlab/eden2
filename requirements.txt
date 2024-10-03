@@ -15,3 +15,4 @@ python-dotenv
 Pillow
 moviepy
 pydub
+google-cloud-aiplatform
