@@ -111,24 +111,6 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
-
-    # hacky way to pass GCP credentials:
-    .env({"GCP_TYPE": os.getenv("GCP_TYPE")})
-    .env({"GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID")})
-    .env({"GCP_PRIVATE_KEY": os.getenv("GCP_PRIVATE_KEY")})
-    .env({"GCP_PRIVATE_KEY_ID": os.getenv("GCP_PRIVATE_KEY_ID")})
-    .env({"GCP_CLIENT_EMAIL": os.getenv("GCP_CLIENT_EMAIL")})
-    .env({"GCP_CLIENT_ID": os.getenv("GCP_CLIENT_ID")})
-    .env({"GCP_AUTH_URI": os.getenv("GCP_AUTH_URI")})
-    .env({"GCP_TOKEN_URI": os.getenv("GCP_TOKEN_URI")})
-    .env({"GCP_AUTH_PROVIDER_X509_CERT_URL": os.getenv("GCP_AUTH_PROVIDER_X509_CERT_URL")})
-    .env({"GCP_CLIENT_X509_CERT_URL": os.getenv("GCP_CLIENT_X509_CERT_URL")})
-    .env({"GCP_UNIVERSE_DOMAIN": os.getenv("GCP_UNIVERSE_DOMAIN")})
-    .env({"GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID")})
-    .env({"GCP_LOCATION": os.getenv("GCP_LOCATION")})
-    .env({"GCP_STAGING_BUCKET": os.getenv("GCP_STAGING_BUCKET")})
-    .env({"GCP_JOB_PREFIX": os.getenv("GCP_JOB_PREFIX")})
-
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
@@ -158,6 +140,7 @@ app = modal.App(
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
+        modal.Secret.from_name("gcp-credentials"),
     ]
 )
 
