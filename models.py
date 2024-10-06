@@ -15,6 +15,7 @@ class Model(MongoBaseModel):
     task: ObjectId
     public: bool = False
     checkpoint: str
+    base_model: str
     thumbnail: str
     users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
@@ -32,9 +33,11 @@ class Model(MongoBaseModel):
         if self.collection is None:
             return
         if self.slug:
-            return  # just set it once
+            return
         name = self.name.lower().replace(" ", "-")
-        version = 1 + self.collection.count_documents({"name": self.name, "user": self.user}) 
+        existing_docs = list(self.collection.find({"name": self.name, "user": self.user}))
+        versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
+        version = max(versions or [0]) + 1
         username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{version}"
 
@@ -163,6 +166,9 @@ class Story3(VersionedMongoBaseModel):
 
 
 
+
+
+
 class Story2(VersionedMongoBaseModel):
     class StoryModel(BaseModel):
         genre: str = None
@@ -205,3 +211,31 @@ class Story2(VersionedMongoBaseModel):
         self.update({
             "burns": [b for b in self.burns if b != user]
         })
+
+
+
+
+
+################################################################################
+
+
+
+
+from mongo import VersionedMongoBaseModel2
+
+class Story4(VersionedMongoBaseModel2):
+    # class StoryModel(BaseModel):
+    #     logline: Optional[str] = None
+    #     characters: Optional[List[str]] = None
+    #     storyboard: Optional[List[str]] = None
+    #     music: Optional[str] = None
+
+    def __init__(self, env, **data):
+        super().__init__(collection_name="stories", env=env, **data)
+
+    @classmethod
+    def from_id(cls, document_id: str, env: str):
+        return super().from_id(cls, document_id, "stories", env)
+
+    # def validate_data(self, data):
+    #     self.StoryModel(**data)
