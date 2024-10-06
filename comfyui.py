@@ -115,9 +115,8 @@ image = (
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
-        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging", "google-cloud-aiplatform",
-        "torchaudio", "pydub", "moviepy", "accelerate")
-    .pip_install("bson").pip_install("pymongo") 
+        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
+        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
