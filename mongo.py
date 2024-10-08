@@ -76,7 +76,7 @@ class MongoBaseModel(BaseModel):
             setattr(self, key, value)
         return self
 
-    def save(self):
+    def save(self, upsert_query=None):
         if self.collection is None:
             raise Exception("Collection not set")
 
@@ -85,7 +85,9 @@ class MongoBaseModel(BaseModel):
         data = self.to_mongo()
         document_id = data.get('_id')
 
-        print("SAVE", self.collection.name, document_id)
+        # upsert query overrides ID if it exists
+        if upsert_query:
+            document_id = self.collection.find_one(upsert_query, {"_id": 1}) or document_id
 
         if document_id:
             data["updatedAt"] = datetime.utcnow()
@@ -105,6 +107,18 @@ class MongoBaseModel(BaseModel):
         update_args["updatedAt"] = datetime.utcnow()
 
         return self.collection.update_one({'_id': self.id}, {'$set': update_args})
+
+
+
+
+
+
+
+
+"""
+Everything below this is experimental
+"""
+
 
 
 class VersionedMongoBaseModel(MongoBaseModel):
@@ -168,6 +182,69 @@ class VersionedMongoBaseModel(MongoBaseModel):
                 break        
         return reconstructed
 
+
+
+class VersionedMongoBaseModel2(MongoBaseModel):
+    current: dict = Field(default_factory=dict)
+    versions: list[dict] = Field(default_factory=list)
+
+    # def __init__(self, collection_name, env, **data):
+    #     super().__init__(collection_name=collection_name, env=env)
+    #     self.update(data)
+
+    def update_current(self, changes):
+        if self.collection is None:
+            raise Exception("Collection not set")
+
+        changes = deep_filter(self.current, changes)
+        if not changes:
+            return
+
+        # print("===========")
+        # print("self.current", self.current.copy())
+        # print("changes", changes)
+        
+        next = deep_update(self.current.copy(), changes)
+        # print("next", next)
+        # print("===========")
+        
+        self.validate_data(next)
+        self.current = next
+
+        update_operation = {
+            "$set": {
+                "current": self.current,
+                "updatedAt": datetime.utcnow()
+            },
+            "$push": {
+                "versions": {
+                    "data": changes,
+                    "timestamp": datetime.utcnow()
+                }
+            }
+        }
+        # print("update_operation", update_operation)
+        # print(self.id)
+        # print(self.collection)
+        
+        
+        if not self.collection.find_one({"_id": self.id}):
+            self.save()
+
+        self.collection.update_one(
+            {"_id": self.id},
+            update_operation
+        )
+
+    def reconstruct_version(self, target_time):
+        reconstructed = {}
+        for version in self.versions:
+            if version["timestamp"] <= target_time:
+                reconstructed.update(version["data"])
+            else:
+                break        
+        return reconstructed
+    
 
 
 """
