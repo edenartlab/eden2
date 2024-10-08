@@ -145,10 +145,10 @@ def create_handler(task_handler):
 
 
 def tools_list():
-    return [available_tools[t].get_info(include_params=False) for t in api_tools if t in available_tools]
+    return [available_tools[t].get_interface(include_params=False) for t in api_tools if t in available_tools]
 
 def tools_summary():
-    return [available_tools[t].get_info() for t in api_tools if t in available_tools]
+    return [available_tools[t].get_interface() for t in api_tools if t in available_tools]
 
 
 web_app = FastAPI()
@@ -163,7 +163,7 @@ web_app.post("/update")(replicate_update)
 web_app.get("/tools")(tools_summary)
 web_app.get("/tools/list")(tools_list)
 for t in available_tools:
-    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_info())
+    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_interface())
 
 
 app = modal.App(
@@ -173,9 +173,11 @@ app = modal.App(
         modal.Secret.from_name("clerk-credentials"),
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
+        modal.Secret.from_name("gcp-credentials"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
+        modal.Secret.from_name("runway"),
         modal.Secret.from_name("sentry"),
     ],   
 )

@@ -410,7 +410,30 @@ class ComfyUI:
 
         return text
 
-    def _transport_lora(self, lora_url: str):
+    def _transport_lora_flux(self, lora_url: str):
+        loras_folder = "/root/models/loras"
+
+        print("tl download lora", lora_url)
+        if not re.match(r'^https?://', lora_url):
+            raise ValueError(f"Lora URL Invalid: {lora_url}")
+        
+        lora_filename = lora_url.split("/")[-1]    
+        # name = lora_filename.split(".")[0]
+        lora_path = os.path.join(loras_folder, lora_filename)
+        print("tl destination folder", loras_folder)
+
+        if os.path.exists(lora_path):
+            print("Lora safetensors file already extracted. Skipping.")
+        else:
+            eden_utils.download_file(lora_url, lora_path)
+            if not os.path.exists(lora_path):
+                raise FileNotFoundError(f"The LoRA tar file {lora_path} does not exist.")
+        
+        print("destination path", lora_path)
+        print("lora filename", lora_filename)
+        return lora_filename
+
+    def _transport_lora_sdxl(self, lora_url: str):
         downloads_folder = "/root/downloads"
         loras_folder = "/root/models/loras"
         embeddings_folder = "/root/models/embeddings"
@@ -555,6 +578,7 @@ class ComfyUI:
                 
                 models = get_collection("models", env=env)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
+                base_model = lora.get("base_model")
                 print("LORA", lora)
                 if not lora:
                     raise Exception(f"Lora {lora_id} not found")
@@ -568,10 +592,17 @@ class ComfyUI:
                 else:
                     print("LORA URL", lora_url)
 
-                lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
+                print("base model", base_model)
+
+                if base_model == "sdxl":
+                    lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
+                elif base_model == "flux-dev":
+                    lora_filename = self._transport_lora_flux(lora_url)
+                    embeddings_filename, embedding_trigger, lora_mode = None, None, None
+
                 args[param.name] = lora_filename
-                print("LORA FILENAME", lora_filename)
-            
+                print("lora filename", lora_filename)
+        
         # inject args
         comfyui_map = {
             param.name: param.comfyui 

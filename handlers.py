@@ -4,7 +4,7 @@ dotenv.load_dotenv()
 import asyncio
 import modal
 from datetime import datetime
-from tools import reel, story, news, chat
+from tools import reel, story, news, chat, runway
 from tools import write
 from models import Task, User, Story
 import eden_utils
@@ -14,7 +14,8 @@ handlers = {
     "story": story,
     "news": news,
     "write": write,
-    "chat": chat
+    "chat": chat,
+    "runway": runway
 }
 
 app = modal.App(
@@ -31,6 +32,7 @@ app = modal.App(
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("elevenlabs"),
         modal.Secret.from_name("newsapi"),
+        modal.Secret.from_name("runway"),
         modal.Secret.from_name("sentry"),
     ],   
 )
@@ -39,7 +41,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo",
+                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client",
                  "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
     # .pip_install("bson").pip_install("pymongo")
     .copy_local_dir("../workflows", remote_path="/workflows")

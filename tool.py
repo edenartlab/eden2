@@ -1,6 +1,7 @@
 import re
 import os
 import yaml
+import time
 import json
 import random
 import asyncio
@@ -17,6 +18,7 @@ from models import Story3 as Story
 import eden_utils
 import s3
 import gcp
+
 
 env = os.getenv("ENV", "STAGE")
 
@@ -97,7 +99,7 @@ class Tool(BaseModel):
     resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
-    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API", exclude=True)
+    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API")
     handler: SkipJsonSchema[str] = Field(False, description="Which type of tool", exclude=True)
     parameters: List[ToolParameter]
 
@@ -137,7 +139,7 @@ class Tool(BaseModel):
             summary += f" ({requirements_str})"
         return summary
 
-    def get_info(self, include_params=True):
+    def get_interface(self, include_params=True):
         data = {
             "key": self.key,
             "name": self.name,
@@ -227,9 +229,6 @@ class Tool(BaseModel):
         return args
 
     def get_user_result(self, result):
-        print("PROCESS THE RESULT")
-        print("result", result)
-        print("type", type(result))
         if isinstance(result, str) or isinstance(result, list):
             return result
         for r in result:
@@ -401,15 +400,11 @@ class ComfyUITool(Tool):
     async def async_run(self, args: Dict):
         cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
         return await cls().run.remote.aio(self.key, args)
-        # func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
-        # return await func.remote.aio(self.key, args, env=env)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
         cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
         job = await cls().run_task.spawn.aio(str(task.id), env=env)
-        # func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run_task")
-        # job = await func.spawn.aio(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -457,6 +452,8 @@ class ReplicateTool(Tool):
     @Tool.handle_submit
     async def async_submit(self, task: Task, webhook: bool = True):
         import replicate
+
+        
         args = self._format_args_for_replicate(task.args)
         if self.version:
             prediction = self._create_prediction(args, webhook=webhook)
@@ -597,7 +594,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     thumbnail=thumbnail,
                     env=env
                 )
-                model.save()
+                # model.save()
+                model.save({"task": task.id})
                 result[0]["model"] = model.id
         
         run_time = (datetime.utcnow() - task.createdAt).total_seconds()

@@ -98,7 +98,7 @@ class User(MongoBaseModel):
 
     def verify_manna_balance(self, amount: float):
         manna = self.mannas.find_one({"user": self.id})
-        balance = manna.get("balance") + manna.get("subscriptionBalance")
+        balance = manna.get("balance") + manna.get("subscriptionBalance", 0)
         if balance < amount:
             raise Exception(f"Insufficient manna balance. Need {amount} but only have {balance}")
 

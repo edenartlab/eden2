@@ -1,10 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import time
 from google.cloud import aiplatform
 from google.oauth2 import service_account
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # authenticate
 credentials = service_account.Credentials.from_service_account_info({
@@ -24,7 +24,7 @@ credentials = service_account.Credentials.from_service_account_info({
 project_id = os.environ["GCP_PROJECT_ID"]
 location = os.environ["GCP_LOCATION"]
 staging_bucket = os.environ["GCP_STAGING_BUCKET"]
-
+job_prefix = os.environ["GCP_JOB_PREFIX"]
 aiplatform.init(
     project=project_id, 
     location=location, 
@@ -38,7 +38,7 @@ GPUs = {
 }
 
 
-async def submit_job(
+def submit_job(
     gcr_image_uri,
     machine_type,
     gpu,
@@ -68,10 +68,12 @@ async def submit_job(
         ],
     )
 
-    await job.submit_async()
+    job.submit()
     
     output = job.to_dict()
-    handler_id = output['name']
+    job_id = output['name']
+
+    handler_id = job_id.split("/")[-1]
     print(f"Custom job created. Resource name: {handler_id}")
 
     return handler_id
@@ -102,8 +104,9 @@ async def poll_job_status(handler_id):
         time.sleep(20)
 
 
-async def cancel_job(job_id):
+async def cancel_job(handler_id):
     try:
+        job_id = f"{job_prefix}{handler_id}"
         job = await aiplatform.CustomJob.get_async(job_id)
         await job.cancel_async()
         print(f"Job {job_id} cancellation requested.")
