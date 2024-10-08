@@ -15,8 +15,8 @@ import pathlib
 import tempfile
 import subprocess
 
-from models import Task
-from mongo import mongo_client, envs
+from models import Task, User
+from mongo import mongo_client, get_collection
 import tool
 import eden_utils
 
@@ -116,12 +116,11 @@ image = (
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-        "torchaudio", "pydub", "moviepy", "accelerate")
-    .pip_install("bson").pip_install("pymongo") 
+        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
-    .run_function(install_comfyui)
+    .run_function(install_comfyui, force_build=True)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .copy_local_dir(f"../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows})
@@ -140,12 +139,14 @@ app = modal.App(
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
+        modal.Secret.from_name("gcp-credentials"),
     ]
 )
 
 @app.cls(
     image=image,
     gpu=gpu,
+    cpu=8.0,
     volumes={"/data": downloads_vol},
     concurrency_limit=3,
     container_idle_timeout=60,
@@ -174,15 +175,25 @@ class ComfyUI:
         prompt_id = self._queue_prompt(workflow)['prompt_id']
         outputs = self._get_outputs(prompt_id)
         print("comfyui outputs", outputs)
-        output = outputs.get(str(tool_.comfyui_output_node_id))
+        output = outputs[str(tool_.comfyui_output_node_id)]
+        intermediate_outputs = {
+            io.name: outputs[str(io.node_id)]
+            for io in tool_.comfyui_intermediate_outputs or []
+        }
+        print("outputs ", output)
         if not output:
             raise Exception(f"No output found for {workflow_name} at output node {tool_.comfyui_output_node_id}") 
-        return output
+        return output, intermediate_outputs
 
     @modal.method()
     def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
-        output = self._execute(workflow_name, args, env=env)
-        result = eden_utils.upload_media(output, env=env)
+        output, intermediate_outputs = self._execute(workflow_name, args, env=env)
+        print("intermediate outputs", intermediate_outputs)
+        result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
+        result[0]["intermediateOutputs"] = {
+            k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
+            for k, v in intermediate_outputs.items()
+        }
         return result
 
     @modal.method()
@@ -198,27 +209,56 @@ class ComfyUI:
         })
         task_update = {}
 
-        try:
-            print(task.workflow, task.args)
-            output = self._execute(task.workflow, task.args, env=env)
-            result = eden_utils.upload_media(output, env=env)
-            task_update = {
-                "status": "completed", 
-                "result": result
-            }
+        result = []
+        n_samples = task.args.get("n_samples", 1)
+        print("======\nargs", task.workflow, task.args)
+
+        try:            
+            for i in range(n_samples):
+                args = task.args.copy()
+                if "seed" in args:
+                    args["seed"] = args["seed"] + i
+
+                output, intermediate_outputs = self._execute(task.workflow, args, env=env)
+                print("intermediate_outputs", intermediate_outputs)
+
+                result_ = eden_utils.upload_media(output, env=env)
+                if intermediate_outputs:
+                    result_[0]["intermediateOutputs"] = {
+                        k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
+                        for k, v in intermediate_outputs.items()
+                    }
+                
+                result.extend(result_)
+
+                if i == n_samples - 1:
+                    task_update = {
+                        "status": "completed", 
+                        "result": result
+                    }
+                else:
+                    task_update = {
+                        "status": "running", 
+                        "result": result
+                    }
+                    task.update(task_update)
+    
             return task_update
         
         except Exception as e:
             print("Error", e)   
             task_update = {"status": "failed", "error": str(e)}
+            refund_amount = (task.cost or 0) * (n_samples - len(result)) / n_samples
+            user = User.from_id(task.user, env=env)
+            user.refund_manna(refund_amount)
             raise e
         
         finally:
             run_time = datetime.utcnow() - start_time
             task_update["performance.runTime"] = run_time.total_seconds()
-            print(task_update)
             task.update(task_update)
             self.launch_time = 0
+            print("task_update", task_update)
 
     @modal.enter()
     def enter(self):
@@ -249,7 +289,6 @@ class ComfyUI:
             raise Exception("No workflows found!")
 
         for workflow in workflow_names:
-            api_yaml_path = f"/root/workspace/workflows/{workflow}/api.yaml"
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
@@ -257,14 +296,21 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                test_args = eden_utils.load_and_combine_args(test, api_yaml_path)
+                tool_ = tool.load_tool(f"/root/workspace/workflows/{workflow}")
+                test_args = json.loads(open(test, "r").read())
+                test_args = tool_.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                output = self._execute(workflow, test_args, env="STAGE")
+                output, intermediate_outputs = self._execute(workflow, test_args, env="STAGE")
                 if not output:
                     raise Exception(f"No output from {test_name}")
                 result = eden_utils.upload_media(output, env="STAGE")
+                if intermediate_outputs:
+                    result[0]["intermediateOutputs"] = {
+                        k: eden_utils.upload_media(v, env="STAGE", save_thumbnails=False)
+                        for k, v in intermediate_outputs.items()
+                    }
                 t2 = time.time()                
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -364,7 +410,30 @@ class ComfyUI:
 
         return text
 
-    def _transport_lora(self, lora_url: str):
+    def _transport_lora_flux(self, lora_url: str):
+        loras_folder = "/root/models/loras"
+
+        print("tl download lora", lora_url)
+        if not re.match(r'^https?://', lora_url):
+            raise ValueError(f"Lora URL Invalid: {lora_url}")
+        
+        lora_filename = lora_url.split("/")[-1]    
+        # name = lora_filename.split(".")[0]
+        lora_path = os.path.join(loras_folder, lora_filename)
+        print("tl destination folder", loras_folder)
+
+        if os.path.exists(lora_path):
+            print("Lora safetensors file already extracted. Skipping.")
+        else:
+            eden_utils.download_file(lora_url, lora_path)
+            if not os.path.exists(lora_path):
+                raise FileNotFoundError(f"The LoRA tar file {lora_path} does not exist.")
+        
+        print("destination path", lora_path)
+        print("lora filename", lora_filename)
+        return lora_filename
+
+    def _transport_lora_sdxl(self, lora_url: str):
         downloads_folder = "/root/downloads"
         loras_folder = "/root/models/loras"
         embeddings_folder = "/root/models/embeddings"
@@ -457,21 +526,33 @@ class ComfyUI:
 
     def _validate_comfyui_args(self, workflow, tool_):
         comfyui_map = {
-            param.name: param.comfyui 
+            param.name: param 
             for param in tool_.parameters if param.comfyui
         }
-        for _, comfyui in comfyui_map.items():
-            node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
+        for _, param in comfyui_map.items():
+            comfyui = param.comfyui
+            node_id, field, subfield, remap = str(comfyui.node_id), comfyui.field, comfyui.subfield, comfyui.remap
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
+            for r in remap or []:
+                subfields = [s.strip() for s in r.subfield.split(",")]
+                for subfield in subfields:
+                    if str(r.node_id) not in workflow or r.field not in workflow[str(r.node_id)] or subfield not in workflow[str(r.node_id)][r.field]:
+                        raise Exception(f"Node ID {r.node_id}, field {r.field}, subfield {subfield} not found in workflow")
+                values = {v.input: v.output for v in r.value}
+                if not param.choices:
+                    raise Exception(f"Remap parameter {param.name} has no original choices")
+                if not all(choice in param.choices for choice in values.keys()):
+                    raise Exception(f"Remap parameter {param.name} has invalid choices: {values}")
+                if not all(choice in values.keys() for choice in param.choices):
+                    raise Exception(f"Remap parameter {param.name} is missing original choices: {param.choices}")
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
 
-        print("args:")
-        print(args)
+        print("args:", args)
         
         # download and transport files
         for param in tool_.parameters: 
@@ -490,11 +571,14 @@ class ComfyUI:
                 lora_id = args.get(param.name)
                 print("LORA ID", lora_id)
                 if not lora_id:
+                    args[param.name] = None
+                    args["lora_strength"] = 0
+                    print("REMOVE LORA")
                     continue
                 
-                db_name = envs[env]["db_name"]
-                models = mongo_client[db_name]["models"]
+                models = get_collection("models", env=env)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
+                base_model = lora.get("base_model")
                 print("LORA", lora)
                 if not lora:
                     raise Exception(f"Lora {lora_id} not found")
@@ -508,9 +592,17 @@ class ComfyUI:
                 else:
                     print("LORA URL", lora_url)
 
-                lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora(lora_url)
+                print("base model", base_model)
+
+                if base_model == "sdxl":
+                    lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
+                elif base_model == "flux-dev":
+                    lora_filename = self._transport_lora_flux(lora_url)
+                    embeddings_filename, embedding_trigger, lora_mode = None, None, None
+
                 args[param.name] = lora_filename
-            
+                print("lora filename", lora_filename)
+        
         # inject args
         comfyui_map = {
             param.name: param.comfyui 
@@ -546,13 +638,22 @@ class ComfyUI:
                         shutil.copy(value, temp_subfolder)
                     value = temp_subfolder
 
+            print("comfyui mapping")
+            print(comfyui)
+
             node_id, field, subfield = str(comfyui.node_id), comfyui.field, comfyui.subfield
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 print("inject", node_id, field, subfield, " = ", value)
-                if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
-                    raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
                 workflow[node_id][field][subfield] = value  
+
+            for r in comfyui.remap or []:
+                subfields = [s.strip() for s in r.subfield.split(",")]
+                for subfield in subfields:
+                    values = {v.input: v.output for v in r.value}
+                    output_value = values.get(value)
+                    print("remap", str(r.node_id), r.field, subfield, " = ", output_value)
+                    workflow[str(r.node_id)][r.field][subfield] = output_value
 
         return workflow
 

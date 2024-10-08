@@ -6,35 +6,21 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from mongo import envs
+import auth
+from agent import Agent
+from thread import Thread, UserMessage, async_prompt, prompt
+from models import Task
+from tool import replicate_update_task
+from config import available_tools, api_tools
+from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
-db_name = envs[env]["db_name"]
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
-        
-import auth
-from mongo import mongo_client
-from agent import Agent
-from thread import Thread, UserMessage, prompt
-from models import Task
-from tool import get_tools, get_comfyui_tools, replicate_update_task
 
-api_tools = [
-    "txt2img", "flux", "SD3", "img2img", "controlnet", "layer_diffusion", "remix", "inpaint", "outpaint", "background_removal", "background_removal_video", "storydiffusion", "face_styler", "upscaler",
-    "animate_3D", "txt2vid",  "img2vid", "vid2vid_sdxl", "style_mixing", "video_upscaler", 
-    "stable_audio", "audiocraft", "reel",
-    "xhibit_vton", "xhibit_remix", "beeple_ai",
-    "moodmix", "lora_trainer",
-]
-
-agents = mongo_client[db_name]["agents"]
-threads = mongo_client[db_name]["threads"]
-
-tools = get_comfyui_tools("../workflows/workspaces") | get_comfyui_tools("../private_workflows/workspaces") | get_tools("tools")
-if env == "PROD":
-    tools = {k: v for k, v in tools.items() if k in api_tools}
+agents = get_collection("agents", env=env)
+threads = get_collection("threads", env=env)
 
 
 async def get_or_create_thread(
@@ -44,7 +30,7 @@ async def get_or_create_thread(
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = Thread.from_name(thread_name, user, env=env, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user_id=user["_id"], env=env, create_if_missing=True)
     return {"thread_id": str(thread.id)}
 
 
@@ -54,9 +40,9 @@ def task_handler(
 ):
     try:
         workflow = request.get("workflow")
-        if workflow not in tools:
+        if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
-        tool = tools[workflow]
+        tool = available_tools[workflow]
         task = Task(env=env, output_type=tool.output_type, **request)
         tool.submit(task)
         task.reload()
@@ -79,7 +65,7 @@ def cancel(
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
-    tool = tools[task.workflow]
+    tool = available_tools[task.workflow]
     try:
         tool.cancel(task)
         return {"status": task.status}
@@ -89,24 +75,15 @@ def cancel(
     
 
 async def replicate_update(request: Request):
-    print("receive replicate update request")
     body = await request.json()
     body.pop("logs")
-    print("body", body)
     output = body.get("output") 
     handler_id = body.get("id")
     status = body.get("status")
     error = body.get("error")
 
-    tasks = mongo_client[db_name]["tasks2"]
-    task = tasks.find_one({"handler_id": handler_id})
-    if not task:
-        raise Exception("Task not found")
-    
-    task = Task.from_id(document_id=task["_id"], env=env)
-    #task = Task(**task, db_name=db_name)
- 
-    tool = tools[task.workflow]
+    task = Task.from_handler_id(handler_id, env=env)
+    tool = available_tools[task.workflow]
     output_handler = tool.output_handler
 
     _ = replicate_update_task(
@@ -120,21 +97,13 @@ async def replicate_update(request: Request):
 
 class ChatRequest(BaseModel):
     message: UserMessage
-    thread_id: Optional[str] = None
-    agent_id: str = "6678c3495ecc0b3ed1f4fd8f"
+    thread_id: Optional[str]
+    agent_id: str
 
-async def chat(data, user):
+async def ws_chat(data, user):
     request = ChatRequest(**data)
-    print("======= chat request ---- ", request)
-    agent = agents.find_one({"_id": ObjectId(request.agent_id)})
-    if not agent:
-        raise Exception(f"Agent not found")
-    
-    #agent = Agent(**agent)
     agent = Agent.from_id(request.agent_id, env=env)
-
-    # todo: check if user owns this agent
-
+    
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
@@ -143,7 +112,7 @@ async def chat(data, user):
     else:
         thread = Thread(env=env)
 
-    async for response in prompt(thread, agent, request.message):
+    async for response in async_prompt(thread, agent, request.message):
         yield {
             "message": response.model_dump_json()
         }
@@ -176,15 +145,15 @@ def create_handler(task_handler):
 
 
 def tools_list():
-    return [tools[t].get_info(include_params=False) for t in api_tools if t in tools]
+    return [available_tools[t].get_interface(include_params=False) for t in api_tools if t in available_tools]
 
 def tools_summary():
-    return [tools[t].get_info() for t in api_tools if t in tools]
+    return [available_tools[t].get_interface() for t in api_tools if t in available_tools]
 
 
 web_app = FastAPI()
 
-web_app.websocket("/ws/chat")(create_handler(chat))
+web_app.websocket("/ws/chat")(create_handler(ws_chat))
 web_app.post("/thread/create")(get_or_create_thread)
 
 web_app.post("/create")(task_handler)
@@ -193,8 +162,8 @@ web_app.post("/update")(replicate_update)
 
 web_app.get("/tools")(tools_summary)
 web_app.get("/tools/list")(tools_list)
-for t in tools:
-    web_app.get(f"/tool/{t}")(lambda key=t: tools[key].get_info())
+for t in available_tools:
+    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_interface())
 
 
 app = modal.App(
@@ -204,9 +173,11 @@ app = modal.App(
         modal.Secret.from_name("clerk-credentials"),
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
+        modal.Secret.from_name("gcp-credentials"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
         modal.Secret.from_name("replicate"),
+        modal.Secret.from_name("runway"),
         modal.Secret.from_name("sentry"),
     ],   
 )
@@ -216,7 +187,7 @@ image = (
     .env({"ENV": env, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy",
+                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy", "google-cloud-aiplatform",
                  "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk")
     .copy_local_dir("../workflows", remote_path="/workflows")
     .copy_local_dir("../private_workflows", remote_path="/private_workflows")

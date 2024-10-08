@@ -1,0 +1,29 @@
+name: Chat
+description: Chat with an agent
+output_type: message
+cost_estimate: 1
+handler: chat
+private: true
+parameters:
+- name: content
+  label: Message
+  description: Text of the message to send to the agent
+  type: string
+  required: true
+- name: attachments
+  label: Attachments
+  description: Images and videos to add alongside message content
+  type: image[]
+- name: thread_id
+  label: Thread ID
+  description: ID of the thread to use
+  type: string
+- name: agent_id
+  label: Agent ID
+  description: ID of the agent to use
+  type: string
+  required: true
+# - name: preset
+#   label: Preset
+#   description: Presets to use for tool args
+#   type: dict

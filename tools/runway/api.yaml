@@ -1,0 +1,17 @@
+name: Animate an image
+description: Animate an image with Runway Gen3a Turbo
+cost_estimate: 100
+handler: runway
+output_type: video
+private: true
+parameters:
+- name: prompt_image
+  label: Prompt Image
+  description: The image to animate
+  type: image
+  required: true
+- name: prompt_text
+  label: Prompt Text
+  description: The prompt to guide the animation
+  type: string
+  required: true

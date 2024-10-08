@@ -63,23 +63,6 @@ def test_creation_task():
 
 
 
-def test_upscaler_task():
-    args = {
-        "image": "http://4.bp.blogspot.com/-gx1tuHXeaSA/Tc2ut4VVvJI/AAAAAAAAAVs/6ND6FL1avvY/s1600/ben-grasso.jpg"
-    }
-
-    task = Task(
-        workflow="upscaler",
-        output_type="image",
-        args=args,
-        user=user
-    )
-
-    upscaler = load_tool("tools/clarity_upscaler")
-    result = upscaler.submit_and_run(task)
-    
-    print(result)
-
 
 test_trainer_task()
 # test_creation_task()

@@ -9,30 +9,15 @@ import tempfile
 from pydub import AudioSegment
 from typing import Iterator
 from PIL import Image
-
-from mongo import envs
-
 from dotenv import load_dotenv
 load_dotenv()
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-# AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
-# AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
-# MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
-# MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
+AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
+AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
 
-# envs = {
-#     "STAGE": {
-#         "bucket_name": AWS_BUCKET_NAME_STAGE,
-#         "db_name": MONGO_DB_NAME_STAGE,
-#     },
-#     "PROD": {
-#         "bucket_name": AWS_BUCKET_NAME_PROD,
-#         "db_name": MONGO_DB_NAME_PROD,
-#     }
-# }
 
 s3 = boto3.client(
     's3', 
@@ -40,6 +25,11 @@ s3 = boto3.client(
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
     region_name=AWS_REGION_NAME
 )
+
+s3_buckets = {
+    "STAGE": AWS_BUCKET_NAME_STAGE,
+    "PROD": AWS_BUCKET_NAME_PROD,
+}
 
 file_extensions = {
     'audio/mpeg': '.mp3',
@@ -57,7 +47,7 @@ file_extensions = {
 
 def get_root_url(env="STAGE"):
     """Returns the root URL for the specified bucket."""
-    bucket_name = envs[env]["bucket_name"]
+    bucket_name = s3_buckets[env]
     return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
     
     
@@ -126,7 +116,7 @@ def upload_buffer(buffer, name=None, file_type=None, env="STAGE"):
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     
-    bucket_name = envs[env]["bucket_name"]
+    bucket_name = s3_buckets[env]
 
     s3.upload_fileobj(
         file_bytes, 

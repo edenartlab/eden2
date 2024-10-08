@@ -23,35 +23,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import s3
 
-def load_and_combine_args(json_path, api_yaml_path = None):
-    # Load test arguments from JSON
-    with open(json_path, 'r') as f:
-        test_args = json.load(f)
 
-    if api_yaml_path is None:
-        return test_args
-
-    # Load API configuration from YAML
-    with open(api_yaml_path, 'r') as f:
-        api_config = yaml.safe_load(f)
-
-    # Extract default values from API configuration
-    default_args = {}
-    for param in api_config['parameters']:
-        if 'default' in param:
-            default_args[param['name']] = param['default']
-
-    # Combine default args with test args, ensuring test_args take precedence
-    final_args = default_args.copy()
-    final_args.update(test_args)
-    
-    # Handle the special case for 'seed'
-    if 'seed' in final_args and isinstance(final_args['seed'], str):
-        final_args['seed'] = random.randint(0, 999)
-
-    return final_args
-
-def upload_media(output, env):
+def upload_media(output, env, save_thumbnails=True):
     result = []
     for o in output:
         file_url, sha = s3.upload_file(o, env=env)
@@ -59,7 +32,7 @@ def upload_media(output, env):
 
         media_attributes, thumbnail = get_media_attributes(o)
 
-        if thumbnail:
+        if save_thumbnails and thumbnail:
             for width in [384, 768, 1024, 2560]:
                 img = thumbnail.copy()
                 img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
@@ -108,6 +81,7 @@ def get_media_attributes(file_path):
             "aspectRatio": width / height,
             "duration": video.duration
         })
+        video.close()
 
     elif 'audio' in mime_type:
         media_attributes.update({
@@ -224,8 +198,15 @@ def PIL_to_bytes(image, ext="JPEG", quality=95):
     return img_byte_arr.getvalue()
 
 
-def file_to_base64_data(file_path, max_size, quality=95, truncate=False):
-    img = Image.open(file_path).convert('RGB')
+def image_to_base64(file_path, max_size, quality=95, truncate=False):
+    mime_type = magic.from_file(file_path, mime=True)    
+    if 'video' in mime_type:
+        # Extract the first frame image as thumbnail
+        video = VideoFileClip(file_path)
+        img = Image.fromarray(video.get_frame(0).astype('uint8'), 'RGB')
+        video.close()
+    else:
+        img = Image.open(file_path).convert('RGB')    
     if isinstance(max_size, (int, float)):
         w, h = img.size
         ratio = min(1.0, ((max_size ** 2) / (w * h)) ** 0.5)
@@ -234,7 +215,38 @@ def file_to_base64_data(file_path, max_size, quality=95, truncate=False):
     img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")
     if truncate:
-        data = data[:64]+"..."
+        data = data[:64]+"..."    
+    return data
+
+
+def deep_filter(current, changes):
+    if not isinstance(current, dict) or not isinstance(changes, dict):
+        return changes if changes != current else None    
+    result = {}
+    for key, value in changes.items():
+        if key in current:
+            if isinstance(current[key], dict) and isinstance(value, dict):
+                filtered = deep_filter(current[key], value)
+                if filtered:
+                    result[key] = filtered
+            elif current[key] != value:
+                result[key] = value
+        else:
+            result[key] = value
+    return result if result else None
+
+
+def deep_update(data, changes):
+    if not isinstance(data, dict) or not isinstance(changes, dict):
+        return changes
+    for key, value in changes.items():
+        if key in data:
+            if isinstance(data[key], dict) and isinstance(value, dict):
+                deep_update(data[key], value)
+            elif data[key] != value:
+                data[key] = value
+        else:
+            data[key] = value
     return data
 
 
@@ -532,4 +544,7 @@ def custom_print(string, color):
         "white": "\033[97m"
     }
     return f"{colors[color]}{string}\033[0m"
-    
+
+
+def concat_sentences(*sentences):
+    return ' '.join([s.strip().rstrip('.') + '.' for s in sentences if s and s.strip()])

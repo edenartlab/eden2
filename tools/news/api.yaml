@@ -1,0 +1,13 @@
+name: Get the news
+description: Get the news
+cost_estimate: 1
+handler: news
+output_type: string
+private: true
+parameters:
+- name: subject
+  label: Subject
+  description: Which topic do you want to know about?
+  type: string
+  choices: [business, entertainment, general, health, science, sports, technology]
+  required: true

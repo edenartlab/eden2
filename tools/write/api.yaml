@@ -1,0 +1,51 @@
+name: Edit story
+description: Make an edit to a Story. Given the current state of the story, the parameters here refer to any changes you want to make. If the user simply asks you for information about the story or its current state, you should not use this tool. If you are creating a new story, leave the id field blank.
+tip: Call this tool when you are asked to make an edit to a story
+cost_estimate: 1
+handler: mongo
+object_type: Story
+output_type: string
+parameters:
+- name: id
+  label: Document ID
+  description: The ObjectId of the story. If you are starting a new story, leave this blank.
+  type: string
+- name: logline
+  label: Logline
+  description: A concise and engaging synopsis of the story to hook the viewer.
+  type: string
+- name: characters
+  label: Characters
+  description: A set of characters that are central to the story, including their name, description, and appearance. The description should focus on backstory, personality, and relationships.
+  type: string[]
+- name: storyboard
+  label: Storyboard
+  #description: An ordered list of scenes to produce for the trailer. Each scene contains a visual description of the scene, as well as dialogue between characters or narration.
+  description: An ordered list of scenes to produce for the trailer. Each scene contains a visual description of the scene, as well as dialogue between characters or narration.
+  type: string[]
+- name: music
+  label: Music
+  description: A description of the backing music to play over the trailer.
+  type: string
+# - name: synopsis
+#   label: Synopsis
+#   description: A summary and visual style of the story
+#   type: dict
+#   keys:
+#     - name: summary
+#       type: string
+#       description: A concise description of the plot, focusing on the main action, setting, and characters involved. What is this story about, what happens?
+#     - name: visual_style
+#       type: string
+#       description: A short sentence consisting of phrases that describe the aesthetic or visual characteristics, including but not limited to medium, genre, lighting, illustration technique, color pallette, mood, and other visual elements. **Do not** include and people or descriptions reminding one of people, nor any plot elements, or sound design. Just focus on visual characteristics.
+# - name: screenplay
+#   label: Screenplay
+#   description: A list of scenes and characters in the story
+#   type: dict
+#   keys:
+#     - name: scenes
+#       type: string[]
+#       description: A list of scenes which tell the story from beginning to end, focusing on the main action, setting, and characters involved. Each scene should be a single sentence or short paragraph.
+#     - name: characters
+#       type: string[]
+#       description: A list of characters in the story, each with a name, description, and description of their appearance.

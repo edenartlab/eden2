@@ -25,6 +25,7 @@ dotenv.load_dotenv()
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 EDEN_USER = os.getenv("EDEN_USER")
 MODAL_DEV_API_URL = os.getenv("MODAL_DEV_API_URL") 
+print("MODAL_DEV_API_URL", MODAL_DEV_API_URL)
 
 envs_dir = pathlib.Path("../workflows/workspaces")
 envs = [f.name for f in envs_dir.iterdir() if f.is_dir()]
@@ -73,11 +74,11 @@ def test_api_tool(tool_name, args):
             "args": args,
             "user": EDEN_USER
         }
-        task = {
-            "workflow": tool_name,
-            "args": {"prompt": "a blue cat", "width": 50000},
-            "user": EDEN_USER
-        }
+        # task = {
+        #     "workflow": tool_name,
+        #     "args": {"prompt": "a blue cat", "width": 50000},
+        #     "user": EDEN_USER
+        # }
         # print(task)
         response = requests.post(MODAL_DEV_API_URL, json=task, headers=headers)
         # print(response)

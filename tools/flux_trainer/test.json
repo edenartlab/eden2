@@ -1,0 +1,14 @@
+{
+    "lora_training_urls": [
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/99b916ad4066e97ac30a8917944bf6f7bfaf1f14351a01474dc65ca5a4415bac.jpg",
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/e53c1252339aedbee302969f8aaa07c5665cc418e8bed43bbe22b11aaf6422ee.jpg",
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/798f90eb43b841daf7a14070c23f8abb4aea3f4298b3aa1db0bd9648b95b3d42.jpg",
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/f6d3d6274b9260fc579c8f3c9f7c86c342b565786f184775cd84543b5ba84776.jpg",
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/3adaf8c70806452c70baffdf807d813f3291bf178cd024ab0742c52c2a65a095.jpg"
+    ],
+    "name": "Banny",
+    "max_train_steps": 4000,
+    "learning_rate": 0.0002,
+    "lora_rank": 12,
+    "caption_prefix": "cartoon banana"
+}

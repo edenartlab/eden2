@@ -4,18 +4,18 @@ from bson import ObjectId
 from mongo import mongo_client
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import WebSocket, HTTPException, Depends, status
-from s3 import envs
+from mongo import get_collection
 
 CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
+ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 env = os.getenv("ENV")
-db_name = envs[env]["db_name"]
-api_keys = mongo_client[db_name]["apikeys"]
-users = mongo_client[db_name]["users"]
+api_keys = get_collection("apikeys", env=env)
+users = get_collection("users", env=env)
 
 
 def verify_api_key(api_key: str) -> dict:
@@ -81,3 +81,14 @@ def authenticate_admin(
                             detail="No authentication credentials provided")
     if token.credentials != ADMIN_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+
+def authenticate_abraham_admin(
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
+                            detail="No authentication credentials provided")
+    if token.credentials != ABRAHAM_ADMIN_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
