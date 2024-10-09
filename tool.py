@@ -1,7 +1,6 @@
 import re
 import os
 import yaml
-import time
 import json
 import random
 import asyncio
@@ -149,6 +148,8 @@ class Tool(BaseModel):
             "costEstimate": self.cost_estimate,
             "private": self.private
         } 
+        if hasattr(self, "base_model"):
+            data["baseModel"] = self.base_model
         if include_params:
             data["tip"] = self.tip
             data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
@@ -388,6 +389,7 @@ class ComfyUIIntermediateOutput(BaseModel):
     node_id: int
 
 class ComfyUITool(Tool):
+    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev"])
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")

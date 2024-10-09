@@ -11,8 +11,8 @@ from datetime import datetime
 from tool import get_tools
 
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
-parser.add_argument("--tools", type=str, help="Which tools to test (comma-separated)", default=None)
-parser.add_argument("--workspaces", type=str, help="Which workspaces to test (comma-separated)", default=None)
+parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (space-separated)", default=None)
+parser.add_argument("--workspaces", type=str, nargs='+', help="Which workspaces to test (space-separated)", default=None)
 parser.add_argument("--save", action='store_true', help="Save results to a folder")
 args = parser.parse_args()
 
@@ -28,15 +28,13 @@ if args.tools:
             for k, v in get_tools(f"{workspaces_dir}/{env}/workflows").items()
         })
     tools.update(get_tools("tools"))
-    tools_ = args.tools.split(",")
-    if not all(tool in tools for tool in tools_):
+    if not all(tool in tools for tool in args.tools):
         raise ValueError(f"One or more of the requested tools not found") 
-    tools = {k: v for k, v in tools.items() if k in tools_}
+    tools = {k: v for k, v in tools.items() if k in args.tools}
 elif args.workspaces:
-    workspaces = args.workspaces.split(",")
     for workspaces_dir in [pathlib.Path("../workflows/workspaces"), pathlib.Path("../private_workflows/workspaces")]:
         tools.update({
-            k: v for workspace in workspaces 
+            k: v for workspace in args.workspaces 
             for k, v in get_tools(f"{workspaces_dir}/{workspace}/workflows").items()
         })
 else:

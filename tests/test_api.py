@@ -13,7 +13,7 @@ from datetime import datetime
 from tool import get_tools
 
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
-parser.add_argument("--tools", type=str, help="Which tools to test (comma-separated)", default=None)
+parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (space-separated)", default=None)
 parser.add_argument("--production", action='store_true', help="Test production (otherwise staging)")
 parser.add_argument("--save", action='store_true', help="Save results to a folder")
 args = parser.parse_args()
@@ -23,7 +23,7 @@ os.environ["ENV"] = "PROD" if args.production else "STAGE"
 
 dotenv.load_dotenv()
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
-EDEN_USER = os.getenv("EDEN_USER")
+EDEN_TEST_USER = os.getenv("EDEN_TEST_USER")
 MODAL_DEV_API_URL = os.getenv("MODAL_DEV_API_URL") 
 print("MODAL_DEV_API_URL", MODAL_DEV_API_URL)
 
@@ -42,10 +42,9 @@ tools.update({
 tools.update(get_tools("tools"))
 
 if args.tools:
-    tools_ = args.tools.split(",")
-    if not all(tool in tools for tool in tools_):
+    if not all(tool in tools for tool in args.tools):
         raise ValueError(f"One or more of the requested tools not found") 
-    tools = {k: v for k, v in tools.items() if k in tools_}
+    tools = {k: v for k, v in tools.items() if k in args.tools}
 
 def save_results(results_dict):
     results_dir = f"tests_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
@@ -72,12 +71,12 @@ def test_api_tool(tool_name, args):
         task = {
             "workflow": tool_name,
             "args": args,
-            "user": EDEN_USER
+            "user": EDEN_TEST_USER
         }
         # task = {
         #     "workflow": tool_name,
         #     "args": {"prompt": "a blue cat", "width": 50000},
-        #     "user": EDEN_USER
+        #     "user": EDEN_TEST_USER
         # }
         # print(task)
         response = requests.post(MODAL_DEV_API_URL, json=task, headers=headers)

@@ -87,11 +87,14 @@ class MongoBaseModel(BaseModel):
 
         # upsert query overrides ID if it exists
         if upsert_query:
-            document_id = self.collection.find_one(upsert_query, {"_id": 1}) or document_id
+            document_id_ = self.collection.find_one(upsert_query, {"_id": 1})
+            if document_id_:
+                document_id = document_id_["_id"]
+            data["_id"] = ObjectId(document_id)
 
         if document_id:
             data["updatedAt"] = datetime.utcnow()
-            return self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
+            self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             return self.collection.insert_one(data)
 

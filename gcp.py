@@ -1,36 +1,40 @@
 from dotenv import load_dotenv
 load_dotenv()
-
 import os
 import time
-from google.cloud import aiplatform
 from google.oauth2 import service_account
+from google.cloud import aiplatform
 
-# authenticate
-credentials = service_account.Credentials.from_service_account_info({
-    "type": os.environ["GCP_TYPE"],
-    "project_id": os.environ["GCP_PROJECT_ID"],
-    "private_key_id": os.environ["GCP_PRIVATE_KEY_ID"],
-    "private_key": os.environ["GCP_PRIVATE_KEY"].replace("\\n", "\n"),
-    "client_email": os.environ["GCP_CLIENT_EMAIL"],
-    "client_id": os.environ["GCP_CLIENT_ID"],
-    "auth_uri": os.environ["GCP_AUTH_URI"],
-    "token_uri": os.environ["GCP_TOKEN_URI"],
-    "auth_provider_x509_cert_url": os.environ["GCP_AUTH_PROVIDER_X509_CERT_URL"],
-    "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"]
-})
 
-# initialize client
-project_id = os.environ["GCP_PROJECT_ID"]
-location = os.environ["GCP_LOCATION"]
-staging_bucket = os.environ["GCP_STAGING_BUCKET"]
-job_prefix = os.environ["GCP_JOB_PREFIX"]
-aiplatform.init(
-    project=project_id, 
-    location=location, 
-    credentials=credentials, 
-    staging_bucket=staging_bucket
-)
+def get_ai_platform_client():
+    # authenticate
+    credentials = service_account.Credentials.from_service_account_info({
+        "type": os.environ["GCP_TYPE"],
+        "project_id": os.environ["GCP_PROJECT_ID"],
+        "private_key_id": os.environ["GCP_PRIVATE_KEY_ID"],
+        "private_key": os.environ["GCP_PRIVATE_KEY"].replace("\\n", "\n"),
+        "client_email": os.environ["GCP_CLIENT_EMAIL"],
+        "client_id": os.environ["GCP_CLIENT_ID"],
+        "auth_uri": os.environ["GCP_AUTH_URI"],
+        "token_uri": os.environ["GCP_TOKEN_URI"],
+        "auth_provider_x509_cert_url": os.environ["GCP_AUTH_PROVIDER_X509_CERT_URL"],
+        "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"]
+    })
+
+    # initialize client
+    project_id = os.environ["GCP_PROJECT_ID"]
+    location = os.environ["GCP_LOCATION"]
+    staging_bucket = os.environ["GCP_STAGING_BUCKET"]
+    
+    aiplatform.init(
+        project=project_id, 
+        location=location, 
+        credentials=credentials, 
+        staging_bucket=staging_bucket
+    )
+
+    return aiplatform
+
 
 GPUs = {
     "A100": aiplatform.gapic.AcceleratorType.NVIDIA_TESLA_A100,
@@ -46,6 +50,7 @@ def submit_job(
     task_id, 
     env
 ):
+    aiplatform = get_ai_platform_client()
     job_name = f"flux-{task_id}"
     job = aiplatform.CustomJob(
         display_name=job_name,
@@ -106,7 +111,9 @@ async def poll_job_status(handler_id):
 
 async def cancel_job(handler_id):
     try:
+        job_prefix = os.environ["GCP_JOB_PREFIX"]
         job_id = f"{job_prefix}{handler_id}"
+        aiplatform = get_ai_platform_client()
         job = await aiplatform.CustomJob.get_async(job_id)
         await job.cancel_async()
         print(f"Job {job_id} cancellation requested.")
