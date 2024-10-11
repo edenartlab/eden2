@@ -93,6 +93,34 @@ class EdenClient:
         async for response in self.async_run_ws("/ws/chat", payload):
             yield response
 
+    # should come up with a better way to do this
+    async def async_discord_chat(self, message, thread_id, channel_id):
+        payload = {
+            "message": message,
+            "thread_id": thread_id,
+            "channel_id": channel_id
+        }
+        async for response in self.async_run_ws("/ws/chat/discord", payload):
+            yield response
+
+    def get_discord_channels(self):
+        uri = f"https://{self.tools_api_url}/chat/discord/channels"
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
+        print(headers)
+        print(":go")
+        with httpx.Client(timeout=60) as client:
+            response = client.post(uri, headers=headers, json={})
+            response.raise_for_status()
+            return response.json()
+
+    async def async_run(self, endpoint, payload):
+        uri = f"https://{self.tools_api_url}{endpoint}"
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(uri, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
     async def async_run_ws(self, endpoint, payload):
         uri = f"wss://{self.tools_api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
