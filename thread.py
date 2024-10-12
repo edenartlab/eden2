@@ -448,7 +448,13 @@ async def prompt_llm_and_validate(messages, system_message, provider, tools):
             # check for hallucinated urls
             url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-            valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
+            valid_urls += [
+                            url 
+                            for m in messages if type(m) == ToolResultMessage 
+                            for result in m.tool_results if result and result.result 
+                            for entry in result.result if isinstance(entry, dict) and 'filename' in entry
+                            for url in re.findall(url_pattern, entry['filename'])
+                        ]
 
             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
             invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
