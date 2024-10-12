@@ -149,11 +149,13 @@ class ToolCall(BaseModel):
 class ToolResult(BaseModel):
     id: str
     name: str
-    result: Optional[str] = None
+    result: Optional[Any] = None
     error: Optional[str] = None
 
     def _get_content(self):
-        return f"Error: {self.error}" if self.error else self.result
+        # res = f"Error: {self.error}" if self.error else json.dumps(self.result)
+        res = f"Error: {self.error}" if self.error else self.result
+        return res
 
     def openai_schema(self):
         return {
@@ -242,8 +244,6 @@ class Thread(MongoBaseModel):
             data["name"] = str(uuid.uuid4())
         if isinstance(data["user"], str):
             data["user"] = ObjectId(data["user"])
-        print("thread init")
-        print(data)
         super().__init__(collection_name="threads", env=env, **data)
         message_types = {
             "user": UserMessage,
@@ -287,17 +287,10 @@ class Thread(MongoBaseModel):
             return [item for m in self.messages for item in m.anthropic_schema()]
 
     def add_messages(self, *new_messages, save=False, reload_messages=False):
-        print("add_messages")
-        print(self.collection.name)
         if reload_messages and not self.collection is None:
             self.reload_messages()
-        print("before extend")
         self.messages.extend(new_messages)
-        print("adding messages")
-        print(self.messages)
-        print("save", save)
         if save:
-            print("saving")
             self.save()
 
     def reload_messages(self):
@@ -361,8 +354,8 @@ async def process_tool_calls(agent, tool_calls, settings, tools):
     for tool_call in tool_calls:
         add_breadcrumb(category="tool_call", data=tool_call.model_dump())
         
-        try:
-        # if 1:
+        # try:
+        if 1:
             tool_call.validate(tools)
             tool = tools[tool_call.name]
             input = {k: v for k, v in tool_call.input.items() if v is not None}
@@ -371,7 +364,6 @@ async def process_tool_calls(agent, tool_calls, settings, tools):
 
             if tool.handler == "mongo":
                 result = await tool.async_run(updated_args)
-                print("the mongo result", result)
             else:
                 task = Task(
                     workflow=tool.key,
@@ -383,28 +375,30 @@ async def process_tool_calls(agent, tool_calls, settings, tools):
                 add_breadcrumb(category="tool_call_task", data=task.model_dump())
                 result = await tool.async_submit_and_run(task)
 
-            add_breadcrumb(category="tool_result", data={"result": result})
+            add_breadcrumb(category="tool_result_before", data={"result": result})
+            result = tool.get_user_result(result)
+            add_breadcrumb(category="tool_result_after", data={"result": result})
             result = json.dumps(result)
             result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
 
-        except ToolNotFoundException as err:
-            error = f"Tool {tool_call.name} not found"
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
-            capture_exception(err)
+        # except ToolNotFoundException as err:
+        #     error = f"Tool {tool_call.name} not found"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        #     capture_exception(err)
 
-        except ValidationError as err:
-            errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-            errors = ", ".join(errors)
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
-            capture_exception(err)
+        # except ValidationError as err:
+        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
+        #     errors = ", ".join(errors)
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
+        #     capture_exception(err)
 
-        except Exception as err:
-            error = f"An internal error occurred: {err}"
-            result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
-            capture_exception(err)
+        # except Exception as err:
+        #     error = f"An internal error occurred: {err}"
+        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
+        #     capture_exception(err)
 
-        finally:
-            tool_results.append(result)
+        # finally:
+        tool_results.append(result)
 
     return tool_results
 
@@ -432,8 +426,8 @@ async def prompt_llm_and_validate(messages, system_message, provider, tools):
         num_attempts += 1 
         # pretty_print_messages(messages, schema=provider)
 
-        try:
-        # if 1:
+        # try:
+        if 1:
             if provider == "anthropic":
                 content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
             elif provider == "openai":
@@ -448,26 +442,18 @@ async def prompt_llm_and_validate(messages, system_message, provider, tools):
             # check for hallucinated urls
             url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-            valid_urls += [
-                            url 
-                            for m in messages if type(m) == ToolResultMessage 
-                            for result in m.tool_results if result and result.result 
-                            for entry in result.result if isinstance(entry, dict) and 'filename' in entry
-                            for url in re.findall(url_pattern, entry['filename'])
-                        ]
-
+            valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
             invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
             if invalid_urls:
                 add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
                 raise UrlNotFoundException(*invalid_urls)
-                
             return content, tool_calls, stop
 
         # if there are still hallucinations after max_attempts, just let the LLM deal with it
-        except (ToolNotFoundException, UrlNotFoundException) as e:
-            if num_attempts == max_attempts:
-                return content, tool_calls, stop
+        # except (ToolNotFoundException, UrlNotFoundException) as e:
+        #     if num_attempts == max_attempts:
+        #         return content, tool_calls, stop
 
 
 
@@ -509,22 +495,22 @@ async def async_prompt(
     while True:
         messages = thread_messages + new_messages
 
-        try:   
-        # if 1:
+        # try:   
+        if 1:
             content, tool_calls, stop = await prompt_llm_and_validate(
                 messages, system_message, provider, tools
             )
             data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
             add_breadcrumb(category="llm_response", data=data)
 
-        except Exception as err:
-            capture_exception(err)
-            assistant_message = AssistantMessage(
-                content="I'm sorry but something went wrong internally. Please try again later.",
-                tool_calls=None
-            )
-            yield assistant_message
-            return
+        # except Exception as err:
+        #     capture_exception(err)
+        #     assistant_message = AssistantMessage(
+        #         content="I'm sorry but something went wrong internally. Please try again later.",
+        #         tool_calls=None
+        #     )
+        #     yield assistant_message
+        #     return
         
         assistant_message = AssistantMessage(
             content=content,

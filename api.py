@@ -1,5 +1,6 @@
 import os
 import modal
+import json
 from bson import ObjectId
 from typing import Optional
 from pydantic import BaseModel
@@ -21,6 +22,7 @@ app_name = "tools" if env == "PROD" else "tools-dev"
 
 agents = get_collection("agents", env=env)
 threads = get_collection("threads", env=env)
+discord_agents = get_collection("discord_agents", env=env)
 
 
 async def get_or_create_thread(
@@ -118,29 +120,79 @@ async def ws_chat(data, user):
         }
 
 
+class DiscordChatRequest(BaseModel):
+    message: UserMessage
+    thread_id: Optional[str]
+    channel_id: str
+
+async def discord_ws_chat(data, user):
+    print("discord_ws_chat")
+    request = DiscordChatRequest(**data)
+    print("discord_ws_chat 2")
+    print(request)
+    discord_agent = discord_agents.find_one({"channel_id": request.channel_id})
+    if not discord_agent:
+        raise Exception("Discord agent not found for this channel")
+    agent_id = str(discord_agent["agent_id"])
+    chat_request_data = {
+        "message": request.message,
+        "thread_id": request.thread_id,
+        "agent_id": agent_id
+    }
+    async for response in ws_chat(chat_request_data, user):
+        yield response
+
+def get_discord_channels(
+    request: dict, 
+    #_: dict = Depends(auth.authenticate_admin)
+):
+    channel_ids = discord_agents.distinct('channel_id')
+    return channel_ids
+    
+
+def task_handler(
+    request: dict, 
+    _: dict = Depends(auth.authenticate_admin)
+):
+    try:
+        workflow = request.get("workflow")
+        if workflow not in available_tools:
+            raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
+        tool = available_tools[workflow]
+        task = Task(env=env, output_type=tool.output_type, **request)
+        tool.submit(task)
+        task.reload()
+        return task
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def create_handler(task_handler):
     async def websocket_handler(
         websocket: WebSocket, 
         user: dict = Depends(auth.authenticate_ws)
     ):
         await websocket.accept()
-        try:
+        # try:
+        if 1:
             async for data in websocket.iter_json():
                 try:
                     async for response in task_handler(data, user):
+                        print(":: response", response)
                         await websocket.send_json(response)
                     break
                 except Exception as e:
                     await websocket.send_json({"error": str(e)})
                     break
-        except WebSocketDisconnect:
-            print("WebSocket disconnected by client")
-        except Exception as e:
-            print(f"Unexpected error: {str(e)}")
-        finally:
-            if websocket.application_state == WebSocketState.CONNECTED:
-                print("Closing WebSocket...")
-                await websocket.close()
+        # except WebSocketDisconnect:
+        #     print("WebSocket disconnected by client")
+        # except Exception as e:
+        #     print(f"Unexpected error: {str(e)}")
+        # finally:
+        #     if websocket.application_state == WebSocketState.CONNECTED:
+        #         print("Closing WebSocket...")
+        #         await websocket.close()
     return websocket_handler
 
 
@@ -154,8 +206,11 @@ def tools_summary():
 web_app = FastAPI()
 
 web_app.websocket("/ws/chat")(create_handler(ws_chat))
-web_app.post("/thread/create")(get_or_create_thread)
+web_app.websocket("/ws/chat/discord")(create_handler(discord_ws_chat))
+web_app.websocket("/ws/chat/discord")(create_handler(discord_ws_chat))
+web_app.post("/chat/discord/channels")(get_discord_channels)
 
+web_app.post("/thread/create")(get_or_create_thread)
 web_app.post("/create")(task_handler)
 web_app.post("/cancel")(cancel)
 web_app.post("/update")(replicate_update)

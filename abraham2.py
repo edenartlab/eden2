@@ -3,18 +3,18 @@ import modal
 import instructor
 from anthropic import Anthropic
 from openai import OpenAI
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from pydantic import BaseModel, Field, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, Request
 
 import auth
 from tool import load_tool
 from mongo import get_collection
-from models import Story
+from models import Story2 as Story
 
 txt2img = load_tool("../workflows/workspaces/img_tools/workflows/txt2img")
 img2vid = load_tool("../workflows/workspaces/video/workflows/animate_3D")
-flux = load_tool("../workflows/workspaces/flux/workflows/flux")
+flux = load_tool("../workflows/workspaces/flux/workflows/flux-dev")
 
 default_model = "gpt-4-turbo"
 
@@ -66,11 +66,19 @@ class StoryIdea(BaseModel):
         ...,
         description="A precise order to an illustrator to create a landscape-orientation poster for the film to be used in a movie theater lobby. Must be 1-3 sentences maximum. The illustrators are making a quintessential depiction of the film, succinctly capturing the logline in a single scene. Your instruction to the illustrator must focus *only* on the *content* of the scene. Do not focus on plot or story, just a single quintessential scene. Do not reference the poster itself, just focus on the image."
     )
+    stills: Optional[List[str]] = Field(
+        ...,
+        description="A list of 3-5 posters, still images that best describe key scenes in the film. These should be structured just like the poster."
+    )
     model_config = ConfigDict(json_schema_extra={"examples": story_examples})
 
 
 
-
+class StoryboardStills(BaseModel):
+    stills: Optional[List[str]] = Field(
+        ...,
+        description="A list of 3-5 posters, still images that best describe key scenes in the film. These should be structured just like the poster."
+    )
 
 
 def llm(
@@ -136,11 +144,26 @@ def react(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def bless(
+    request: dict, 
+    _: dict = Depends(auth.authenticate_abraham_admin)
+):
+    try:
+        story_id = request.get("story_id")
+        story = Story.from_id(story_id, env="ABRAHAM")
+        blessing = request.get("blessing")
+        story.bless(blessing, request.get("user"))
+        return story.blessings
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 
 
 def generate_story():
     genre = random.choice(genres)
-    prompt = f"Come up with an idea for a film whose genre is {genre}. The idea is presented with the following three elements: the logline, the visual aesthetic, and the poster."
+    prompt = f"Come up with an idea for a film whose genre is {genre}. The idea is presented with the following three elements: the logline, the visual aesthetic, and the poster. Leave the stills blank."
     story = llm(
         system_message="You are a critically acclaimed filmmaker who conceives ideas for films.",
         prompt=prompt,
@@ -154,15 +177,87 @@ def generate_story():
         "height": 768
     })
     print("result", result)
+    if "url" in result[0]:
+        poster_image = result[0]["url"]
+    else:
+        filename = result[0]["filename"]
+        poster_image = f"https://edenartlab-stage-data.s3.amazonaws.com/{filename}"
     story_document = Story(env="ABRAHAM")
     story_document.update_current({
         "genre": genre,
         "logline": story.logline, 
         "visual_aesthetic": story.visual_aesthetic, 
         "poster": story.poster,
-        "poster_image": result[0]["url"],
+        "poster_image": poster_image,
+        "stills": None
+    })
+    if random.random() < 0.5:
+        generate_stills(story_document.id)
+
+
+
+def generate_stills(story_id: str):
+    story_document = Story.from_id(story_id, env="ABRAHAM")
+    prompt = f"""You are given the following story: {story_document.current["logline"]}. 
+    
+    The visual aesthetic is {story_document.current["visual_aesthetic"]}. 
+
+    Here is the image for the poster: {story_document.current["poster_image"]}.
+    
+    Come up with 3-5 still images that best describe key scenes in the film. Each still image should be a precise order to an illustrator to create stills which will be used to guide the storyboard development. Each should be structured just like the poster image.
+    
+    Do not change any of the other elements of the story. Leave Just come up with 3-5 still images that best describe key scenes in the film.
+    """
+
+    print("prompt", prompt)
+
+    storyboard_stills = llm(
+        system_message="You are a critically acclaimed filmmaker who generates storyboards for films.",
+        prompt=prompt,
+        response_model=StoryboardStills,
+        model=default_model
+    )
+    print("storyboard_stills", storyboard_stills)
+    stills = []
+    for still in storyboard_stills.stills:
+        # stills.append(still)
+        result = flux.run({
+            "prompt": f"{still}. {story_document.current['visual_aesthetic']}",
+            "width": 1344, 
+            "height": 768
+        })
+        print("result", result)
+        if "url" in result[0]:
+            still = result[0]["url"]
+        else:
+            filename = result[0]["filename"]
+            still = f"https://edenartlab-stage-data.s3.amazonaws.com/{filename}"
+        stills.append(still)
+    story_document.update_current({
+        "stills": stills
     })
 
+
+"""
+send back users for blessings
+how to store user auth info
+deployment
+""" 
+
+
+def get_story(story_id: str):
+    story = Story.from_id(story_id, env="ABRAHAM").model_dump()
+    print("story", story)
+    return {
+        "id": str(story["id"]),
+        "logline": story["current"]["logline"],
+        "poster_image": story["current"]["poster_image"],
+        "poster_thumbnail": story["current"]["poster_image"].replace(".png", "_768.webp"),
+        "praises": story["praises"],
+        "burns": story["burns"],
+        "blessings": story["blessings"],
+        "stills": story["current"].get("stills", None)
+    } 
 
 def get_stories():
     stories = [
@@ -173,7 +268,8 @@ def get_stories():
             "poster_thumbnail": story["current"]["poster_image"].replace(".png", "_768.webp"),
             "praises": story["praises"],
             "burns": story["burns"],
-            "blessings": story["blessings"]
+            "blessings": story["blessings"],
+            "stills": story["current"].get("stills", None)
         } 
         for story in get_collection(
             "stories", env="ABRAHAM").find().sort("createdAt", -1).limit(10)
@@ -189,6 +285,7 @@ app = modal.App(
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
+        modal.Secret.from_name("gcp-credentials"),
         # modal.Secret.from_name("replicate"),
         # modal.Secret.from_name("sentry"),
     ],   
@@ -199,15 +296,17 @@ image = (
     .env({"ENV": "STAGE"})
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
     .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", 
-                 "anthropic", "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk",
-                 "moviepy")
-    .copy_local_dir("../workflows", remote_path="/workflows")
+                 "anthropic", "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk", "google-cloud-aiplatform", "moviepy", "pymongo")
+    # .copy_local_dir("../workflows", remote_path="/workflows")
+    .copy_mount(modal.Mount.from_local_dir("../workflows"), remote_path="/workflows")
 )
 
 web_app = FastAPI()
 web_app.get("/get_stories")(get_stories)
+web_app.get("/get_story/{story_id}")(get_story)
 # web_app.post("/praise")(handle_praise)
 web_app.post("/react")(react)
+web_app.post("/bless")(bless)
 
 
 
@@ -231,6 +330,16 @@ def generate_story_task():
     generate_story()
 
 
+@app.local_entrypoint()
+def run_locally():
+    generate_story_task.remote()
+
+# if __name__ == "__main__":
+#     modal.runner.deploy_stub(generate_story_task)
+#     run_locally()
+
+
+
 """
 curl -X POST https://edenartlab--abraham-fastapi-app-dev.modal.run/react \
      -H "Content-Type: application/json" \
@@ -246,6 +355,34 @@ curl -X POST https://edenartlab--abraham-fastapi-app.modal.run/react \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ABE_CODE" \
      -d '{"story_id": "66e71379db70d891682e7800", "action": "unpraise", "user": "test_user_1"}'
+
+
+"""
+
+
+
+"""
+
+
+curl -X POST https://edenartlab--abraham-fastapi-app.modal.run/bless \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer ABE_CODE" \
+     -d '{"story_id": "66e71379db70d891682e7800", "blessing": "That was pretty good", "user": "test_user_1"}'
+
+
+     
+
+curl -X POST https://edenartlab--abraham-fastapi-app-dev.modal.run/bless \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer bg971fn8X63nuVDSIAmEN19btcBrHYksxYewy6WKP4M=" \
+     -d '{"story_id": "67075e667825b5fe6a1f8627", "blessing": "That was pretty good", "user": "test_user_1"}'
+
+     
+
+curl -X POST https://edenartlab--abraham-fastapi-app-dev.modal.run/bless \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer mAFxJCN7Q_aV6GBm_KGa4A2ufBYqoD7I832FxH_jvw1B" \
+     -d '{"story_id": "67075e667825b5fe6a1f8627", "blessing": "That was pretty good", "user": "test_user_1"}'
 
 
 """

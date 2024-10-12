@@ -21,6 +21,7 @@ generic_instructions = """Follow these additional guidelines:
 
 
 class Agent(MongoBaseModel):
+    key: str
     name: str
     owner: ObjectId
     description: str
@@ -38,7 +39,6 @@ class Agent(MongoBaseModel):
 
     def get_system_message(self):
         system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
-        print("system_message", system_message)
         return system_message
 
 
@@ -62,10 +62,10 @@ def update_agent_cli():
     print(args)
 
     try:
-        eden_user = os.getenv("EDEN_TEST_USER")
+        eden_user = os.getenv("EDEN_TEST_USER_PROD") if args.env == "PROD" else os.getenv("EDEN_TEST_USER_STAGE")
         agent = load_agent(f"agents/{args.agent}.yaml")
-        agent = Agent(env=args.env, owner=ObjectId(eden_user), **agent)
-        agent.save(upsert_query={"name": agent.name, "owner": ObjectId(eden_user)})
+        agent = Agent(env=args.env, key=args.agent, owner=ObjectId(eden_user), **agent)
+        agent.save(upsert_query={"key": agent.key, "owner": ObjectId(eden_user)})
     except ValueError as e:
         print(f"Error: {str(e)}")
 

@@ -230,8 +230,11 @@ class Tool(BaseModel):
         return args
 
     def get_user_result(self, result):
-        if isinstance(result, str) or isinstance(result, list):
-            return result
+        print("666", "get user result")
+        print(type(result))
+        print(result)
+        # if isinstance(result, str) or isinstance(result, list):
+            # return result
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
@@ -401,7 +404,8 @@ class ComfyUITool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        return await cls().run.remote.aio(self.key, args)
+        result = await cls().run.remote.aio(self.key, args)
+        return self.get_user_result(result)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):

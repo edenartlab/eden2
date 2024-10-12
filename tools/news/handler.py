@@ -4,17 +4,8 @@ import os
 import json
 import requests
 import instructor
-from io import BytesIO
-from pydub import AudioSegment
-from pydub.utils import ratio_to_db
-from pydantic import BaseModel, Field
 from openai import OpenAI
-from typing import List, Optional, Literal
 
-import s3
-import voice
-import tool
-import eden_utils
 
 NEWSAPI_API_KEY = os.environ['NEWSAPI_API_KEY']
 print(NEWSAPI_API_KEY)
@@ -30,8 +21,8 @@ async def news(args: dict, user: str = None):
     news = response.json()
     articles = [a for a in news['articles'] if a['title'] != "[Removed]"]
 
-    print(json.dumps(articles, indent=2))
     headline = articles[0]
+    print(json.dumps(articles, indent=2))
     
     print(json.dumps(headline, indent=2))
 

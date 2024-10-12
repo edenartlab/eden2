@@ -25,7 +25,8 @@ class EdenClient:
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"workflow": workflow, "args": args}
         
-        try:
+        # try:
+        if 1:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
@@ -38,10 +39,10 @@ class EdenClient:
                         return event["result"]
                     if event["status"] == "failed":
                         raise Exception("Error occurred while processing task")
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
-        except Exception as e:
-            raise Exception(f"An error occurred: {str(e)}")
+        # except httpx.HTTPStatusError as e:
+        #     raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
+        # except Exception as e:
+        #     raise Exception(f"An error occurred: {str(e)}")
 
     async def _subscribe(self, task_id):
         url = f"https://{self.api_url}/v2/tasks/events?taskId={task_id}"
@@ -67,17 +68,18 @@ class EdenClient:
         uri = f"https://{self.tools_api_url}/thread/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"name": thread_name}
-        try:
+        # try:
+        if 1:
             with httpx.Client(timeout=60) as client:
                 response = client.post(uri, headers=headers, json=payload)
                 response.raise_for_status()
                 response = response.json()
                 thread_id = response.get("thread_id")
                 return thread_id
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
-        except Exception as e:
-            raise Exception(f"An error occurred: {str(e)}")
+        # except httpx.HTTPStatusError as e:
+        #     raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
+        # except Exception as e:
+        #     raise Exception(f"An error occurred: {str(e)}")
         
     def chat(self, message, thread_id, agent_id):
         async def consume_chat():
@@ -93,19 +95,52 @@ class EdenClient:
         async for response in self.async_run_ws("/ws/chat", payload):
             yield response
 
+    # should come up with a better way to do this
+    async def async_discord_chat(self, message, thread_id, channel_id):
+        payload = {
+            "message": message,
+            "thread_id": thread_id,
+            "channel_id": channel_id
+        }
+        async for response in self.async_run_ws("/ws/chat/discord", payload):
+            yield response
+
+    def get_discord_channels(self):
+        uri = f"https://{self.tools_api_url}/chat/discord/channels"
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
+        print(headers)
+        print(":go")
+        with httpx.Client(timeout=60) as client:
+            response = client.post(uri, headers=headers, json={})
+            response.raise_for_status()
+            return response.json()
+
+    async def async_run(self, endpoint, payload):
+        uri = f"https://{self.tools_api_url}{endpoint}"
+        headers = {"X-Api-Key": self.api_key.get_secret_value()}
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(uri, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
     async def async_run_ws(self, endpoint, payload):
         uri = f"wss://{self.tools_api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        try:
+        # try:
+        if 1:
             async with websockets.connect(uri, extra_headers=headers) as websocket:                
                 await websocket.send(json.dumps(payload))
                 async for message in websocket:
+                    print("ad3000")
+                    print(message)
                     message_data = json.loads(message)
+                    print("ad30201")
+                    print(message_data)
                     yield message_data
-        except websockets.exceptions.ConnectionClosed as e:
-           print(f"Connection closed by the server with code: {e.code}")
-        except Exception as e:
-           print(f"Error: {e}")
+        # except websockets.exceptions.ConnectionClosed as e:
+        #    print(f"Connection closed by the server with code: {e.code}")
+        # except Exception as e:
+        #    print(f"Error: {e}")
 
     def upload(self, file_path):
         return asyncio.run(self.async_upload(file_path))

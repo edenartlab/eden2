@@ -212,6 +212,11 @@ class Story2(VersionedMongoBaseModel):
             "burns": [b for b in self.burns if b != user]
         })
 
+    def bless(self, blessing: str, user: str):
+        self.update({
+            "blessings": [{"user": user, "blessing": blessing}] + self.blessings
+        })
+
 
 
 

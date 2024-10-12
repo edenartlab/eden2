@@ -23,7 +23,7 @@ os.environ["ENV"] = "PROD" if args.production else "STAGE"
 
 dotenv.load_dotenv()
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
-EDEN_TEST_USER = os.getenv("EDEN_TEST_USER")
+EDEN_TEST_USER = os.getenv("EDEN_TEST_USER_PROD") if args.production else os.getenv("EDEN_TEST_USER_STAGE")
 MODAL_DEV_API_URL = os.getenv("MODAL_DEV_API_URL") 
 print("MODAL_DEV_API_URL", MODAL_DEV_API_URL)
 
