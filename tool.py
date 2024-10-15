@@ -91,6 +91,7 @@ class ToolParameter(BaseModel):
 class Tool(BaseModel):
     key: str
     name: str
+    thumbnail: Optional[str] = Field(None, description="URL to a thumbnail image")
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
     cost_estimate: str = Field(None, description="A formula which estimates the inference cost as a function of the parameters")
@@ -143,6 +144,7 @@ class Tool(BaseModel):
             "key": self.key,
             "name": self.name,
             "description": self.description,
+            "thumbnail": self.thumbnail,
             "outputType": self.output_type,
             "resolutions": self.resolutions,
             "costEstimate": self.cost_estimate,
