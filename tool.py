@@ -230,9 +230,6 @@ class Tool(BaseModel):
         return args
 
     def get_user_result(self, result):
-        print("666", "get user result")
-        print(type(result))
-        print(result)
         # if isinstance(result, str) or isinstance(result, list):
             # return result
         for r in result:
@@ -277,7 +274,7 @@ class Tool(BaseModel):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
             n_samples = task.args.get("n_samples", 1)
-            refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+            refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
             user = User.from_id(task.user, env=env)
             user.refund_manna(refund_amount)
             task.status = "cancelled"
@@ -558,7 +555,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.error = error
         task.save()
         n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
         user = User.from_id(task.user, env=env)
         user.refund_manna(refund_amount)
         return {"status": "failed", "error": error}
@@ -567,7 +564,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "cancelled"
         task.save()
         n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
         user = User.from_id(task.user, env=env)
         user.refund_manna(refund_amount)
         return {"status": "cancelled"}

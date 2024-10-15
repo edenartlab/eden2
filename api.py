@@ -126,10 +126,7 @@ class DiscordChatRequest(BaseModel):
     channel_id: str
 
 async def discord_ws_chat(data, user):
-    print("discord_ws_chat")
     request = DiscordChatRequest(**data)
-    print("discord_ws_chat 2")
-    print(request)
     discord_agent = discord_agents.find_one({"channel_id": request.channel_id})
     if not discord_agent:
         raise Exception("Discord agent not found for this channel")
@@ -179,7 +176,6 @@ def create_handler(task_handler):
             async for data in websocket.iter_json():
                 try:
                     async for response in task_handler(data, user):
-                        print(":: response", response)
                         await websocket.send_json(response)
                     break
                 except Exception as e:
