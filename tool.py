@@ -1,3 +1,4 @@
+import re
 import os
 import yaml
 import json
@@ -11,16 +12,21 @@ from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
-from models import Task, Model
+from models import Task, Model, User
+from models import Story3 as Story
 import eden_utils
 import s3
+import gcp
+
 
 env = os.getenv("ENV", "STAGE")
 
-
 TYPE_MAPPING = {
     "bool": bool, "string": str, "int": int, "float": float, 
-    "image": str, "video": str, "audio": str, "zip": str, "lora": str
+    "image": str, "video": str, "audio": str, "zip": str, "lora": str, 
+    "image|video": str,
+    "dict": dict,
+    "message": str,
 }
 
 class ParameterType(str, Enum):
@@ -30,6 +36,7 @@ class ParameterType(str, Enum):
     STRING = "string"
     IMAGE = "image"
     VIDEO = "video"
+    IMAGE_VIDEO = "image|video"
     AUDIO = "audio"
     ZIP = "zip"
     LORA = "lora"
@@ -39,21 +46,24 @@ class ParameterType(str, Enum):
     STRING_ARRAY = "string[]"
     IMAGE_ARRAY = "image[]"
     VIDEO_ARRAY = "video[]"
+    IMAGE_VIDEO_ARRAY = "image|video[]"
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
     LORA_ARRAY = "lora[]"
+    DICT = "dict"
+    MESSAGE = "message"
 
 FILE_TYPES = [
     ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
 ]
 
 FILE_ARRAY_TYPES = [
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO, ParameterType.AUDIO_ARRAY
 ]
 
 ARRAY_TYPES = [
     ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, 
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
 ]
 
 
@@ -63,6 +73,7 @@ class ToolParameter(BaseModel):
     description: str = Field(None, description="Human-readable description of what parameter does")
     tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
+    keys: Optional[List[Dict[str, Any]]] = Field(None, description="Keys for dict type")
     required: bool = Field(False, description="Indicates if the field is mandatory")
     visible_if: str = Field(None, description="Condition under which parameter is visible to UI")
     hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
@@ -74,6 +85,7 @@ class ToolParameter(BaseModel):
     min_length: Optional[int] = Field(None, description="Minimum length for array type")
     max_length: Optional[int] = Field(None, description="Maximum length for array type")
     choices: Optional[List[Any]] = Field(None, description="Allowed values")
+    choice_labels: Optional[List[Any]] = Field(None, description="Labels for choices")
 
 
 class Tool(BaseModel):
@@ -81,11 +93,13 @@ class Tool(BaseModel):
     name: str
     description: str = Field(..., description="Human-readable description of what the tool does")
     tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
+    cost_estimate: str = Field(None, description="A formula which estimates the inference cost as a function of the parameters")
     output_type: ParameterType = Field(None, description="Output type from the tool")
     resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
-    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API", exclude=True)
+    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API")
+    handler: SkipJsonSchema[str] = Field(False, description="Which type of tool", exclude=True)
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -94,11 +108,10 @@ class Tool(BaseModel):
     def get_base_model(self, **kwargs):
         base_model = create_tool_base_model(self)
         return base_model(**kwargs)
-
+    
     def summary(self, include_params=True, include_requirements=False):
-        summary = f'"{self.key}" :: {self.name} - {self.description}.'
-        if self.tip:
-            summary += f" {self.tip}."
+        summary = f'"{self.key}" :: {self.name} - '
+        summary += eden_utils.concat_sentences(self.description, self.tip)
         if include_requirements:
             required_params = [f"{p.label} ({p.type})" for p in self.parameters if p.required]
             if required_params:
@@ -110,9 +123,8 @@ class Tool(BaseModel):
     def parameters_summary(self):
         summary = "Parameters\n---"
         for param in self.parameters:
-            summary += f"\n{param.name}: {param.label}, {param.description}."
-            if param.tip:
-                summary += f" {param.tip}."
+            summary += f"\n{param.name}: {param.label}, "
+            summary += eden_utils.concat_sentences(param.description, param.tip)
             requirements = ["Type: " + param.type.name]
             if not param.default:
                 requirements.append("Field required")
@@ -126,31 +138,71 @@ class Tool(BaseModel):
             summary += f" ({requirements_str})"
         return summary
 
-    def get_info(self, include_params=True):
+    def get_interface(self, include_params=True):
         data = {
             "key": self.key,
             "name": self.name,
             "description": self.description,
             "outputType": self.output_type,
+            "resolutions": self.resolutions,
+            "costEstimate": self.cost_estimate,
             "private": self.private
         } 
+        if hasattr(self, "base_model"):
+            data["baseModel"] = self.base_model
         if include_params:
             data["tip"] = self.tip
             data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
         return data
 
-    def anthropic_tool_schema(self, remove_hidden_fields=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
+    def anthropic_tool_schema(self, remove_hidden_fields=False, include_tips=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
         schema = openai_schema(tool_model).anthropic_schema
         schema["input_schema"].pop("description")  # duplicated
+        schema = self.expand_schema_for_dicts(schema, provider="anthropic")
         return schema
 
-    def openai_tool_schema(self, remove_hidden_fields=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields)
+    def openai_tool_schema(self, remove_hidden_fields=False, include_tips=False):
+        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
+        schema = openai_schema(tool_model).openai_schema
+        schema = self.expand_schema_for_dicts(schema, provider="openai")
         return {
             "type": "function",
-            "function": openai_schema(tool_model).openai_schema
+            "function": schema
         }
+
+    def expand_schema_for_dicts(self, schema, provider=Literal["openai", "anthropic"]):
+        for param in self.parameters:
+            if param.type == ParameterType.DICT:
+                sub_schema = {
+                    "type": "object",
+                    "properties": {}
+                }
+                for key in param.keys:
+                    is_list = key['type'].endswith('[]')
+                    field_type = key['type'].rstrip('[]')
+                    is_dict = field_type == "dict"
+                    if is_list:
+                        sub_schema["properties"][key['name']] = {
+                            "type": "array",
+                            "items": {
+                                "type": field_type
+                            },
+                            "minItems": 1,
+                            "title": key['name'],
+                            "description": key['description']
+                        }
+                    else:
+                        sub_schema["properties"][key['name']] = {
+                            "type": key['type'],
+                            "title": key['name'],
+                            "description": key['description']
+                        }
+                if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
+                    schema['input_schema']['properties'][param.name] = sub_schema
+                elif provider == "openai" and schema['parameters']['properties'].get(param.name):
+                    schema['parameters']['properties'][param.name] = sub_schema
+        return schema
 
     def prepare_args(self, user_args):
         args = {}
@@ -170,7 +222,7 @@ class Tool(BaseModel):
             raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
 
         try:
-            create_tool_base_model(self)(**args)  # validate args
+            create_tool_base_model(self)(**args, include_tips=True)  # validate args
         except ValidationError as e:
             error_str = get_human_readable_error(e.errors())
             raise ValueError(error_str)
@@ -178,10 +230,18 @@ class Tool(BaseModel):
         return args
 
     def get_user_result(self, result):
+        print("666", "get user result")
+        print(type(result))
+        print(result)
+        # if isinstance(result, str) or isinstance(result, list):
+            # return result
         for r in result:
             if "filename" in r:
                 filename = r.pop("filename")
                 r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+            if "model" in r:
+                r["model"] = str(r["model"])
+                r.pop("metadata")  # don't need to return model metadata here
         return result
     
     def handle_run(run_function):
@@ -191,19 +251,35 @@ class Tool(BaseModel):
             return self.get_user_result(result)
         return wrapper
 
+    def calculate_cost(self, args):
+        if not self.cost_estimate:
+            return 0
+        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', self.cost_estimate) # js to py
+        cost_estimate = eval(cost_formula, args)
+        assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
+        return cost_estimate
+
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
+            user = User.from_id(task.user, env=env)
             task.args = self.prepare_args(task.args)
+            task.cost = self.calculate_cost(task.args.copy())
+            user.verify_manna_balance(task.cost)
             task.status = "pending"
             task.save()
             handler_id = await submit_function(self, task, *args, **kwargs)
             task.update({"handler_id": handler_id})
+            user.spend_manna(task.cost)
             return handler_id
         return wrapper
 
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
+            n_samples = task.args.get("n_samples", 1)
+            refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+            user = User.from_id(task.user, env=env)
+            user.refund_manna(refund_amount)
             task.status = "cancelled"
             task.save()
         return wrapper
@@ -225,6 +301,42 @@ class Tool(BaseModel):
     def cancel(self, task: Task):
         return asyncio.run(self.async_cancel(task))
 
+
+class MongoTool(Tool):
+    object_type: str
+
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        object_types = {"Story": Story}
+        document_id = args.pop("id")
+        if document_id:
+            document = object_types[self.object_type].from_id(document_id, env=env)
+        else:
+            document = object_types[self.object_type](env=env)
+        args = {k: v for k, v in args.items() if v is not None}
+        document.update_current(args)
+        result = {"document_id": str(document.id)}
+        return result
+
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        args = task.args
+        return "ok"
+    
+    async def async_process(self, task: Task):
+        # if not task.handler_id:
+        #     task.reload()
+        # fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        # await fc.get.aio()
+        # task.reload()
+        return "ok"
+        #return self.get_user_result(task.result)
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        #fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        #await fc.cancel.aio()
+        pass
 
 
 class ModalTool(Tool):
@@ -254,18 +366,36 @@ class ModalTool(Tool):
         await fc.cancel.aio()
 
 
+
+class ComfyUIParameterMap(BaseModel):
+    input: str
+    output: str
+
+class ComfyUIRemap(BaseModel):
+    node_id: int
+    field: str
+    subfield: str
+    value: List[ComfyUIParameterMap]
+
 class ComfyUIInfo(BaseModel):
     node_id: int
     field: str
     subfield: str
     preprocessing: Optional[str] = None
+    remap: Optional[List[ComfyUIRemap]] = None
 
 class ComfyUIParameter(ToolParameter):
     comfyui: Optional[ComfyUIInfo] = Field(None)
 
+class ComfyUIIntermediateOutput(BaseModel):
+    name: str
+    node_id: int
+
 class ComfyUITool(Tool):
+    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev"])
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
+    comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")
     env: str
 
     def __init__(self, data, key):
@@ -273,17 +403,14 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        #return await cls().run.remote.aio(self.key, args)
-        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run")
-        return await func.remote.aio(self.key, args, env=env)
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        result = await cls().run.remote.aio(self.key, args)
+        return self.get_user_result(result)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        #cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        #job = await cls().run_task.spawn.aio(str(task.id), env=env)
-        func = modal.Function.lookup(f"comfyui-{self.env}", "ComfyUI.run_task")
-        job = await func.spawn.aio(str(task.id), env=env)
+        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        job = await cls().run_task.spawn.aio(str(task.id), env=env)
         return job.object_id
     
     async def async_process(self, task: Task):
@@ -300,51 +427,75 @@ class ComfyUITool(Tool):
         await fc.cancel.aio()
 
 
+class ReplicateParameter(ToolParameter):
+    alias: Optional[str] = None
+
 class ReplicateTool(Tool):
     model: str
+    version: Optional[str] = Field(None, description="Replicate version to use")
     output_handler: str = "normal"
+    parameters: List[ReplicateParameter]
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
+        import replicate
         args = self._format_args_for_replicate(args)
-        prediction = self._create_prediction(args, webhook=False)        
-        prediction.wait()
-        if self.output_handler == "eden":
-            output = [prediction.output[-1]["files"][0]]
-        elif self.output_handler == "trainer":
-            output = [prediction.output[-1]["thumbnails"][0]]
+        if self.version:
+            prediction = self._create_prediction(args, webhook=False)        
+            prediction.wait()
+            if self.output_handler == "eden":
+                output = [prediction.output[-1]["files"][0]]
+            elif self.output_handler == "trainer":
+                output = [prediction.output[-1]["thumbnails"][0]]
+            else:
+                output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
+                output = [url for url in output]
         else:
-            output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
-            output = [url for url in output]
+            output = replicate.run(self.model, input=args)
         result = eden_utils.upload_media(output, env=env)
         return result
 
     @Tool.handle_submit
     async def async_submit(self, task: Task, webhook: bool = True):
+        import replicate
+
+        
         args = self._format_args_for_replicate(task.args)
-        prediction = self._create_prediction(args, webhook=webhook)
-        return prediction.id
+        if self.version:
+            prediction = self._create_prediction(args, webhook=webhook)
+            return prediction.id
+        else:
+            # Replicate doesn't support spawning tasks for models without a version so just run it immediately
+            output = replicate.run(self.model, input=task.args)
+            replicate_update_task(task, "succeeded", None, output, "normal")
+            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up Replicate id
+            return handler_id
 
     async def async_process(self, task: Task):
+        import replicate
+
         if not task.handler_id:
             task.reload()
-        import replicate
-        prediction = await replicate.predictions.async_get(task.handler_id)
-        status = "starting"
-        while True: 
-            if prediction.status != status:
-                status = prediction.status
-                result = replicate_update_task(
-                    task,
-                    status, 
-                    prediction.error, 
-                    prediction.output, 
-                    self.output_handler
-                )
-                if result["status"] in ["error", "cancelled", "completed"]:
-                    return self.get_user_result(result["result"])
-            await asyncio.sleep(0.5)
-            prediction.reload()
+
+        if self.version is None:
+            return self.get_user_result(task.result)        
+        else:
+            prediction = await replicate.predictions.async_get(task.handler_id)
+            status = "starting"
+            while True: 
+                if prediction.status != status:
+                    status = prediction.status
+                    result = replicate_update_task(
+                        task,
+                        status, 
+                        prediction.error, 
+                        prediction.output, 
+                        self.output_handler
+                    )
+                    if result["status"] in ["failed", "cancelled", "completed"]:
+                        return self.get_user_result(result["result"])
+                await asyncio.sleep(0.5)
+                prediction.reload()
 
     async def async_submit_and_run(self, task: Task):
         await self.async_submit(task, webhook=False)
@@ -354,8 +505,11 @@ class ReplicateTool(Tool):
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         import replicate
-        prediction = replicate.predictions.get(task.handler_id)
-        prediction.cancel()
+        try:
+            prediction = replicate.predictions.get(task.handler_id)
+            prediction.cancel()
+        except Exception as e:
+            print("Replicate cancel error, probably task is timed out or already finished", e)
 
     def _format_args_for_replicate(self, args):
         new_args = args.copy()
@@ -363,6 +517,8 @@ class ReplicateTool(Tool):
         for param in self.parameters:
             if param.type in ARRAY_TYPES:
                 new_args[param.name] = "|".join([str(p) for p in args[param.name]])
+            if param.alias:
+                new_args[param.alias] = new_args.pop(param.name)
         return new_args
 
     def _get_webhook_url(self):
@@ -374,11 +530,10 @@ class ReplicateTool(Tool):
     def _create_prediction(self, args: dict, webhook=True):
         import replicate
         user, model = self.model.split('/', 1)
-        model, version = model.split(':', 1)
         webhook_url = self._get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
 
-        if version == "deployment":
+        if self.version == "deployment":
             deployment = replicate.deployments.get(f"{user}/{model}")
             prediction = deployment.predictions.create(
                 input=args,
@@ -387,7 +542,7 @@ class ReplicateTool(Tool):
             )
         else:
             model = replicate.models.get(f"{user}/{model}")
-            version = model.versions.get(version)
+            version = model.versions.get(self.version)
             prediction = replicate.predictions.create(
                 version=version,
                 input=args,
@@ -402,11 +557,19 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "error"
         task.error = error
         task.save()
-        return {"status": "error", "error": error}
+        n_samples = task.args.get("n_samples", 1)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(refund_amount)
+        return {"status": "failed", "error": error}
     
     elif status == "canceled":
         task.status = "cancelled"
         task.save()
+        n_samples = task.args.get("n_samples", 1)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(refund_amount)
         return {"status": "cancelled"}
     
     elif status == "processing":
@@ -433,10 +596,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     args=task.args,
                     task=task.id,
                     checkpoint=url, 
+                    base_model="sdxl",
                     thumbnail=thumbnail,
                     env=env
                 )
-                model.save()
+                # model.save()
+                model.save({"task": task.id})
                 result[0]["model"] = model.id
         
         run_time = (datetime.utcnow() - task.createdAt).total_seconds()
@@ -483,22 +648,24 @@ def replicate_process_eden(output):
     return results
     
 
-def create_tool_base_model(tool: Tool, remove_hidden_fields=False):
+def create_tool_base_model(tool: Tool, remove_hidden_fields=False, include_tips=False):
     fields = {
-        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields)
+        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields, include_tip=include_tips)
         for param in tool.parameters
     }
     ToolBaseModel = create_model(tool.key, **fields)
-    ToolBaseModel.__doc__ = f'{tool.description}. {tool.tip}.'
+    ToolBaseModel.__doc__ = eden_utils.concat_sentences(tool.description, tool.tip)
     return ToolBaseModel
 
 
 def get_field_type_and_kwargs(
     param: ToolParameter,
-    remove_hidden_fields: bool = False
+    remove_hidden_fields: bool = False,
+    include_tip: bool = False
 ) -> Tuple[Type, Dict[str, Any]]:
     field_kwargs = {
-        'description': param.description,
+        'description': eden_utils.concat_sentences(param.description, param.tip) \
+            if include_tip else param.description
     }
 
     is_list = param.type.endswith('[]')
@@ -547,13 +714,18 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
     try:
         data = yaml.safe_load(open(api_path, "r"))
+        data['cost_estimate'] = str(data['cost_estimate'])
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {api_path}: {e}")
     if data['handler'] == 'comfyui':
         data["env"] = tool_path.split("/")[-3]
-        tool = ComfyUITool(data, key=name)
+        tool = ComfyUITool(data, key=name) 
+    elif data['handler'] == 'mongo':
+        tool = MongoTool(data, key=name)
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
+    elif data['handler'] == 'gcp':
+        tool = GCPTool(data, key=name)
     else:
         tool = ModalTool(data, key=name)
     tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
@@ -626,3 +798,37 @@ def get_human_readable_error(error_list):
     error_str = ", ".join(errors)
     error_str = f"Invalid args: {error_str}"
     return error_str
+
+
+class GCPTool(Tool):
+    gcr_image_uri: str
+    machine_type: str
+    gpu: str
+    
+    # Todo: make work without task ID
+    @Tool.handle_run
+    async def async_run(self, args: Dict):
+        raise NotImplementedError("Not implemented yet, need a Task ID")
+        
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        handler_id = gcp.submit_job(
+            gcr_image_uri=self.gcr_image_uri,
+            machine_type=self.machine_type,
+            gpu=self.gpu,
+            gpu_count=1,
+            task_id=str(task.id),
+            env=env
+        )
+        return handler_id
+    
+    async def async_process(self, task: Task):
+        if not task.handler_id:
+            task.reload()
+        await gcp.poll_job_status(task.handler_id)
+        task.reload()
+        return self.get_user_result(task.result)
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        await gcp.cancel_job(task.handler_id)

@@ -24,17 +24,34 @@ If you want to deploy a private workspace, use `PRIVATE=1`
 
 To test a tool directly, run:
 
-    python test_tools.py --tools tool1,tool2,etc
+    python test_tools.py --tools tool1 tool2
 
 To test a tool through the tools API, run:
 
-    python test_api.py --tools tool1,tool2,etc
+    python test_api.py --tools tool1 tool2
 
 To test a tool from the SDK through the API, run:
 
-    python test_sdk.py --tools tool1,tool2,etc
+    python test_sdk.py --tools tool1 tool2
 
 All of these will test using the staging API, so make sure you are running the API (see next section). If you want to test production, include the `--production` flag. If you want to test all the tools, omit the `--tools` parameter.
+
+
+# Update API
+
+To update the API interface
+
+    python config.py --env {STAGE|PROD}
+
+### Optional Flags
+
+To update only specific tools:
+
+    python config.py --env STAGE --tools tool1 tool2 tool3
+
+Available options:
+- `--env`: STAGE or PROD (default is STAGE)
+- `--tools`: Space-separated list of tool names to update (otherwise all found tools will be updated)
 
 
 # Tools API

@@ -2,25 +2,9 @@ from eden.client import EdenClient
 
 client = EdenClient(stage=True)
 
-# result = client.create("txt2vid_lora", {
-#     "prompt": "<concept> in a forest",
-#     "lora": "66965fe5886103b0e9066945",
-#     "lora_strength": 0.6,
-#     "width": 1024,
-#     "height": 768,
-#     "n_frames": 128
+# result = client.create("audiocraft", {
+#     "text_input": "futuristic synth sounds",
 # })
-
-
-
-# result = client.create("beeple_ai", {
-#     "prompt": "futuristic desert with neon lights and crypto mines",
-# })
-
-result = client.create("audiocraft", {
-    "text_input": "futuristic synth sounds",
-})
-
 
 # result = client.create("txt2img", {
 #     "prompt": "<concept> on a disco floor",
@@ -29,4 +13,17 @@ result = client.create("audiocraft", {
 #     "width": 1280,
 #     "height": 768,
 # })
+
+# result = client.create("stable_audio", {
+#     "prompt": "drum and bass",
+# })
+
+result = client.create("flux-dev", {
+    "prompt": "Alien forest with bioluminescent flora.",
+    "lora_strength": 0.3,
+    "seed": 19,
+    "n_samples": 4,
+})
+
+
 print(result)

@@ -1,0 +1,71 @@
+name: Create an image (Fast)
+description: Generate an image from text quickly with Flux Schnell.
+tip: Flux is a text to image model that excels at prompt coherence and text generation. This should always be the default way to generate an image from text!
+output_type: image
+cost_estimate: 1 * num_outputs
+model: black-forest-labs/flux-schnell
+handler: replicate
+# resolutions: [21-9_1536x640, 16-9_1344x768, 3-2_1216x832, 4-3_1152x896, 1-1_1024x1024, 3-4_896x1152, 2-3_832x1216, 9-16_1152x2048, 9-21_640x1536]
+parameters:
+- name: prompt
+  label: Prompt
+  description: Text prompt
+  tip: Flux loves very detailed and descriptive prompts so try to be elaborate. Flux is also great at drawing text in images so feel free to add something if it makes sense.
+  type: string
+  required: true
+- name: aspect_ratio
+  label: Aspect ratio
+  description: Aspect ratio width/height
+  type: string
+  required: true
+  default: "1:1"
+  choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
+- name: num_outputs
+  label: Number of samples
+  description: Number of samples to generate
+  tip: This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+  type: int
+  required: true
+  default: 1
+  minimum: 1
+  maximum: 4
+- name: output_format
+  label: Output format
+  description: Format of the output images
+  type: string
+  default: png
+  choices: [webp, jpg, png]
+  hide_from_ui: true
+  hide_from_agent: true
+- name: output_quality
+  label: Save quality
+  description: Quality when saving the output images, from 0 to 100. 100 is best quality, 0 is lowest quality. Not relevant for .png outputs
+  type: int
+  hide_from_ui: true
+  hide_from_agent: true
+  default: 95
+  minimum: 1
+  maximum: 100
+  step: 1
+- name: disable_safety_checker
+  label: Disable safety checker
+  description: Disable safety checker
+  type: bool
+  default: true
+  hide_from_ui: true
+  hide_from_agent: true
+- name: go_fast
+  label: Go Fast
+  description: Run faster predictions with model optimized for speed (currently fp8 quantized); disable to run in original bf16
+  type: bool
+  default: true
+  hide_from_ui: true
+  hide_from_agent: true
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set to a random value.
+  tip: You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank! 
+  type: int
+  default: random
+  minimum: 0
+  maximum: 2147483647
