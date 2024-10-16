@@ -458,7 +458,6 @@ class ReplicateTool(Tool):
     async def async_submit(self, task: Task, webhook: bool = True):
         import replicate
 
-        
         args = self._format_args_for_replicate(task.args)
         if self.version:
             prediction = self._create_prediction(args, webhook=webhook)
@@ -599,7 +598,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     thumbnail=thumbnail,
                     env=env
                 )
-                # model.save()
                 model.save({"task": task.id})
                 result[0]["model"] = model.id
         
@@ -639,8 +637,9 @@ def replicate_process_eden(output):
 
         thumbnail = thumbnail or thumb or None
         if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
-            result["thumbnail"] = thumbnail_url
+            #thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
+            thumbnail_result = eden_utils.upload_media(thumbnail, env=env)
+            result["thumbnail"] = thumbnail_result[0]['filename']
 
         results.append(result)
 
