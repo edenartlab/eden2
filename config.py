@@ -9,15 +9,20 @@ env = os.getenv("ENV", "STAGE")
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 
+# this controls order of tools in frontend
 api_tools = [
     "txt2img", "flux-dev", "flux-schnell", 
-    "img2img", "controlnet", "layer_diffusion", 
-    "remix", "inpaint", "outpaint", "face_styler", "storydiffusion",
+    "img2img", "layer_diffusion", "flux-schnell-remix", "remix", "inpaint", "outpaint", "face_styler", 
     "upscaler", "background_removal", "background_removal_video",     
     "animate_3D", "style_mixing", "txt2vid", "vid2vid_sdxl", "img2vid", "video_upscaler", 
-    "reel", "story", "texture_flow", "runway",
+    "texture_flow", "runway",
     "stable_audio", "musicgen",
-    "lora_trainer", "flux_trainer", "news", "moodmix",
+
+    # preset tools
+    "controlnet",
+
+    # these are hidden but make them available over API
+    "lora_trainer", "flux_trainer", "news", "moodmix", "storydiffusion",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
 ]
 
@@ -48,8 +53,14 @@ def update_tools():
         available_tools = {k: v for k, v in available_tools.items() if k in api_tools}
 
     tools_collection = get_collection("tools", args.env)
-    for tool_key, tool_config in available_tools.items():
+    api_tools_order = {tool: index for index, tool in enumerate(api_tools)}
+    sorted_tools = sorted(available_tools.items(), 
+                          key=lambda x: api_tools_order.get(x[0], len(api_tools)))
+    
+    for index, (tool_key, tool_config) in enumerate(sorted_tools):
         tool_config = tool_config.get_interface()
+        if not args.tools:
+            tool_config['order'] = index  # set order based on the new sorting
         tools_collection.update_one(
             {"key": tool_key},
             {
