@@ -42,14 +42,13 @@ class Agent(MongoBaseModel):
         return system_message
 
 
-def load_agent(agent_path: str) -> Agent:
+def load_agent_data(agent_path: str) -> Agent:
     if not os.path.exists(agent_path):
         raise ValueError(f"Agent not found at {agent_path}")
     try:
         data = yaml.safe_load(open(agent_path, "r"))
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {agent_path}: {e}")
-    # agent = Agent(data)
     return data
 
 
@@ -63,7 +62,7 @@ def update_agent_cli():
 
     try:
         eden_user = os.getenv("EDEN_TEST_USER_PROD") if args.env == "PROD" else os.getenv("EDEN_TEST_USER_STAGE")
-        agent = load_agent(f"agents/{args.agent}.yaml")
+        agent = load_agent_data(f"agents/{args.agent}.yaml")
         agent = Agent(env=args.env, key=args.agent, owner=ObjectId(eden_user), **agent)
         agent.save(upsert_query={"key": agent.key, "owner": ObjectId(eden_user)})
     except ValueError as e:
