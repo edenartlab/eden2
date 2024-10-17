@@ -35,11 +35,12 @@ class Model(MongoBaseModel):
         if self.slug:
             return
         name = self.name.lower().replace(" ", "-")
-        existing_docs = list(self.collection.find({"name": self.name, "user": self.user}))
-        versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
-        version = max(versions or [0]) + 1
         username = self.users.find_one({"_id": self.user})["username"]
+        existing_docs = list(self.collection.find({"slug": {"$regex": f"^{username}/{name}/v"}}))
+        versions = [int(doc['slug'].split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
+        version = max(versions or [0]) + 1
         self.slug = f"{username}/{name}/v{version}"
+
 
 
 class Task(MongoBaseModel):
