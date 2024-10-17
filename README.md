@@ -86,7 +86,7 @@ To interact with an agent, run
 6. Run modal test, eg: `WORKSPACE=txt2img WORKFLOWS=background_removal modal run comfyui.py`
 7. When base test looks good, optionally run all tests to validate multiple pathways and auto-download all dependencies into the image: `WORKSPACE=txt2img WORKFLOWS=background_removal TEST_ALL=1 modal run comfyui.py`
 8. Now, deploy the full workspace (to staging): `WORKSPACE=txt2img modal deploy comfyui.py`
-9. Test the new tool through the (staging) API: `python test_api.py --tools background_removal`
-10. Deploy updated workspace to production: `ENV=PROD WORKSPACE=txt2img modal deploy comfyui.py`
-11. Test deployed tool through production api: `python test_api.py --tools background_removal --production`
+9. Update the API: `python config.py --env {STAGE|PROD}`, or for a specific tool: `python config.py --env STAGE --tools tool1 tool2 tool3`
+10. Test the new tool through the (staging) API: `python tests/test_api.py --tools background_removal`
+11. Test deployed tool through production api: `python tests/test_api.py --tools background_removal --production`
 
