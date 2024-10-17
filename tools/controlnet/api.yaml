@@ -1,0 +1,7 @@
+parent_tool: ../workflows/workspaces/img_tools/workflows/txt2img
+name: Style transfer
+description: Reimagine a logo or image in a different style
+tip: If the user wants to do something with logos, ask them to send you the logo.
+parameters:
+- name: prompt
+  tip: overwrite this tip
