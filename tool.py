@@ -301,41 +301,41 @@ class Tool(BaseModel):
         return asyncio.run(self.async_cancel(task))
 
 
-class MongoTool(Tool):
-    object_type: str
+# class MongoTool(Tool):
+#     object_type: str
 
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        object_types = {"Story": Story}
-        document_id = args.pop("id")
-        if document_id:
-            document = object_types[self.object_type].from_id(document_id, env=env)
-        else:
-            document = object_types[self.object_type](env=env)
-        args = {k: v for k, v in args.items() if v is not None}
-        document.update_current(args)
-        result = {"document_id": str(document.id)}
-        return result
+#     @Tool.handle_run
+#     async def async_run(self, args: Dict):
+#         object_types = {"Story": Story}
+#         document_id = args.pop("id")
+#         if document_id:
+#             document = object_types[self.object_type].from_id(document_id, env=env)
+#         else:
+#             document = object_types[self.object_type](env=env)
+#         args = {k: v for k, v in args.items() if v is not None}
+#         document.update_current(args)
+#         result = {"document_id": str(document.id)}
+#         return result
 
-    @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        args = task.args
-        return "ok"
+#     @Tool.handle_submit
+#     async def async_submit(self, task: Task):
+#         args = task.args
+#         return "ok"
     
-    async def async_process(self, task: Task):
-        # if not task.handler_id:
-        #     task.reload()
-        # fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        # await fc.get.aio()
-        # task.reload()
-        return "ok"
-        #return self.get_user_result(task.result)
+#     async def async_process(self, task: Task):
+#         # if not task.handler_id:
+#         #     task.reload()
+#         # fc = modal.functions.FunctionCall.from_id(task.handler_id)
+#         # await fc.get.aio()
+#         # task.reload()
+#         return "ok"
+#         #return self.get_user_result(task.result)
 
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        #fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        #await fc.cancel.aio()
-        pass
+#     @Tool.handle_cancel
+#     async def async_cancel(self, task: Task):
+#         #fc = modal.functions.FunctionCall.from_id(task.handler_id)
+#         #await fc.cancel.aio()
+#         pass
 
 
 class ModalTool(Tool):
@@ -391,24 +391,24 @@ class ComfyUIIntermediateOutput(BaseModel):
     node_id: int
 
 class ComfyUITool(Tool):
-    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev"])
+    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev", "flux-schnell"])
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")
-    env: str
+    workspace: str
 
     def __init__(self, data, key):
         super().__init__(data, key)
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui-{self.workspace}", "ComfyUI")
         result = await cls().run.remote.aio(self.key, args)
         return self.get_user_result(result)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui-{self.workspace}", "ComfyUI")
         job = await cls().run_task.spawn.aio(str(task.id), env=env)
         return job.object_id
     
@@ -638,7 +638,7 @@ def replicate_process_eden(output):
         thumbnail = thumbnail or thumb or None
         if thumbnail:
             #thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
-            thumbnail_result = eden_utils.upload_media(thumbnail, env=env)
+            thumbnail_result = eden_utils.upload_media([thumbnail], env=env)
             result["thumbnail"] = thumbnail_result[0]['filename']
 
         results.append(result)
@@ -712,14 +712,19 @@ def load_tool(tool_path: str, name: str = None) -> Tool:
         name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
     try:
         data = yaml.safe_load(open(api_path, "r"))
-        data['cost_estimate'] = str(data['cost_estimate'])
+        if data.get('cost_estimate'):
+            data['cost_estimate'] = str(data['cost_estimate'])
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {api_path}: {e}")
-    if data['handler'] == 'comfyui':
-        data["env"] = tool_path.split("/")[-3]
+
+    if 'parent_tool' in data:
+        parent_tool_path = data['parent_tool']
+        tool = PresetTool(data, key=name, parent_tool_path=parent_tool_path)
+    elif data['handler'] == 'comfyui':
+        data["workspace"] = tool_path.split("/")[-3]
         tool = ComfyUITool(data, key=name) 
-    elif data['handler'] == 'mongo':
-        tool = MongoTool(data, key=name)
+    # elif data['handler'] == 'mongo':
+    #     tool = MongoTool(data, key=name)
     elif data['handler'] == 'replicate':
         tool = ReplicateTool(data, key=name)
     elif data['handler'] == 'gcp':
@@ -830,3 +835,72 @@ class GCPTool(Tool):
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         await gcp.cancel_job(task.handler_id)
+
+
+
+
+class PresetTool(Tool):
+    parent_tool: Tool
+
+    def __init__(self, data, key, parent_tool_path):
+        parent_data = self.load_parent_tool(parent_tool_path)
+        merged_data = self.merge_parent_data(parent_data, data)
+        
+        merged_data["parent_tool"] = load_tool(parent_tool_path)
+
+        # Initialize as a Tool using the merged data
+        super().__init__(merged_data, key)
+
+        
+        print("THE TYPE", type(self.parent_tool))
+
+    @staticmethod
+    def load_parent_tool(parent_tool_path: str) -> dict:
+        api_path = f"{parent_tool_path}/api.yaml"
+        if not os.path.exists(api_path):
+            raise ValueError(f"Parent tool not found at {api_path}")
+        try:
+            parent_data = yaml.safe_load(open(api_path, "r"))
+        except yaml.YAMLError as e:
+            raise ValueError(f"Error loading parent tool {api_path}: {e}")
+        return parent_data
+
+    def merge_parent_data(self, parent_data: dict, preset_data: dict) -> dict:
+        # Create a copy of parent_data to avoid modifying the original
+        merged_data = parent_data.copy()
+        
+        # Update with preset data
+        for key, value in preset_data.items():
+            if key == "parameters" and value is not None:
+                # Update specific parameter fields if provided in preset
+                parent_params = {p['name']: p for p in merged_data.get('parameters', [])}
+                preset_params = value
+                
+                for param in preset_params:
+                    if param['name'] in parent_params:
+                        # Update existing parameter with preset fields
+                        parent_params[param['name']].update(param)
+                    else:
+                        raise ValueError(f"Parameter {param['name']} not found in parent tool")
+                
+                merged_data['parameters'] = list(parent_params.values())
+            else:
+                # Override other fields directly
+                merged_data[key] = value
+
+        return merged_data
+    
+
+    async def async_run(self, args: Dict):
+        return await self.parent_tool.async_run(args)
+        
+    @Tool.handle_submit
+    async def async_submit(self, task: Task):
+        return await self.parent_tool.async_submit(task)
+    
+    async def async_process(self, task: Task):
+        return await self.parent_tool.async_process(task)
+
+    @Tool.handle_cancel
+    async def async_cancel(self, task: Task):
+        return await self.parent_tool.async_cancel(task)
