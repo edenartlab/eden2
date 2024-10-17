@@ -14,6 +14,7 @@ tools:
   - txt2img
   - flux-schnell
   - flux-dev
+  - flux-schnell-remix
   - img2img
   - controlnet
   - layer_diffusion
@@ -31,6 +32,8 @@ tools:
   - vid2vid_sdxl
   - style_mixing
   - video_upscaler
+  - texture_flow
+  - runway
   - stable_audio
   - audiocraft
   - reel
