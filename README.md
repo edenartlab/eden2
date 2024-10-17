@@ -37,17 +37,25 @@ To test a tool from the SDK through the API, run:
 All of these will test using the staging API, so make sure you are running the API (see next section). If you want to test production, include the `--production` flag. If you want to test all the tools, omit the `--tools` parameter.
 
 
-# Update API
+# Update API interfaces
+
+The relevant properties in tool yaml files include:
+- `private`: if true, tool will not be shown in the UI (but is still available over API)
+- `thumbnail`: url to thumbnail image
 
 To update the API interface
 
     python config.py --env {STAGE|PROD}
+
+To update the order of tools, edit `api_tools` in `config.py`
 
 ### Optional Flags
 
 To update only specific tools:
 
     python config.py --env STAGE --tools tool1 tool2 tool3
+
+Note that updating specific tools will not update the ordering of tools.
 
 Available options:
 - `--env`: STAGE or PROD (default is STAGE)
