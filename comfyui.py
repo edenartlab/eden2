@@ -219,7 +219,8 @@ class ComfyUI:
                 if "seed" in args:
                     args["seed"] = args["seed"] + i
 
-                output, intermediate_outputs = self._execute(task.workflow, args, env=env)
+                workflow = task.parent_tool or task.workflow
+                output, intermediate_outputs = self._execute(workflow, args, env=env)
                 print("intermediate_outputs", intermediate_outputs)
 
                 result_ = eden_utils.upload_media(output, env=env)

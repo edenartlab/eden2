@@ -1,7 +1,44 @@
 parent_tool: ../workflows/workspaces/img_tools/workflows/txt2img
 name: Style transfer
-description: Reimagine a logo or image in a different style
-tip: If the user wants to do something with logos, ask them to send you the logo.
+description: Reimagine an image in a different style
+resolutions: []  # get rid of width/height selector
 parameters:
 - name: prompt
-  tip: overwrite this tip
+  description: Describe the style you want to use
+
+# activate init image 
+- name: use_init_image
+  default: true
+  hide_from_ui: true
+- name: init_image
+  label: Input image
+  required: true
+  visible_if: ""
+# - name: use_ipadapter
+#   required: true
+
+# activate controlnet  
+- name: use_controlnet
+  label: Controlnet
+  default: true
+  hide_from_ui: true
+- name: preprocessor
+  label: Input image preprocessor
+  visible_if: ""
+- name: controlnet_strength
+  label: Input image strength
+  visible_if: ""
+
+# remove lora
+- name: use_lora
+  hide_from_ui: true
+
+# remove width/height considerations
+- name: size_from_input
+  hide_from_ui: true
+- name: enforce_SDXL_resolution
+  hide_from_ui: true
+- name: width
+  hide_from_ui: true
+- name: height
+  hide_from_ui: true

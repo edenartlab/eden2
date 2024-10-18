@@ -13,7 +13,6 @@ from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
 
 from models import Task, Model, User
-from models import Story3 as Story
 import eden_utils
 import s3
 import gcp
@@ -402,8 +401,9 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
+        key = args.pop("parent_tool", self.key)
         cls = modal.Cls.lookup(f"comfyui-{self.workspace}", "ComfyUI")
-        result = await cls().run.remote.aio(self.key, args)
+        result = await cls().run.remote.aio(key, args)
         return self.get_user_result(result)
         
     @Tool.handle_submit
@@ -892,15 +892,17 @@ class PresetTool(Tool):
     
 
     async def async_run(self, args: Dict):
+        args["parent_tool"] = self.parent_tool.key
         return await self.parent_tool.async_run(args)
         
     @Tool.handle_submit
     async def async_submit(self, task: Task):
+        task.parent_tool = self.parent_tool.key
         return await self.parent_tool.async_submit(task)
     
     async def async_process(self, task: Task):
         return await self.parent_tool.async_process(task)
-
+        
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         return await self.parent_tool.async_cancel(task)
