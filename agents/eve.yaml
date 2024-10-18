@@ -29,8 +29,6 @@ tools:
   - animate_3D
   - txt2vid
   - img2vid
-  - vid2vid_sdxl
-  - style_mixing
   - video_upscaler
   - texture_flow
   - runway

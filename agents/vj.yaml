@@ -13,9 +13,7 @@ tools:
   - flux-schnell-remix
   - remix
   - animate_3D
-  - style_mixing
   - txt2vid
-  - vid2vid_sdxl
   - img2vid
   - video_upscaler
   - texture_flow
