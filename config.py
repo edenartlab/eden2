@@ -1,3 +1,4 @@
+from datetime import datetime
 import argparse
 import json
 import random
@@ -59,19 +60,27 @@ def update_tools():
     
     for index, (tool_key, tool_config) in enumerate(sorted_tools):
         tool_config = tool_config.get_interface()
+        tool_config["updatedAt"] = datetime.utcnow()
+        
         if not args.tools:
             tool_config['order'] = index  # set order based on the new sorting
+        
+        existing_doc = tools_collection.find_one({"key": tool_key})        
+        update_operation = {
+            "$set": tool_config,
+            "$setOnInsert": {"createdAt": datetime.utcnow()},
+            "$unset": {k: "" for k in (existing_doc or {}) if k not in tool_config and k != "createdAt" and k != "_id"}
+        }        
         tools_collection.update_one(
             {"key": tool_key},
-            {
-                "$set": tool_config, 
-                "$unset": {k: "" for k in tools_collection.find_one({"key": tool_key}, {"_id": 0}) or {} if k not in tool_config}
-            },
+            update_operation,
             upsert=True
         )
+        
         parameters = ", ".join([p["name"] for p in tool_config.pop("parameters")])
         print(f"\033[38;5;{random.randint(1, 255)}m")
         print(f"\n\nUpdated {args.env} {tool_key}\n============")
+        tool_config.pop("updatedAt")
         print(json.dumps(tool_config, indent=2))
         print(f"Parameters: {parameters}")
     
