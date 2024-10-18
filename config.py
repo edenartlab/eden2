@@ -19,7 +19,7 @@ api_tools = [
     "stable_audio", "musicgen",
 
     # preset tools
-    "controlnet",
+    "style_transfer",
 
     # these are hidden but make them available over API
     "lora_trainer", "flux_trainer", "news", "moodmix", "storydiffusion",

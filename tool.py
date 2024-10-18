@@ -265,7 +265,13 @@ class Tool(BaseModel):
             user.verify_manna_balance(task.cost)
             task.status = "pending"
             task.save()
-            handler_id = await submit_function(self, task, *args, **kwargs)
+            try:
+                handler_id = await submit_function(self, task, *args, **kwargs)
+            except Exception as e:
+                task.status = "failed"
+                task.error = str(e)
+                task.save()
+                raise e
             task.update({"handler_id": handler_id})
             user.spend_manna(task.cost)
             return handler_id
