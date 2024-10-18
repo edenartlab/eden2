@@ -180,7 +180,7 @@ class Story2(VersionedMongoBaseModel):
 
     praises: List[str] = []
     burns: List[str] = []
-    blessings: List[str] = []
+    blessings: List[dict] = []
 
     def __init__(self, env, **data):
         super().__init__(collection_name="stories", env=env, **data)
@@ -213,6 +213,8 @@ class Story2(VersionedMongoBaseModel):
         })
 
     def bless(self, blessing: str, user: str):
+        print("blessing 11", blessing)
+        print("user 11", user)
         self.update({
             "blessings": [{"user": user, "blessing": blessing}] + self.blessings
         })

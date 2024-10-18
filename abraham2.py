@@ -12,9 +12,7 @@ from tool import load_tool
 from mongo import get_collection
 from models import Story2 as Story
 
-txt2img = load_tool("../workflows/workspaces/img_tools/workflows/txt2img")
-img2vid = load_tool("../workflows/workspaces/video/workflows/animate_3D")
-flux = load_tool("../workflows/workspaces/flux/workflows/flux-dev")
+
 
 default_model = "gpt-4-turbo"
 
@@ -148,15 +146,20 @@ def bless(
     request: dict, 
     _: dict = Depends(auth.authenticate_abraham_admin)
 ):
-    try:
+    print("request", request)
+    # try:
+    if 1:
         story_id = request.get("story_id")
+        print("story_id", story_id)
         story = Story.from_id(story_id, env="ABRAHAM")
+        print("story", story)
         blessing = request.get("blessing")
+        print("blessing", blessing)
         story.bless(blessing, request.get("user"))
         return story.blessings
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 
@@ -171,6 +174,7 @@ def generate_story():
         model=default_model
     )
     print("story", story)
+    flux = load_tool("/workflows/workspaces/flux/workflows/flux-dev")
     result = flux.run({
         "prompt": story.poster,
         "width": 1344, 
