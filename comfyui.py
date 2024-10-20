@@ -392,7 +392,7 @@ class ComfyUI:
         # Hardcoded computation of the token_strength for the embedding trigger:
         token_strength = 0.5 + lora_strength / 2
 
-        reference = f'(embedding:{embeddings_filename}:{token_strength})'
+        reference = f'(embedding:{embeddings_filename})'
 
         if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
             # Match all variations of the embedding_trigger:
