@@ -98,3 +98,7 @@ To interact with an agent, run
 10. Test the new tool through the (staging) API: `python tests/test_api.py --tools background_removal`
 11. Test deployed tool through production api: `python tests/test_api.py --tools background_removal --production`
 
+If you screw anything up you can:
+- manually roll back the Modal image through the modal UI: https://modal.com/apps/edenartlab/main
+- git reset / checkout the workflows repo to the previous, working version and redeploy the API
+
