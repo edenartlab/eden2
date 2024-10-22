@@ -12,7 +12,6 @@ tools:
     - name: seed
       default: 123
       hide_from_agent: true
- - key: tools/news
+  - key: tools/news
     
-
   

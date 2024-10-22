@@ -9,8 +9,8 @@ instructions: |
 tools:
   - key: ../workflows/workspaces/img_tools/workflows/txt2img
   - key: ../workflows/workspaces/flux/workflows/flux_dev
-  - key: tools/flux-schnell
-  - key: ../workflows/workspaces/flux/workflows/remix-flux-schnell
+  - key: tools/flux_schnell
+  - key: ../workflows/workspaces/flux/workflows/remix_flux_schnell
   - key: ../workflows/workspaces/txt2img/workflows/remix
   - key: ../workflows/workspaces/video/workflows/animate_3D
   - key: ../workflows/workspaces/video/workflows/txt2vid
