@@ -16,3 +16,4 @@ Pillow
 moviepy
 pydub
 google-cloud-aiplatform
+anthropic
