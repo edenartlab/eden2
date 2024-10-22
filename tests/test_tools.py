@@ -28,8 +28,9 @@ if args.tools:
             for k, v in get_tools(f"{workspaces_dir}/{env}/workflows").items()
         })
     tools.update(get_tools("tools"))
-    if not all(tool in tools for tool in args.tools):
-        raise ValueError(f"One or more of the requested tools not found") 
+    unrecognized_tools = [tool for tool in args.tools if tool not in tools]
+    if unrecognized_tools:
+        raise ValueError(f"One or more of the requested tools not found: {', '.join(unrecognized_tools)}") 
     tools = {k: v for k, v in tools.items() if k in args.tools}
 elif args.workspaces:
     for workspaces_dir in [pathlib.Path("../workflows/workspaces"), pathlib.Path("../private_workflows/workspaces")]:
@@ -48,15 +49,13 @@ else:
     
 async def test_tool(workflow_name):
     try:
-    # if 1:
         tool = tools[workflow_name]
-        print("test", tool)
-        print("test", tool.test_args)
         output = await tool.async_run(tool.test_args)
         result = tool.get_user_result(output)
         print(json.dumps({workflow_name: result}, indent=4))
         return {"result": result}
     except Exception as e:
+        print("OOPS", e)
         return {"error": f"Error running {workflow_name}: {e}"}
 
 async def run_all_tests():

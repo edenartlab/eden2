@@ -912,7 +912,7 @@ class PresetTool(Tool):
     
 
     async def async_run(self, args: Dict):
-        args["parent_tool"] = self.parent_tool.key
+        # args["parent_tool"] = self.parent_tool.key
         return await self.parent_tool.async_run(args)
         
     @Tool.handle_submit
