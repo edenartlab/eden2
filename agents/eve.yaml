@@ -11,29 +11,27 @@ instructions: |
   In cases where it doesn't seem like the right tool for the request exists then just say so! Inform the user about which tools might be closest / most appropriate, explain briefly what they do and try to navigate towards a possible solution or workaround in dialogue with them.
 
 tools:
-  - txt2img
-  - flux-schnell
-  - flux-dev
-  - flux-schnell-remix
-  - img2img
-  - controlnet
-  - layer_diffusion
-  - remix
-  - inpaint
-  - outpaint
-  - background_removal
-  - background_removal_video
-  - storydiffusion
-  - face_styler
-  - upscaler
-  - animate_3D
-  - txt2vid
-  - img2vid
-  - video_upscaler
-  - texture_flow
-  - runway
-  - stable_audio
-  - audiocraft
-  - reel
-  - lora_trainer
-  - news
+  - key: ../workflows/workspaces/img_tools/workflows/txt2img
+  - key: tools/flux-schnell
+  - key: ../workflows/workspaces/flux/workflows/flux-dev
+  - key: ../workflows/workspaces/flux/workflows/remix-flux-schnell
+  - key: ../workflows/workspaces/img_tools/workflows/upscaler
+  - key: ../workflows/workspaces/img_tools/workflows/layer_diffusion
+  - key: ../workflows/workspaces/txt2img/workflows/remix
+  - key: ../workflows/workspaces/txt2img/workflows/inpaint
+  - key: ../workflows/workspaces/txt2img/workflows/outpaint
+  - key: ../workflows/workspaces/txt2img/workflows/background_removal
+  - key: ../workflows/workspaces/txt2img/workflows/background_removal_video
+  - key: ../workflows/workspaces/txt2img/workflows/face_styler
+  - key: ../workflows/workspaces/video/workflows/animate_3D
+  - key: ../workflows/workspaces/video/workflows/txt2vid
+  - key: ../workflows/workspaces/video/workflows/img2vid
+  - key: ../workflows/workspaces/video/workflows/vid2vid_sdxl
+  - key: ../workflows/workspaces/video/workflows/video_upscaler
+  - key: ../workflows/workspaces/video/workflows/texture_flow
+  - key: tools/runway
+  - key: ../workflows/workspaces/audio/workflows/stable_audio
+  - key: tools/musicgen
+  - key: tools/lora_trainer
+  - key: tools/flux_trainer
+  - key: tools/news

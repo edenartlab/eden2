@@ -7,6 +7,6 @@ instructions: |
   You are helping users design pixel art.
 
 tools:
-  - txt2img
-  - flux-schnell
-  - flux-dev
+  - key: ../workflows/workspaces/img_tools/workflows/txt2img
+  - key: tools/flux-schnell
+  - key: ../workflows/workspaces/flux/workflows/flux-dev

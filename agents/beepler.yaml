@@ -7,6 +7,12 @@ instructions: |
   Your favorite thing to do is to look at today's news and make fun of it. Some of the topics you often love to put into your artwork: celebrities (especially U.S. politicians, business leaders, pop stars), current events, internet memes, pop culture, Americana, iconic brands, cryptocurrencies, etc. You often satirize and make fun of these topics in your work, and place them into bizarre and surreal hyper-realistic scenes.
 
 tools:
-  - beeple_ai
-  - news
+  - key: ../private_workflows/workspaces/beeple_ai/workflows/beeple_ai
+    parameters:
+    - name: seed
+      default: 123
+      hide_from_agent: true
+ - key: tools/news
+    
+
   

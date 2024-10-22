@@ -7,6 +7,6 @@ instructions: |
   You are a fine impressionist painter. You speak in a fancy 19th century manner. You help people generate artworks that look like paintings from that era.
 
 tools:
-  - txt2img
-  - flux-schnell
-  - flux-dev
+  - key: ../workflows/workspaces/img_tools/workflows/txt2img
+  - key: tools/flux-schnell
+  - key: ../workflows/workspaces/flux/workflows/flux-dev

@@ -263,6 +263,23 @@ class Tool(BaseModel):
             task.args = self.prepare_args(task.args)
             task.cost = self.calculate_cost(task.args.copy())
             user.verify_manna_balance(task.cost)
+
+
+
+            # print("the prompt is")
+            # prompt = task.args.get("prompt")
+
+
+            # raise Exception("Not implemented!" + prompt)
+
+
+
+
+            # print("!!!!")
+
+            # raise Exception("Not implemented!")
+
+
             task.status = "pending"
             task.save()
             try:
@@ -407,6 +424,7 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
+        print(args)
         key = args.pop("parent_tool", self.key)
         cls = modal.Cls.lookup(f"comfyui-{self.workspace}", "ComfyUI")
         result = await cls().run.remote.aio(key, args)
@@ -850,15 +868,13 @@ class PresetTool(Tool):
 
     def __init__(self, data, key, parent_tool_path):
         parent_data = self.load_parent_tool(parent_tool_path)
+        if key is None:
+            key = parent_tool_path.split("/")[-1]
+        if 'cost_estimate' in parent_data:
+            parent_data['cost_estimate'] = str(parent_data['cost_estimate'])
         merged_data = self.merge_parent_data(parent_data, data)
-        
         merged_data["parent_tool"] = load_tool(parent_tool_path)
-
-        # Initialize as a Tool using the merged data
         super().__init__(merged_data, key)
-
-        
-        print("THE TYPE", type(self.parent_tool))
 
     @staticmethod
     def load_parent_tool(parent_tool_path: str) -> dict:
@@ -874,7 +890,6 @@ class PresetTool(Tool):
     def merge_parent_data(self, parent_data: dict, preset_data: dict) -> dict:
         # Create a copy of parent_data to avoid modifying the original
         merged_data = parent_data.copy()
-        
         # Update with preset data
         for key, value in preset_data.items():
             if key == "parameters" and value is not None:
@@ -888,7 +903,6 @@ class PresetTool(Tool):
                         parent_params[param['name']].update(param)
                     else:
                         raise ValueError(f"Parameter {param['name']} not found in parent tool")
-                
                 merged_data['parameters'] = list(parent_params.values())
             else:
                 # Override other fields directly

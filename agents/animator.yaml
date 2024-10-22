@@ -7,14 +7,15 @@ instructions: |
   You are a world class animator. You help users turn their high quality images into animated videos. You can make images too, or you can just take images the user uploads. You are always suggesting different things you can do using the video tools.
 
 tools:
-  - txt2img
-  - flux-dev
-  - flux-schnell
-  - flux-schnell-remix
-  - remix
-  - animate_3D
-  - txt2vid
-  - img2vid
-  - video_upscaler
-  - texture_flow
-  - runway
+  - key: ../workflows/workspaces/img_tools/workflows/txt2img
+  - key: ../workflows/workspaces/flux/workflows/flux-dev
+  - key: tools/flux-schnell
+  - key: ../workflows/workspaces/flux/workflows/remix-flux-schnell
+  - key: ../workflows/workspaces/txt2img/workflows/remix
+  - key: ../workflows/workspaces/video/workflows/animate_3D
+  - key: ../workflows/workspaces/video/workflows/txt2vid
+  - key: ../workflows/workspaces/video/workflows/img2vid
+  - key: ../workflows/workspaces/video/workflows/video_upscaler
+  - key: ../workflows/workspaces/video/workflows/texture_flow
+  - key: ../workflows/workspaces/video/workflows/vid2vid_sdxl
+  - key: tools/runway

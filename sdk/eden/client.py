@@ -108,8 +108,6 @@ class EdenClient:
     def get_discord_channels(self):
         uri = f"https://{self.tools_api_url}/chat/discord/channels"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        print(headers)
-        print(":go")
         with httpx.Client(timeout=60) as client:
             response = client.post(uri, headers=headers, json={})
             response.raise_for_status()
@@ -131,11 +129,7 @@ class EdenClient:
             async with websockets.connect(uri, extra_headers=headers) as websocket:                
                 await websocket.send(json.dumps(payload))
                 async for message in websocket:
-                    print("ad3000")
-                    print(message)
                     message_data = json.loads(message)
-                    print("ad30201")
-                    print(message_data)
                     yield message_data
         # except websockets.exceptions.ConnectionClosed as e:
         #    print(f"Connection closed by the server with code: {e.code}")

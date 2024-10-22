@@ -40,7 +40,8 @@ def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    try:
+    # try:
+    if 1:
         workflow = request.get("workflow")
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
@@ -49,9 +50,9 @@ def task_handler(
         tool.submit(task)
         task.reload()
         return task
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 def cancel(
@@ -105,7 +106,6 @@ class ChatRequest(BaseModel):
 async def ws_chat(data, user):
     request = ChatRequest(**data)
     agent = Agent.from_id(request.agent_id, env=env)
-    
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
@@ -151,7 +151,8 @@ def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    try:
+    # 
+    if 1:
         workflow = request.get("workflow")
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
@@ -160,9 +161,9 @@ def task_handler(
         tool.submit(task)
         task.reload()
         return task
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 def create_handler(task_handler):
@@ -174,13 +175,14 @@ def create_handler(task_handler):
         # try:
         if 1:
             async for data in websocket.iter_json():
-                try:
+                # try:
+                if 1:
                     async for response in task_handler(data, user):
                         await websocket.send_json(response)
                     break
-                except Exception as e:
-                    await websocket.send_json({"error": str(e)})
-                    break
+                # except Exception as e:
+                #     await websocket.send_json({"error": str(e)})
+                #     break
         # except WebSocketDisconnect:
         #     print("WebSocket disconnected by client")
         # except Exception as e:

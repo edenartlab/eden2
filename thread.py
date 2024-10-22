@@ -309,6 +309,13 @@ class UrlNotFoundException(Exception):
 
 
 async def async_anthropic_prompt(messages, system_message, tools):
+    print("my tools")
+    print("-=====")
+    print(tools)
+    print("-=====")
+    print(type(tools))
+    print("-=====")
+    print(tools.values())
     messages_json = [item for msg in messages for item in msg.anthropic_schema()]
     anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
     response = await anthropic_client.messages.create(
@@ -330,6 +337,8 @@ def anthropic_prompt(messages, system_message, tools):
 
 
 async def async_openai_prompt(messages, system_message, tools):
+    print("my tools 2")
+    print(tools.values())
     messages_json = [{"role": "system", "content": system_message}]
     messages_json.extend([item for msg in messages for item in msg.openai_schema()])
     openai_tools = [t.openai_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
@@ -466,7 +475,7 @@ async def async_prompt(
     provider: Literal["anthropic", "openai"] = "anthropic",
     auto_save: bool = True
 ):
-    tools = {k: v for k, v in available_tools.items() if k in agent.tools}
+    tools = agent.get_tools()
     settings = user_message.metadata.get("settings", {})
     system_message = agent.get_system_message()
 
