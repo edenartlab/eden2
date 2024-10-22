@@ -26,35 +26,37 @@ parameters:
   type: int
   default: 2000
   minimum: 500
-  maximum: 5000
-  step: 10
+  maximum: 4000
+  step: 50
 - name: lora_rank
   label: Rank
-  description: LoRA rank. Higher gives model more capacity to learn but might lead to overfitting.
+  description: LoRA rank. Higher gives model more capacity to learn but often lead to overfitting.
   type: int
-  default: 16
+  default: 8
   minimum: 4
-  maximum: 64
+  maximum: 24
   step: 1
 - name: learning_rate
   label: Learning rate
   description: Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but slower.
   type: float
   default: 0.0003
-  minimum: 0.00001
-  maximum: 0.001
-  step: 0.00001
+  minimum: 0.0001
+  maximum: 0.0010
+  step: 0.00005
 - name: learning_rate_decay
   label: Learning rate decay
   description: Learning rate decay for training. Higher values decay faster but too high might cause overfitting. Low values are more accurate but slower.
   type: float
+  hide_from_ui: true
+  hide_from_agent: true
   default: 0.0001
   minimum: 0.00001
   maximum: 0.001
   step: 0.000001
 - name: caption_prefix
   label: Caption prefix
-  description: Caption prefix for training.
+  description: Caption prefix for training. Ideally you use a few short, but descriptive words that describe your concept visually.
   type: string
   default: TOK
 - name: seed
