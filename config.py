@@ -13,7 +13,7 @@ if env not in ["PROD", "STAGE"]:
 # this controls order of tools in frontend
 api_tools = [
     "txt2img", "flux_dev", "flux-schnell", 
-    "img2img", "layer_diffusion", "flux_schnell_remix", "remix", "inpaint", "outpaint", "face_styler", 
+    "img2img", "layer_diffusion", "remix_flux_schnell", "remix", "inpaint", "flux_inpainting", "outpaint", "face_styler", 
     "upscaler", "background_removal", "background_removal_video",     
     "animate_3D", "txt2vid", "img2vid", "video_upscaler", "vid2vid_sdxl",
     "texture_flow", "runway",
