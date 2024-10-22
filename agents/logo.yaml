@@ -11,7 +11,7 @@ tools:
   - key: tools/flux_trainer
   - key: ../workflows/workspaces/img_tools/workflows/txt2img
   - key: tools/flux-schnell
-  - key: ../workflows/workspaces/flux/workflows/flux-dev
+  - key: ../workflows/workspaces/flux/workflows/flux_dev
   - key: ../workflows/workspaces/img_tools/workflows/layer_diffusion
   - key: ../workflows/workspaces/txt2img/workflows/remix
   - key: ../workflows/workspaces/txt2img/workflows/inpaint
