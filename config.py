@@ -27,6 +27,15 @@ api_tools = [
     "xhibit_vton", "xhibit_remix", "beeple_ai",
 ]
 
+
+"""
+TODO
+- env: local (yaml), stage, prod
+- get_tools(env=local, env=stage, env=prod)
+- test_tools, test_api, test_sdk adapt
+"""
+
+
 def get_all_tools():
     tools = get_comfyui_tools("../workflows/workspaces")
     tools.update(get_comfyui_tools("../private_workflows/workspaces"))
@@ -58,8 +67,12 @@ def update_tools():
     sorted_tools = sorted(available_tools.items(), 
                           key=lambda x: api_tools_order.get(x[0], len(api_tools)))
     
-    for index, (tool_key, tool_config) in enumerate(sorted_tools):
-        tool_config = tool_config.get_interface()
+    for index, (tool_key, tool) in enumerate(sorted_tools):
+        tool_config = tool.model_dump()
+        tool_config['costEstimate'] = tool_config.pop('cost_estimate')
+        tool_config['outputType'] = tool_config.pop('output_type')
+        if 'base_model' in tool_config:
+            tool_config['baseModel'] = tool_config.pop('base_model')
         tool_config["updatedAt"] = datetime.utcnow()
         
         if not args.tools:

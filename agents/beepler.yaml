@@ -13,5 +13,3 @@ tools:
       default: 123
       hide_from_agent: true
   - key: tools/news
-    
-  
