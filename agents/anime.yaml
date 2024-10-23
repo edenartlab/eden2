@@ -9,10 +9,12 @@ instructions: |
 tools:
   - key: ../workflows/workspaces/img_tools/workflows/txt2img
     parameters:
+    - name: prompt
+      tip: make sure to *always* include the word "anime" in the prompt
     - name: use_lora
       default: true
       hide_from_agent: true
     - name: lora
-      default: 6704277fad6d3a3c2176fc14
+      default: 671873d5dad2a591907fe603
       hide_from_agent: true
       
