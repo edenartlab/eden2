@@ -1,5 +1,6 @@
 name: Runway Gen3a Turbo
 description: Animate an image with Runway Gen3a Turbo
+tip: This tool can be used for creating a realistic animation of an image. Specific camera motion can be obtained by putting such directions in the prompt text.
 cost_estimate: 100
 handler: runway
 output_type: video
