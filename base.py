@@ -75,6 +75,7 @@ def generate_edit_model(model: Type[BaseModel]) -> Type[BaseModel]:
         args = get_args(field)
 
         if origin is Union and type(None) in args:
+            # Optional[actual_type] found
             actual_type = next(arg for arg in args if arg is not type(None))
             origin = get_origin(actual_type)
             args = get_args(actual_type)
@@ -198,9 +199,9 @@ def get_python_type(field_info):
     return type_map.get(field_type, Any)
 
 
-def recreate_base_model(model_type_data: Dict[str, Any]) -> Type[BaseModel]:
-    model_name = model_type_data['name']
-    model_schema = model_type_data['schema']
+def recreate_base_model(type_model_data: Dict[str, Any]) -> Type[BaseModel]:
+    model_name = type_model_data['name']
+    model_schema = type_model_data['schema']
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
         for field, info in model_schema['properties'].items()
@@ -228,20 +229,20 @@ class MongoModel(BaseModel):
 
     # @classmethod
     # def model_validate(cls, obj: Any):
-    #     if isinstance(obj, dict) and 'model_type' in obj and isinstance(obj['model_type'], dict):
-    #         obj['model_type'] = recreate_base_model(obj['model_type'])
+    #     if isinstance(obj, dict) and 'type_model' in obj and isinstance(obj['type_model'], dict):
+    #         obj['type_model'] = recreate_base_model(obj['type_model'])
     #     return super().model_validate(obj)
 
     def save(self):
         self.model_validate({**self.model_dump(), **{"env": self.env}})
         data = self.model_dump(by_alias=True, exclude_none=True)
         data['_id'] = ObjectId(data['_id'])
-        collection = get_collection(self.get_collection_name(), self.env)
-        document = collection.find_one({"_id": data['_id']})
-        if document:
-            collection.update_one({"_id": data['_id']}, {"$set": data})
-        else:
-            collection.insert_one(data)
+        # collection = get_collection(self.get_collection_name(), self.env)
+        # document = collection.find_one({"_id": data['_id']})
+        # if document:
+        #     collection.update_one({"_id": data['_id']}, {"$set": data})
+        # else:
+        #     collection.insert_one(data)
     
     @classmethod
     def load(cls, document_id: str, env: str):
@@ -262,10 +263,16 @@ class MongoModel(BaseModel):
         current_time = datetime.utcnow().replace(microsecond=0)
         self.updatedAt = current_time
         update_args['updatedAt'] = self.updatedAt
-        get_collection(self.get_collection_name(), self.env).update_one(
-            {"_id": ObjectId(self.id)},
-            {"$set": update_args}
-        )
+        # get_collection(self.get_collection_name(), self.env).update_one(
+        #     {"_id": ObjectId(self.id)},
+        #     {"$set": update_args}
+        # )
+
+
+
+
+
+
 
 
 class Task(MongoModel):
@@ -280,18 +287,18 @@ class Task(MongoModel):
 
 
 class VersionableMongoModel(MongoModel):
-    model_type: Type[BaseModel]
+    type_model: Type[BaseModel]
     current: BaseModel
     edits: List[BaseModel] = Field(default_factory=list)
     collection_name: SkipJsonSchema[str] = Field(None, exclude=True)
 
     def __init__(self, **data):
-        data["current"] = data["model_type"]()
+        data["current"] = data["type_model"]()
         super().__init__(**data)
 
     @classmethod
     def model_validate(cls, obj: Any):
-        obj['model_type'] = recreate_base_model(obj['model_type'])
+        obj['type_model'] = recreate_base_model(obj['type_model'])
         return super().model_validate(obj)
 
     def get_collection_name(self) -> str:
@@ -303,15 +310,15 @@ class VersionableMongoModel(MongoModel):
         document = collection.find_one({"_id": ObjectId(document_id)})
         if document is None:
             raise ValueError(f"Document with id {document_id} not found in collection {collection_name}")
-        document['model_type'] = recreate_base_model(document['model_type'])
+        document['type_model'] = recreate_base_model(document['type_model'])
         return cls(env=env, collection_name=collection_name, **document)
 
     def model_dump(self, **kwargs):
         data = super().model_dump(**kwargs)
-        if True: #'model_type' in data:
-            data['model_type'] = {
-                'name': data['model_type'].__name__,
-                'schema': data['model_type'].model_json_schema()
+        if True: #'type_model' in data:
+            data['type_model'] = {
+                'name': data['type_model'].__name__,
+                'schema': data['type_model'].model_json_schema()
             }
         if True: #'current' in data:
             data['current'] = self.current.model_dump()
@@ -321,7 +328,7 @@ class VersionableMongoModel(MongoModel):
         return data
     
     def get_edit_model(self) -> Type[BaseModel]:
-        return generate_edit_model(self.model_type)
+        return generate_edit_model(self.type_model)
 
     def apply_edit(self, edit: BaseModel):
         self.current = apply_edit(self.current, edit)
@@ -331,7 +338,7 @@ class VersionableMongoModel(MongoModel):
     def reconstruct_version(self, version: int) -> BaseModel:
         if version < 0 or version > len(self.edits):
             raise ValueError("Invalid version number")
-        instance = self.model_type()
+        instance = self.type_model()
         for edit in self.edits[:version]:
             instance = apply_edit(instance, edit)
         return instance
@@ -390,7 +397,7 @@ class Agent2(BaseModel):
 
 # # # Usage example:
 # # print("ok1")
-# agent = VersionableMongoModel(model_type=Agent2, collection_name="agents", env="STAGE")
+# agent = VersionableMongoModel(type_model=Agent2, collection_name="agents", env="STAGE")
 # print("ok2")
 # agent.save()
 # print("ok3")
