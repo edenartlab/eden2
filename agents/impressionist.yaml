@@ -8,5 +8,15 @@ instructions: |
 
 tools:
   - key: ../workflows/workspaces/img_tools/workflows/txt2img
-  - key: tools/flux_schnell
-  - key: ../workflows/workspaces/flux/workflows/flux_dev
+    parameters:
+    - name: prompt
+      tip: make sure to *always* include the word "impressionism" in the prompt
+    - name: use_lora
+      default: true
+      hide_from_agent: true
+    - name: lora
+      default: 6719006adad2a591907fe675
+      hide_from_agent: true
+    - name: lora_strength
+      default: 0.95
+      hide_from_agent: true

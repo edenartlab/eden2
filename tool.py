@@ -1,6 +1,7 @@
 import re
 import os
 import yaml
+import copy
 import json
 import random
 import asyncio
@@ -95,10 +96,10 @@ class Tool(BaseModel):
     cost_estimate: str = Field(None, description="A formula which estimates the inference cost as a function of the parameters")
     output_type: ParameterType = Field(None, description="Output type from the tool")
     resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
-    gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
-    test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
+    gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool")
+    test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args")
     private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API")
-    handler: SkipJsonSchema[str] = Field(False, description="Which type of tool", exclude=True)
+    handler: SkipJsonSchema[str] = Field(False, description="Which type of tool")
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -136,25 +137,7 @@ class Tool(BaseModel):
             requirements_str = "; ".join(requirements)
             summary += f" ({requirements_str})"
         return summary
-
-    def get_interface(self, include_params=True):
-        data = {
-            "key": self.key,
-            "name": self.name,
-            "description": self.description,
-            "thumbnail": self.thumbnail,
-            "outputType": self.output_type,
-            "resolutions": self.resolutions,
-            "costEstimate": self.cost_estimate,
-            "private": self.private
-        } 
-        if hasattr(self, "base_model"):
-            data["baseModel"] = self.base_model
-        if include_params:
-            data["tip"] = self.tip
-            data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
-        return data
-
+    
     def anthropic_tool_schema(self, remove_hidden_fields=False, include_tips=False):
         tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
         schema = openai_schema(tool_model).anthropic_schema
@@ -780,6 +763,7 @@ def get_comfyui_tools(envs_dir: str):
 
 
 def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
+    # is this needed for anything?
     tools_summary = ""
     for tool in tools.values():
         tools_summary += f"{tool.summary(include_params=include_params, include_requirements=include_requirements)}\n"
@@ -891,7 +875,7 @@ class PresetTool(Tool):
 
     def merge_parent_data(self, parent_data: dict, preset_data: dict) -> dict:
         # Create a copy of parent_data to avoid modifying the original
-        merged_data = parent_data.copy()
+        merged_data = copy.deepcopy(parent_data)
         # Update with preset data
         for key, value in preset_data.items():
             if key == "parameters" and value is not None:

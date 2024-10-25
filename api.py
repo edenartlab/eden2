@@ -194,13 +194,6 @@ def create_handler(task_handler):
     return websocket_handler
 
 
-def tools_list():
-    return [available_tools[t].get_interface(include_params=False) for t in api_tools if t in available_tools]
-
-def tools_summary():
-    return [available_tools[t].get_interface() for t in api_tools if t in available_tools]
-
-
 web_app = FastAPI()
 
 web_app.websocket("/ws/chat")(create_handler(ws_chat))
@@ -212,11 +205,6 @@ web_app.post("/thread/create")(get_or_create_thread)
 web_app.post("/create")(task_handler)
 web_app.post("/cancel")(cancel)
 web_app.post("/update")(replicate_update)
-
-web_app.get("/tools")(tools_summary)
-web_app.get("/tools/list")(tools_list)
-for t in available_tools:
-    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_interface())
 
 
 app = modal.App(
