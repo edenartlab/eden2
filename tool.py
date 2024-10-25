@@ -7,7 +7,7 @@ import asyncio
 import modal
 from enum import Enum
 from datetime import datetime
-from typing import Any, Tuple, Dict, List, Optional, Type, Literal
+from typing import Any, Tuple, Dict, List, Optional, Type, Literal, Union
 from pydantic import BaseModel, Field, ValidationError, create_model
 from pydantic.json_schema import SkipJsonSchema
 from instructor.function_calls import openai_schema
@@ -16,7 +16,6 @@ from models import Task, Model, User
 import eden_utils
 import s3
 import gcp
-
 
 env = os.getenv("ENV", "STAGE")
 
@@ -679,14 +678,13 @@ def create_tool_base_model(tool: Tool, remove_hidden_fields=False, include_tips=
     ToolBaseModel.__doc__ = eden_utils.concat_sentences(tool.description, tool.tip)
     return ToolBaseModel
 
-
 def get_field_type_and_kwargs(
     param: ToolParameter,
     remove_hidden_fields: bool = False,
     include_tip: bool = False
 ) -> Tuple[Type, Dict[str, Any]]:
     field_kwargs = {
-        'description': eden_utils.concat_sentences(param.description, param.tip) \
+        'description': eden_utils.concat_sentences(param.description, param.tip) 
             if include_tip else param.description
     }
 
@@ -702,7 +700,7 @@ def get_field_type_and_kwargs(
 
     default = param.default
     if default == 'random':
-        assert not param.minimum or not param.maximum, \
+        assert param.minimum is not None and param.maximum is not None, \
             "If default is random, minimum and maximum must be specified"
         field_kwargs['default_factory'] = lambda min_val=param.minimum, max_val=param.maximum: random.randint(min_val, max_val)
     elif default is not None:
@@ -720,7 +718,11 @@ def get_field_type_and_kwargs(
         field_kwargs['le'] = param.maximum
     if param.choices is not None:
         field_kwargs['choices'] = param.choices
-        field_type = Literal[*param.choices]
+        # Fix for Literal type hint
+        if isinstance(param.choices, (list, tuple)):
+            field_type = Literal[tuple(param.choices)]  # Create a proper Literal type
+        else:
+            raise ValueError("Choices must be a list or tuple")
 
     if remove_hidden_fields and param.hide_from_agent:
         field_type = SkipJsonSchema[field_type]
