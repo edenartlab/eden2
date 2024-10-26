@@ -388,7 +388,8 @@ class ComfyUI:
             
             return outputs
 
-    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
+
+    def _inject_embedding_mentions_sdxl(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
         # Hardcoded computation of the token_strength for the embedding trigger:
         token_strength = 0.5 + lora_strength / 2
 
@@ -411,6 +412,21 @@ class ComfyUI:
 
         return text
 
+    
+    def _inject_embedding_mentions_flux(self, text, embedding_trigger, caption_prefix):
+        pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
+            re.escape(embedding_trigger),
+            re.escape(embedding_trigger.lower())
+        )
+        text = re.sub(pattern, caption_prefix, text, flags=re.IGNORECASE)
+        text = re.sub(r'(<concept>)', caption_prefix, text, flags=re.IGNORECASE)
+
+        if caption_prefix not in text: # Make sure the concept is always triggered:
+            text = f"{caption_prefix}, {text}"
+
+        return text
+    
+
     def _transport_lora_flux(self, lora_url: str):
         loras_folder = "/root/models/loras"
 
@@ -419,7 +435,6 @@ class ComfyUI:
             raise ValueError(f"Lora URL Invalid: {lora_url}")
         
         lora_filename = lora_url.split("/")[-1]    
-        # name = lora_filename.split(".")[0]
         lora_path = os.path.join(loras_folder, lora_filename)
         print("tl destination folder", loras_folder)
 
@@ -432,6 +447,7 @@ class ComfyUI:
         
         print("destination path", lora_path)
         print("lora filename", lora_filename)
+
         return lora_filename
 
     def _transport_lora_sdxl(self, lora_url: str):
@@ -552,6 +568,7 @@ class ComfyUI:
 
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
+        caption_prefix = None
 
         print("args:", args)
         
@@ -599,7 +616,8 @@ class ComfyUI:
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
                 elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
-                    embeddings_filename, embedding_trigger, lora_mode = None, None, None
+                    embedding_trigger = lora.get("args", {}).get("name")
+                    caption_prefix = lora.get("args", {}).get("caption_prefix")
 
                 args[param.name] = lora_filename
                 print("lora filename", lora_filename)
@@ -618,7 +636,10 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
                 lora_strength = args.get("lora_strength", 0.5)
-                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
+                if base_model == "flux-dev":
+                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
+                elif base_model == "sdxl":    
+                    value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:
