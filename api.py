@@ -12,13 +12,19 @@ from agent import Agent
 from thread import Thread, UserMessage, async_prompt, prompt
 from models import Task
 from tool import replicate_update_task
-from config import available_tools, api_tools
+from config import get_all_tools_from_mongo
 from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
+
+available_tools = get_all_tools_from_mongo()
+
+print("ALL THE AVAILABLE TOOLS",  available_tools)
+print(available_tools.keys())
+
 
 agents = get_collection("agents", env=env)
 threads = get_collection("threads", env=env)

@@ -70,13 +70,13 @@ class ToolParameter(BaseModel):
     name: str
     label: str
     description: str = Field(None, description="Human-readable description of what parameter does")
-    tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
+    tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
     type: ParameterType
     keys: Optional[List[Dict[str, Any]]] = Field(None, description="Keys for dict type")
-    required: bool = Field(False, description="Indicates if the field is mandatory")
-    visible_if: str = Field(None, description="Condition under which parameter is visible to UI")
-    hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
-    hide_from_ui: bool = Field(False, description="Hide from UI")
+    required: Optional[bool] = Field(False, description="Indicates if the field is mandatory")
+    visible_if: Optional[str] = Field(None, description="Condition under which parameter is visible to UI")
+    hide_from_agent: Optional[bool] = Field(False, description="Hide from agent/assistant")
+    hide_from_ui: Optional[bool] = Field(False, description="Hide from UI")
     default: Optional[Any] = Field(None, description="Default value")
     minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
     maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
@@ -98,7 +98,9 @@ class Tool(BaseModel):
     resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
     gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool")
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args")
-    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API")
+    status: SkipJsonSchema[Optional[str]] = Field("stage", choices=["inactive", "stage", "prod"], description="Availability of the tool")
+    allowlist: SkipJsonSchema[Optional[str]] = Field(None, description="Feature flag allowed to use this tool (default: all users)")
+    visible: SkipJsonSchema[Optional[bool]] = Field(False, description="Tool is visible on the UI")
     handler: SkipJsonSchema[str] = Field(False, description="Which type of tool")
     parameters: List[ToolParameter]
 
@@ -245,23 +247,6 @@ class Tool(BaseModel):
             task.args = self.prepare_args(task.args)
             task.cost = self.calculate_cost(task.args.copy())
             user.verify_manna_balance(task.cost)
-
-
-
-            # print("the prompt is")
-            # prompt = task.args.get("prompt")
-
-
-            # raise Exception("Not implemented!" + prompt)
-
-
-
-
-            # print("!!!!")
-
-            # raise Exception("Not implemented!")
-
-
             task.status = "pending"
             task.save()
             try:
@@ -701,12 +686,8 @@ def get_field_type_and_kwargs(
         field_kwargs['le'] = param.maximum
     if param.choices is not None:
         field_kwargs['choices'] = param.choices
-        # Fix for Literal type hint
-        if isinstance(param.choices, (list, tuple)):
-            field_type = Literal[tuple(param.choices)]  # Create a proper Literal type
-        else:
-            raise ValueError("Choices must be a list or tuple")
-
+        field_type = Literal[tuple(param.choices)]
+        
     if remove_hidden_fields and param.hide_from_agent:
         field_type = SkipJsonSchema[field_type]
     
@@ -762,12 +743,12 @@ def get_comfyui_tools(envs_dir: str):
     }
 
 
-def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
-    # is this needed for anything?
-    tools_summary = ""
-    for tool in tools.values():
-        tools_summary += f"{tool.summary(include_params=include_params, include_requirements=include_requirements)}\n"
-    return tools_summary
+# def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
+#     # is this needed for anything?
+#     tools_summary = ""
+#     for tool in tools.values():
+#         tools_summary += f"{tool.summary(include_params=include_params, include_requirements=include_requirements)}\n"
+#     return tools_summary
 
 
 def get_human_readable_error(error_list):

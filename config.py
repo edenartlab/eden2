@@ -3,7 +3,7 @@ import argparse
 import json
 import random
 import os
-from tool import get_tools, get_comfyui_tools
+from tool import *
 from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
@@ -36,16 +36,43 @@ TODO
 """
 
 
-def get_all_tools():
+def get_all_tools_from_yaml():
     tools = get_comfyui_tools("../workflows/workspaces")
     tools.update(get_comfyui_tools("../private_workflows/workspaces"))
     tools.update(get_tools("tools"))
     return tools
 
 
-available_tools = get_all_tools()
-if env == "PROD":
-    available_tools = {k: v for k, v in available_tools.items() if k in api_tools}
+def get_all_tools_from_mongo():
+    tools_collection = get_collection("tools", env)
+    tools = {}
+    for tool in tools_collection.find():
+        key = tool.pop("key")
+        tool['cost_estimate'] = tool.pop('costEstimate')
+        tool['output_type'] = tool.pop('outputType')
+        tool['base_model'] = tool.pop('baseModel', None)
+        if tool.get('parent_tool'):
+            data = yaml.safe_load(open(f"tools/{key}/api.yaml", "r"))
+            if data.get('cost_estimate'):
+                data['cost_estimate'] = str(data['cost_estimate'])
+            workspace = data.pop('parent_tool')
+            data['workspace'] = workspace
+            tools[key] = PresetTool(data, key=key, parent_tool_path=workspace)
+        elif tool["handler"] == "comfyui":
+            tools[key] = ComfyUITool(tool, key)
+        elif tool["handler"] == "replicate":
+            tools[key] = ReplicateTool(tool, key)
+        elif tool["handler"] == "gcp":
+            tools[key] = GCPTool(tool, key)
+        else:
+            tools[key] = ModalTool(tool, key)
+
+    return tools
+
+
+# available_tools = get_all_tools()
+# if env == "PROD":
+#     available_tools = {k: v for k, v in available_tools.items() if k in api_tools}
 
 
 def update_tools():
@@ -54,13 +81,10 @@ def update_tools():
     parser.add_argument('--tools', nargs='+', help='List of tools to update')
     args = parser.parse_args()
 
-    available_tools = get_all_tools()
+    available_tools = get_all_tools_from_yaml()
 
     if args.tools:
         available_tools = {k: v for k, v in available_tools.items() if k in args.tools}
-
-    if args.env == "PROD":
-        available_tools = {k: v for k, v in available_tools.items() if k in api_tools}
 
     tools_collection = get_collection("tools", args.env)
     api_tools_order = {tool: index for index, tool in enumerate(api_tools)}
@@ -69,10 +93,22 @@ def update_tools():
     
     for index, (tool_key, tool) in enumerate(sorted_tools):
         tool_config = tool.model_dump()
+
+
+        # temporary
+        tool_config['private'] = tool_config.pop('visible', False)
+
+
+        # temporary hack to recreate presets
+
+
         tool_config['costEstimate'] = tool_config.pop('cost_estimate')
         tool_config['outputType'] = tool_config.pop('output_type')
         if 'base_model' in tool_config:
             tool_config['baseModel'] = tool_config.pop('base_model')
+        if 'parent_tool' in tool_config:
+            tool_config.pop('parent_tool')
+            tool_config['parent_tool'] = tool.parent_tool.model_dump()
         tool_config["updatedAt"] = datetime.utcnow()
         
         if not args.tools:
