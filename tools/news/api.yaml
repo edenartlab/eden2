@@ -3,7 +3,8 @@ description: Get the news
 cost_estimate: 1
 handler: news
 output_type: string
-private: true
+status: prod
+visible: false
 parameters:
 - name: subject
   label: Subject

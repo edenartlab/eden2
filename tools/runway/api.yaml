@@ -3,7 +3,8 @@ description: Animate an image with Runway Gen3a Turbo
 cost_estimate: 100
 handler: runway
 output_type: video
-private: true
+status: prod
+visible: false
 parameters:
 - name: prompt_image
   label: Prompt Image

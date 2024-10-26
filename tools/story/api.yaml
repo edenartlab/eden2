@@ -1,9 +1,10 @@
 name: Story
 description: Generate a short reel-sized film 
 cost_estimate: 10
-private: true
 handler: reel
 output_type: video
+status: stage
+visible: false
 parameters:
 - name: prompt
   label: Prompt

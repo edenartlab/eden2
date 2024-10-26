@@ -3,7 +3,8 @@ description: Chat with an agent
 output_type: message
 cost_estimate: 1
 handler: chat
-private: true
+status: prod
+visible: false
 parameters:
 - name: content
   label: Message

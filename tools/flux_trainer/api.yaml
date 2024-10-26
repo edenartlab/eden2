@@ -2,12 +2,12 @@ name: Flux LoRA trainer
 description: Finetune a model on top of Flux-dev
 tip: This will create a LoRA model from a base Flux-dev which captures and integrates the style, human face, or object represented in the training data.
 output_type: lora
+status: prod
 cost_estimate: 0.5 * max_train_steps
 handler: gcp
 gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
 machine_type: a2-highgpu-1g
 gpu: A100
-private: true
 parameters:
 - name: name
   label: Name
