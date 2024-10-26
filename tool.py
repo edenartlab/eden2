@@ -53,18 +53,17 @@ class ParameterType(str, Enum):
     MESSAGE = "message"
 
 FILE_TYPES = [
-    ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
+    ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO, ParameterType.IMAGE_VIDEO
 ]
 
 FILE_ARRAY_TYPES = [
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO, ParameterType.AUDIO_ARRAY
+    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.AUDIO_ARRAY
 ]
 
 ARRAY_TYPES = [
     ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, 
     ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
 ]
-
 
 class ToolParameter(BaseModel):
     name: str

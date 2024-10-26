@@ -553,6 +553,17 @@ class ComfyUI:
     def _inject_args_into_workflow(self, workflow, tool_, args, env="STAGE"):
         embedding_trigger = None
 
+        # Helper function to validate and normalize URLs
+        def validate_url(url):
+            if not url:
+                return None
+            if not isinstance(url, str):
+                raise ValueError(f"Invalid URL type: {type(url)}. Expected string.")
+            # Add protocol if missing
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            return url
+    
         print("args:", args)
         
         # download and transport files
@@ -563,11 +574,21 @@ class ComfyUI:
             
             elif param.type in tool.FILE_ARRAY_TYPES:
                 urls = args.get(param.name)
-                args[param.name] = [
-                    eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
-                    for url in urls
-                ] if urls else None
-            
+                if urls:
+                    try:
+                        args[param.name] = [
+                            eden_utils.download_file(
+                                validate_url(url),
+                                f"/root/input/{self._url_to_filename(validate_url(url))}"
+                            ) if url else None
+                            for url in urls
+                        ]
+                    except Exception as e:
+                        raise Exception(f"Error processing {param.name} array: {str(e)}")
+                else:
+                    print("WARNING: No valid URLs found for {param.name}")
+                    args[param.name] = None
+                
             elif param.type == tool.ParameterType.LORA:
                 lora_id = args.get(param.name)
                 print("LORA ID", lora_id)
