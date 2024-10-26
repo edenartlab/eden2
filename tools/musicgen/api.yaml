@@ -2,6 +2,7 @@ name: Musicgen
 description: Generate music from text prompt
 thumbnail: app/audio-opt.mp4
 output_type: audio
+status: prod
 cost_estimate: 0.1 * duration
 handler: replicate
 output_handler: normal

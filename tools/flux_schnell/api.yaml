@@ -3,6 +3,7 @@ description: Generate an image from text quickly with Flux Schnell.
 thumbnail: app/flux-schnell.png
 tip: Flux is a text to image model that excels at prompt coherence and text generation. This should always be the default way to generate an image from text!
 output_type: image
+status: prod
 cost_estimate: 1 * num_outputs
 model: black-forest-labs/flux-schnell
 handler: replicate
