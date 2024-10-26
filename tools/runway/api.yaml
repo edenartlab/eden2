@@ -4,6 +4,7 @@ tip: This tool can be used for creating a realistic animation of an image. Speci
 cost_estimate: 50
 handler: runway
 output_type: video
+status: prod
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
 parameters:
 - name: prompt_image

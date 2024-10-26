@@ -6,7 +6,7 @@ import modal
 from datetime import datetime
 from tools import reel, story, news, chat, runway
 from tools import write
-from models import Task, User, Story
+from models import Task, User
 import eden_utils
 
 handlers = {
@@ -81,10 +81,10 @@ async def submit(task_id: str, env: str):
         )
         if task.output_type == "string":
             result = output
-            print(output)
-            print(Story)
-            story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
-            story.update(output)
+            # print(output)
+            # print(Story)
+            # story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
+            # story.update(output)
         elif task.output_type == "message":
             result = output
         else:

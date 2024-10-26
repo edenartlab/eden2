@@ -15,7 +15,6 @@ import sentry_sdk
 import s3
 from agent import Agent
 from mongo import MongoBaseModel, get_collection
-from config import available_tools
 from eden_utils import custom_print, download_file, image_to_base64
 from models import Task, User
 

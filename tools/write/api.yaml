@@ -5,6 +5,7 @@ cost_estimate: 1
 handler: mongo
 object_type: Story
 output_type: string
+status: prod
 parameters:
 - name: id
   label: Document ID
