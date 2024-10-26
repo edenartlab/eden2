@@ -48,6 +48,7 @@ def get_all_tools_from_mongo():
     tools = {}
     for tool in tools_collection.find():
         key = tool.pop("key")
+        print("KEY", key)
         tool['cost_estimate'] = tool.pop('costEstimate')
         tool['output_type'] = tool.pop('outputType')
         tool['base_model'] = tool.pop('baseModel', None)
