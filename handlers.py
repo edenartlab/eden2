@@ -4,8 +4,7 @@ dotenv.load_dotenv()
 import asyncio
 import modal
 from datetime import datetime
-from tools import reel, story, news, chat, runway
-from tools import write
+from tools import reel, story, news, chat, runway, write, image_concat, image_crop, video_concat, audio_video_combine
 from models import Task, User
 import eden_utils
 
@@ -15,16 +14,19 @@ handlers = {
     "news": news,
     "write": write,
     "chat": chat,
-    "runway": runway
+    "runway": runway,
+    
+    "image_concat": image_concat,
+    "image_crop": image_crop,
+    "video_concat": video_concat,
+    "audio_video_combine": audio_video_combine,
 }
 
 app = modal.App(
     name="handlers",
     secrets=[
-
         modal.Secret.from_name("admin-key"),
-        modal.Secret.from_name("clerk-credentials"), # ?
-        
+        modal.Secret.from_name("clerk-credentials"), # ?        
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("replicate"),
@@ -41,7 +43,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client",
+                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client", "google-cloud-aiplatform",
                  "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
     # .pip_install("bson").pip_install("pymongo")
     .copy_local_dir("../workflows", remote_path="/workflows")
@@ -76,9 +78,13 @@ async def submit(task_id: str, env: str):
     })
 
     try:
+        print("HJANDLE 1")
         output = await _execute(
             task.workflow, task.args, task.user, env=env
         )
+
+        print("HJANDLE 2")
+        print(output)
         if task.output_type == "string":
             result = output
             # print(output)
@@ -122,23 +128,25 @@ def main():
 
 
 if __name__ == "__main__":
+    import os
+    import argparse
+    from config import get_all_tools_from_yaml
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--tool', type=str, help='Name of the tool to run')
+    args = parser.parse_args()
+
+    if args.tool not in handlers:
+        raise ValueError(f"Tool {args.tool} not in modal handlers")
+    
+    tool = get_all_tools_from_yaml()[args.tool]
+
     async def run_example_local():
-        # output = await _execute(
-        #     tool_name="reel",
-        #     args={
-        #         "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
-        #         "narrator": True,
-        #         "music": True,
-        #         "min_duration": 10
-        #     },
-        #     user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
-        # )
-        output = await _execute(
-            tool_name="news",
-            args={
-                "subject": "entertainment"
-            },
-            user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
+        result = await _execute(
+            tool_name=args.tool,
+            args=tool.test_args,
+            user=os.getenv("EDEN_TEST_USER_STAGE")
         )
-        print(output)
+        print(result)
+        return result
     asyncio.run(run_example_local())

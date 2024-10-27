@@ -11,20 +11,13 @@ if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 
 # this controls order of tools in frontend
-api_tools = [
+ordered_tools = [
     "txt2img", "flux_dev", "flux_schnell", 
     "layer_diffusion", "remix_flux_schnell", "remix", "inpaint", "flux_inpainting", "outpaint", "face_styler", 
-    "upscaler", "background_removal", "background_removal_video",
+    "upscaler", "background_removal", "background_removal_video", "style_transfer",
     "animate_3D", "txt2vid", "img2vid", "video_upscaler", "vid2vid_sdxl",
     "texture_flow", "runway",
-    "stable_audio", "musicgen",
-
-    # preset tools
-    "style_transfer",
-
-    # these are hidden but make them available over API
-    "lora_trainer", "flux_trainer", "news", "moodmix", "storydiffusion",
-    "xhibit_vton", "xhibit_remix", "beeple_ai",
+    "stable_audio", "musicgen"
 ]
 
 
@@ -40,6 +33,7 @@ def get_all_tools_from_yaml():
     tools = get_comfyui_tools("../workflows/workspaces")
     tools.update(get_comfyui_tools("../private_workflows/workspaces"))
     tools.update(get_tools("tools"))
+    tools.update(get_tools("tools/media_utils"))
     return tools
 
 
@@ -73,7 +67,7 @@ def get_all_tools_from_mongo():
 
 # available_tools = get_all_tools()
 # if env == "PROD":
-#     available_tools = {k: v for k, v in available_tools.items() if k in api_tools}
+#     available_tools = {k: v for k, v in available_tools.items() if k in ordered_tools}
 
 
 def update_tools():
@@ -84,23 +78,22 @@ def update_tools():
 
     available_tools = get_all_tools_from_yaml()
 
+    print(available_tools.keys())
+
     if args.tools:
         available_tools = {k: v for k, v in available_tools.items() if k in args.tools}
 
     tools_collection = get_collection("tools", args.env)
-    api_tools_order = {tool: index for index, tool in enumerate(api_tools)}
+    api_tools_order = {tool: index for index, tool in enumerate(ordered_tools)}
     sorted_tools = sorted(available_tools.items(), 
-                          key=lambda x: api_tools_order.get(x[0], len(api_tools)))
+                          key=lambda x: api_tools_order.get(x[0], len(ordered_tools)))
     
     for index, (tool_key, tool) in enumerate(sorted_tools):
         tool_config = tool.model_dump()
 
 
-        # temporary
-        tool_config['private'] = tool_config.pop('visible', False)
-
-
-        # temporary hack to recreate presets
+        # temporary until visible activated
+        tool_config['private'] = not tool_config.pop('visible', True)
 
 
         tool_config['costEstimate'] = tool_config.pop('cost_estimate')

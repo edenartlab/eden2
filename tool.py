@@ -99,7 +99,7 @@ class Tool(BaseModel):
     test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args")
     status: SkipJsonSchema[Optional[str]] = Field("stage", choices=["inactive", "stage", "prod"], description="Availability of the tool")
     allowlist: SkipJsonSchema[Optional[str]] = Field(None, description="Feature flag allowed to use this tool (default: all users)")
-    visible: SkipJsonSchema[Optional[bool]] = Field(False, description="Tool is visible on the UI")
+    visible: SkipJsonSchema[Optional[bool]] = Field(True, description="Tool is visible on the UI")
     handler: SkipJsonSchema[str] = Field(False, description="Which type of tool")
     parameters: List[ToolParameter]
 

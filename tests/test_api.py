@@ -40,6 +40,7 @@ tools.update({
     for k, v in get_tools(f"{envs_dir}/{env}/workflows").items()
 })
 tools.update(get_tools("tools"))
+tools.update(get_tools("tools/media_utils"))
 
 if args.tools:
     if not all(tool in tools for tool in args.tools):
