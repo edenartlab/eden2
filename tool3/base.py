@@ -1,6 +1,11 @@
 import copy
+from enum import Enum
 from pydantic import BaseModel, Field, create_model
-from typing import Annotated, Any, Optional, Type, List, Dict, Union, get_origin, get_args
+from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args
+
+import sys
+sys.path.append('..')
+import eden_utils
 
 
 class VersionableBaseModel(BaseModel):
@@ -196,9 +201,11 @@ def get_python_type(field_info):
     """
 
     type_map = {
+        'str': str,
         'string': str,
+        'int': int,
         'integer': int,
-        'number': float,
+        'float': float,
         'boolean': bool,
         'array': List,
         'object': Dict
@@ -210,6 +217,21 @@ def get_python_type(field_info):
     if field_type == 'object':
         return Dict[str, Any]
     return type_map.get(field_type, Any)
+
+
+
+# def get_type(type_str: str):
+#     type_mapping = {
+#         'str': str,
+#         'int': int,
+#         'float': float,
+#         'bool': bool,
+#         'array': List,
+#         'object': Dict[str, Any]
+#     }
+#     return type_mapping.get(type_str, Any)
+
+
 
 
 def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
@@ -224,4 +246,65 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
         for field, info in model_schema['properties'].items()
     })
     return base_model
+
+
+
+
+
+
+
+def create_enum(name: str, choices: List[str]):
+    return Enum(name, {str(choice): choice for choice in choices})
+
+def parse_schema(schema: dict):
+    fields = {}
+    required_fields = schema.get('required', [])
+    for field, props in schema.get('parameters', {}).items():
+        field_kwargs = {}
+        
+        if 'description' in props:
+            field_kwargs['description'] = props['description']
+            if 'tip' in props:
+                field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
+        if 'example' in props:
+            field_kwargs['example'] = props['example']
+        if 'default' in props:
+            field_kwargs['default'] = props['default']
+        
+        # Store additional properties
+        additional_props = {'required': field in required_fields}
+        if 'label' in props:
+            additional_props['label'] = props['label']
+        
+        # Handle min and max for int and float
+        if props['type'] in ['int', 'float']:
+            if 'minimum' in props:
+                field_kwargs['ge'] = props['minimum']
+            if 'maximum' in props:
+                field_kwargs['le'] = props['maximum']
+        
+        # Handle enum for strings
+        # if props['type'] == 'str' and 'choices' in props:
+        if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
+            enum_type = create_enum(f"{field.capitalize()}Enum", props['choices'])
+            fields[field] = (enum_type, Field(**field_kwargs, **additional_props))
+            continue
+        
+        if props['type'] == 'object':
+            nested_model = create_model(field, **parse_schema(props))
+            fields[field] = (nested_model, Field(**field_kwargs, **additional_props))
+        elif props['type'] == 'array':
+            item_type = get_python_type(props['items'])
+            if props['items']['type'] == 'object':
+                item_type = create_model(f"{field}Item", **parse_schema(props['items']))
+            fields[field] = (List[item_type], Field(**field_kwargs, **additional_props))
+        else:
+            fields[field] = (get_python_type(props), Field(**field_kwargs, **additional_props))
+    
+        if not additional_props['required']:
+            fields[field] = (Optional[fields[field][0]], fields[field][1])
+            fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
+
+    return fields
+
 

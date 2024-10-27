@@ -1,102 +1,33 @@
+"""
+Todo:
+- enforce choices on inner fields
+
+e.g.
+    'contacts': [
+        {'type': 'emai3l', 'value': 'widget@hotmail.com'},
+        {'type': 'phon3e', 'value': '555-1234'},
+})
+
+"""
+
 import random
-import asyncio        
 import re
+import asyncio
 import json
 import os
 import sys
-import modal
 sys.path.append('..')
+import eden_utils
+
 
 import yaml
 from pydantic import BaseModel, Field, create_model, ValidationError
-from typing import Optional, List, Dict, Any, Union
-from typing import List, Dict, Any, Union
-from enum import Enum
-from instructor.function_calls import openai_schema
-from typing import Optional
-# from tool import ParameterType
-from pydantic.json_schema import SkipJsonSchema
+from typing import Optional, List, Dict, Any, Type
+
+from base import parse_schema
 
 
-# from tool import SkipJsonSchema
-from typing import Optional, List, Type
-from pydantic import BaseModel, Field
-# from tool import ParameterType, get_human_readable_error
-# from models import Task, User
-
-import eden_utils
-
-env = "STAGE"
-
-
-def get_type(type_str: str):
-    type_mapping = {
-        'str': str,
-        'int': int,
-        'float': float,
-        'bool': bool,
-        'array': List,
-        'object': Dict[str, Any]
-    }
-    return type_mapping.get(type_str, Any)
-
-def create_enum(name: str, choices: List[str]):
-    return Enum(name, {str(choice): choice for choice in choices})
-
-def parse_schema(schema: dict):
-    fields = {}
-    required_fields = schema.get('required', [])
-    for field, props in schema.get('parameters', {}).items():
-        field_kwargs = {}
-        
-        if 'description' in props:
-            field_kwargs['description'] = props['description']
-            if 'tip' in props:
-                field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
-        if 'example' in props:
-            field_kwargs['example'] = props['example']
-        if 'default' in props:
-            field_kwargs['default'] = props['default']
-        
-        # Store additional properties
-        additional_props = {'required': field in required_fields}
-        if 'label' in props:
-            additional_props['label'] = props['label']
-        
-        # Handle min and max for int and float
-        if props['type'] in ['int', 'float']:
-            if 'minimum' in props:
-                field_kwargs['ge'] = props['minimum']
-            if 'maximum' in props:
-                field_kwargs['le'] = props['maximum']
-        
-        # Handle enum for strings
-        # if props['type'] == 'str' and 'choices' in props:
-        print("process 123")
-        print(props)
-        if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
-            enum_type = create_enum(f"{field.capitalize()}Enum", props['choices'])
-            fields[field] = (enum_type, Field(**field_kwargs, **additional_props))
-            continue
-        
-        if props['type'] == 'object':
-            nested_model = create_model(field, **parse_schema(props))
-            fields[field] = (nested_model, Field(**field_kwargs, **additional_props))
-        elif props['type'] == 'array':
-            item_type = get_type(props['items']['type'])
-            if props['items']['type'] == 'object':
-                item_type = create_model(f"{field}Item", **parse_schema(props['items']))
-            fields[field] = (List[item_type], Field(**field_kwargs, **additional_props))
-        else:
-            fields[field] = (get_type(props['type']), Field(**field_kwargs, **additional_props))
-    
-        if not additional_props['required']:
-            fields[field] = (Optional[fields[field][0]], fields[field][1])
-            fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
-
-    return fields
-
-
+from models import Task, User
 
 
 class Tool(BaseModel):
@@ -129,6 +60,8 @@ class Tool(BaseModel):
         tool_data = {k: schema.pop(k) for k in cls.__fields__.keys() if k in schema}
         tool_data['test_args'] = test_args
         tool_data['base_model'] = base_model
+        if 'cost_estimate' in tool_data:
+            tool_data['cost_estimate'] = str(tool_data['cost_estimate'])
 
         return cls(**tool_data, **kwargs)
 
@@ -165,6 +98,19 @@ class Tool(BaseModel):
             raise ValueError(error_str)
 
         return prepared_args
+
+    """
+
+    run with Task / User
+    run anon/system
+
+    run and wait
+    submit, wait
+
+    """
+
+
+
 
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
@@ -203,17 +149,17 @@ class Tool(BaseModel):
     #     result = await self.async_process(task)
     #     return result 
     
-    # def run(self, args: Dict):
-    #     return asyncio.run(self.async_run(args))
+    def run(self, args: Dict):
+        return asyncio.run(self.async_run(args))
 
-    # def submit(self, task: Task):
-    #     return asyncio.run(self.async_submit(task))
+    def submit(self, task: Task):
+        return asyncio.run(self.async_submit(task))
 
-    # def submit_and_run(self, task: Task):
-    #     return asyncio.run(self.async_submit_and_run(task))
+    def submit_and_run(self, task: Task):
+        return asyncio.run(self.async_submit_and_run(task))
     
-    # def cancel(self, task: Task):
-    #     return asyncio.run(self.async_cancel(task))
+    def cancel(self, task: Task):
+        return asyncio.run(self.async_cancel(task))
 
 
 

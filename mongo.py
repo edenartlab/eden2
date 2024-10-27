@@ -90,7 +90,7 @@ class MongoBaseModel(BaseModel):
             document_id_ = self.collection.find_one(upsert_query, {"_id": 1})
             if document_id_:
                 document_id = document_id_["_id"]
-            data["_id"] = ObjectId(document_id)
+            # data["_id"] = ObjectId(document_id)
 
         if document_id:
             data["updatedAt"] = datetime.utcnow()

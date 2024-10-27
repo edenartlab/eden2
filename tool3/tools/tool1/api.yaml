@@ -1,0 +1,18 @@
+name: Test name 1
+description: Test description
+cost_estimate: 100
+handler: modal
+output_type: image
+status: stage
+visible: false
+parameters:
+- name: prompt_image
+  label: Prompt Image
+  description: The image to animate
+  type: image
+  required: true
+- name: prompt_text
+  label: Prompt Text
+  description: The prompt to guide the animation
+  type: string
+  required: true

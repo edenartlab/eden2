@@ -1,29 +1,39 @@
+"""
+Todo:
+- enforce types in contacts
+"""
 from tool import *
 
-# Usage:
-#tool = Tool.from_dir('person')
-tool = ComfyUITool.from_dir('example_tool')
 
-# print(regular_tool)
-print(tool)
-print(tool.comfyui_map)
+def test_tool():
+    tool = Tool.from_dir('example_tool')
 
-print(tool.base_model.__fields__['age'])
+    args = tool.prepare_args({
+        'type': 'thingy',
+        'name': 'John', 
+        'price': 1,
+        'skills': ["cooking", "swimming"],
+        'contacts': [
+            {'type': 'emai3l', 'value': 'widget@hotmail.com'},
+            {'type': 'phon3e', 'value': '555-1234'},
+        ]
+    })
+
+    age = args.get('age')  # this was randomly set
+
+    assert args == {
+        'name': 'John', 
+        'type': 'thingy', 
+        'price': 1, 
+        'age': age,
+        'skills': ['cooking', 'swimming'], 
+        'contacts': [
+            {'type': 'emai3l', 'value': 'widget@hotmail.com'}, 
+            {'type': 'phon3e', 'value': '555-1234'}
+        ],
+        'address': None, 
+        'matrix': None
+    }
 
 
-args = tool.prepare_args({
-    'type': 'thingy',
-    'name': 'John', 
-    'age': 30, 
-    'price': 1,
-    'skills': ["cooking", "swimming"],
-    'contacts': [
-        {'type': 'emai3l', 'value': 'widget@hotmail.com'},
-        {'type': 'phon3e', 'value': '555-1234'},
-    ]
-})
-
-print("-======")
-print(args)
-
-
+test_tool()

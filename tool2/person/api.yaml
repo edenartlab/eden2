@@ -1,0 +1,89 @@
+name: "Person"
+description: "This model represents a person with their details like name, age, hobbies, contacts, and address."
+tip: "Person is a model that represents a person and stuff."
+cost_estimate: "50"
+comfyui_output_node: 161
+comfyui_intermediate_outputs:
+  controlnet_signal: 323
+properties:
+  name:
+    type: "str"
+    description: "The person's name"
+    example: "John"
+    label: "Full Name"
+    required: true
+    enum: ["John", "Jane", "Alice", "Bob"]
+  age:
+    type: "int"
+    description: "The person's age"
+    example: 30
+    label: "Age"
+    default: random
+    minimum: 0
+    maximum: 120
+    comfyui:
+      node_id: 162
+      field: height
+      subfield: height
+  height:
+    type: "float"
+    description: "The person's height in meters"
+    example: 1.75
+    minimum: 0.5
+    maximum: 2.5
+    tip: "Height is measured in meters"
+  hobbies:
+    type: "array"
+    items:
+      type: "str"
+    description: "List of hobbies"
+    default: ["reading", "swimming", "coding"]
+    example: ["reading", "swimming", "coding"]
+  contacts:
+    type: "array"
+    items:
+      type: object
+      properties:
+        type:
+          type: "str"
+          description: "The contact method type"
+          example: "email"
+          enum: ["email", "phone", "social_media"]
+        value:
+          type: "str"
+          description: "The contact value"
+          example: "john@example.com"
+    description: "A list of contact methods"
+    example: [{"type": "email", "value": "john@example.com"}, {"type": "phone", "value": "123456789"}]
+  address:
+    type: object
+    properties:
+      street:
+        type: "str"
+        description: "The street address"
+        example: "123 Main St"
+      city:
+        type: "str"
+        description: "The city name"
+        example: "Somewhere"
+      postal_code:
+        type: "int"
+        description: "Postal code for the address"
+        example: 12345
+        minimum: 10000
+        maximum: 99999
+    description: "The person's address"
+    example: {"street": "123 Main St", "city": "Somewhere", "postal_code": 12345}
+  matrix:
+    type: object
+    properties:
+      data:
+        type: "array"
+        items:
+          type: "array"
+          items:
+            type: "int"
+        description: "A row in the matrix"
+    description: "A 2D array of integers (matrix)"
+    tip: "Matrix is a 2D array of integers"
+    example: {"data": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}
