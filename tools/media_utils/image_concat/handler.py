@@ -34,5 +34,4 @@ async def image_concat(args: dict, _: str = None, env: str = None):
     result_filename = f"combined_{height}px.png"
     combined_image.save(result_filename)
 
-    #result = eden_utils.upload_media([result_filename], env=env, save_thumbnails=False)
     return [result_filename]

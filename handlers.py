@@ -78,13 +78,10 @@ async def submit(task_id: str, env: str):
     })
 
     try:
-        print("HJANDLE 1")
         output = await _execute(
             task.workflow, task.args, task.user, env=env
         )
 
-        print("HJANDLE 2")
-        print(output)
         if task.output_type == "string":
             result = output
             # print(output)

@@ -23,6 +23,5 @@ async def image_crop(args: dict, _: str = None, env: str = None):
         image = image.crop((int(left), int(top), int(right-left), int(bottom-top)))
         image.save(image_edited_filename)
 
-    # result = eden_utils.upload_media([image_edited_filename], env=env, save_thumbnails=False)
     return [image_edited_filename]
-    # return result
+    

@@ -48,6 +48,5 @@ async def audio_video_combine(args: dict, _: str = None, env: str = None):
 
     subprocess.run(cmd)
 
-    # result = eden_utils.upload_media([output_file.name], env=env, save_thumbnails=False)
     return [output_file.name]
-    # return result
+    
