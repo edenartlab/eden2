@@ -1,0 +1,20 @@
+name: Combine audio and video
+description: Combine audio and video
+output_type: video
+status: prod
+visible: false
+cost_estimate: 0.1
+handler: audio_video_combine
+status: stage
+visible: false
+parameters:
+- name: video
+  label: Video
+  description: Video URL
+  type: video
+  required: true
+- name: audio
+  label: Audio
+  description: Audio URL
+  type: audio
+  required: true
