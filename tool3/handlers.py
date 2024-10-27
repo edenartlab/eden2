@@ -51,50 +51,51 @@ async def run(tool_name: str, args: dict, user: str = None):
     return result
 
 
-# @app.function(image=image, timeout=3600)
-# async def submit(task_id: str, env: str):
-#     task = Task.from_id(document_id=task_id, env=env)
-#     print(task)
+@app.function(image=image, timeout=3600)
+async def submit(task_id: str, env: str):
+    task = Task.from_id(document_id=task_id, env=env)
+    print(task)
     
-#     start_time = datetime.utcnow()
-#     queue_time = (start_time - task.createdAt).total_seconds()
+    start_time = datetime.utcnow()
+    queue_time = (start_time - task.createdAt).total_seconds()
     
-#     task.update({
-#         "status": "running",
-#         "performance": {"waitTime": queue_time}
-#     })
+    task.update({
+        "status": "running",
+        "performance": {"waitTime": queue_time}
+    })
 
-#     try:
-#         output = await _execute(
-#             task.workflow, task.args, task.user, env=env
-#         )
-#         if task.output_type == "string":
-#             result = output
-#             print(output)
-#             print(Story)
-#             story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
-#             story.update(output)
-#         elif task.output_type == "message":
-#             result = output
-#         else:
-#             result = eden_utils.upload_media(output, env=env)
-#         print(result)
-#         task_update = {
-#             "status": "completed", 
-#             "result": result
-#         }
-#         return task_update
+    try:
+        output = await _execute(
+            task.workflow, task.args, task.user, env=env
+        )
+        result = output
+        # if task.output_type == "string":
+        #     result = output
+        #     print(output)
+        #     print(Story)
+        #     story = Story.from_id("66de2dfa5286b9dc656291c1", env=env)
+        #     story.update(output)
+        # elif task.output_type == "message":
+        #     result = output
+        # else:
+        #     result = eden_utils.upload_media(output, env=env)
+        print(result)
+        task_update = {
+            "status": "completed", 
+            "result": result
+        }
+        return task_update
 
-#     except Exception as e:
-#         print("Task failed", e)
-#         task_update = {"status": "failed", "error": str(e)}
-#         user = User.from_id(task.user, env=env)
-#         user.refund_manna(task.cost or 0)
+    except Exception as e:
+        print("Task failed", e)
+        task_update = {"status": "failed", "error": str(e)}
+        user = User.from_id(task.user, env=env)
+        user.refund_manna(task.cost or 0)
 
-#     finally:
-#         run_time = datetime.utcnow() - start_time
-#         task_update["performance.runTime"] = run_time.total_seconds()
-#         task.update(task_update)
+    finally:
+        run_time = datetime.utcnow() - start_time
+        task_update["performance.runTime"] = run_time.total_seconds()
+        task.update(task_update)
 
     
 @app.local_entrypoint()
