@@ -17,3 +17,28 @@ parameters:
   description: The prompt to guide the animation
   type: string
   required: true
+- name: duration
+  label: Duration
+  description: The duration of the video in seconds
+  type: string
+  default: "5"
+  choices: ["5", "10"]
+- name: ratio
+  label: Ratio
+  description: The aspect ratio of the video
+  type: string
+  default: "9:16"
+  choices: ["16:9", "9:16"]
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set to a random value.
+  tip: You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank! 
+  type: int
+  default: random
+  minimum: 0
+  maximum: 2147483647
+- name: watermark
+  label: Watermark
+  description: Add a Runway watermark to the video
+  type: bool
+  default: false

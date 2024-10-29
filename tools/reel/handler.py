@@ -1,5 +1,12 @@
 import sys
 sys.path.append("../..")
+
+# sys.path.append("../../..")
+from tools.media_utils.video_concat.handler import video_concat
+
+
+import math
+import asyncio
 from io import BytesIO
 from pydub import AudioSegment
 from pydub.utils import ratio_to_db
@@ -13,6 +20,13 @@ import s3
 import voice
 import tool
 import eden_utils
+
+
+print("HI!")
+
+
+print("HI2!")
+
 
 
 client = instructor.from_openai(OpenAI())
@@ -47,6 +61,7 @@ def write_reel(
     music: bool,
     music_prompt: str
 ):
+    
     if characters:
         names = [c.name for c in characters]
         speaker_type, speaker_description = Literal[*names], "Name of the speaker, if any voiceover."
@@ -90,10 +105,10 @@ def write_reel(
     return reel
     
 
-async def reel(args: dict, user: str = None):
+async def reel(args: dict, user: str = None, env: str = None):
     print("OS TJOS MY REL")
-    # try:
-    if 1:
+    try:
+    # if 1:
 
         print("RUN A REEL!!!")
 
@@ -102,10 +117,17 @@ async def reel(args: dict, user: str = None):
         music = args.get("music")
         music_prompt = (args.get("music_prompt") or "").strip()
         min_duration = args.get("min_duration")
-        width = args.get("width")
-        height = args.get("height")
-        speech_boost = 5
+        
+        orientation = args.get("orientation")
+        if orientation == "landscape":
+            width = 1280
+            height = 768
+        else:
+            width = 768
+            height = 1280
 
+        
+        speech_boost = 5
 
         if not min_duration:
             raise Exception("min_duration is required")
@@ -160,11 +182,10 @@ async def reel(args: dict, user: str = None):
             
         # generate music
         if music and story.music_prompt:
-            audiocraft = tool.load_tool("tools/audiocraft")
-            music = await audiocraft.async_run({
-                "text_input": story.music_prompt,
-                "model_name": "facebook/musicgen-large",
-                "duration_seconds": int(duration)
+            musicgen = tool.load_tool("tools/musicgen")
+            music = await musicgen.async_run({
+                "prompt": story.music_prompt,
+                "duration": int(duration)
             })
             print("THE MUSIC IS DONE!")
             print(music)
@@ -188,23 +209,85 @@ async def reel(args: dict, user: str = None):
         print("THE AUDIO IS DONE!")
         print(audio)
 
+
+
+
         print("MAKE THE VIDEO!")
-        txt2vid = tool.load_tool("../workflows/workspaces/video/workflows/txt2vid")
-        video = await txt2vid.async_run({
+        
+        flux_args = {
             "prompt": story.image_prompt,
-            "n_frames": 128,
             "width": width,
             "height": height
-        })
+        }        
+        print("flux_args", flux_args)
+        use_lora = args.get("use_lora", False)
+        if use_lora:
+            lora = args.get("lora")
+            lora_strength = args.get("lora_strength")
+            flux_args.update({
+                "use_lora": True,
+                "lora": lora,
+                "lora_strength": lora_strength
+            })
+
+        print("flux_args", flux_args)
+
+
+        num_clips = int(duration // 10)
+        print("num_clips", num_clips)
+        txt2img = tool.load_tool("../workflows/workspaces/flux/workflows/flux_dev")
+        images = []
+        for i in range(num_clips):
+            print("i", i)
+            image = await txt2img.async_run(flux_args)
+            print("THE IMAGE IS DONE!")
+            print(image)
+            output_url = image[0]["url"]
+            images.append(output_url)
+
+        runway = tool.load_tool("tools/runway")
+
+        videos = []
+        dur = 10
+        for i in range(num_clips):
+            if i == num_clips - 1 and duration % 10 < 5:
+                dur = 5
+            video = await runway.async_run({
+                "prompt_image": images[i],
+                "prompt_text": story.image_prompt,
+                "duration": str(dur),
+                "ratio": "16:9" if orientation == "landscape" else "9:16"
+            })
+            videos.append(video[0])
+
+        print("videos", videos)
+
+        # download videos
+        # videos = [eden_utils.get_file_handler(".mp4", v) for v in videos]
+
+        video = await video_concat({"videos": videos}, env=env)
+        print("video", video)
+        video = video[0]
+
+
+        # txt2vid = tool.load_tool("../workflows/workspaces/video/workflows/txt2vid")
+        # video = await txt2vid.async_run({
+        #     "prompt": story.image_prompt,
+        #     "n_frames": 128,
+        #     "width": width,
+        #     "height": height
+        # })
         print("THE VIDEO IS DONE!")
         print(video)
-        output_url = video[0]["url"]
-        print("txt2vid", output_url)
+        # output_url = video[0]["url"]
+        # video = "output.mp4"
+
+        # print("txt2vid", output_url)
 
         if audio:
             buffer = BytesIO()
             audio.export(buffer, format="mp3")
-            output = eden_utils.make_audiovideo_clip(output_url, buffer)
+            output = eden_utils.make_audiovideo_clip(video, buffer)
             output_url, _ = s3.upload_file(output)
 
         print("output_url", output_url)
@@ -213,10 +296,10 @@ async def reel(args: dict, user: str = None):
         return [output_url]
 
 
-    # except asyncio.CancelledError as e:
-    #     print("asyncio CancelledError")
-    #     print(e)
-    # except Exception as e:
-    #     print("normal error")
-    #     print(e)
+    except asyncio.CancelledError as e:
+        print("asyncio CancelledError")
+        print(e)
+    except Exception as e:
+        print("normal error")
+        print(e)
         

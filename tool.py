@@ -729,6 +729,7 @@ def get_tools(tools_folder: str):
     tools = {}
     for root, dirs, files in os.walk(tools_folder):
         name = os.path.relpath(root, start=tools_folder)
+        print(name)
         if "." in name or not required_files <= set(files):
             continue
         tools[name] = load_tool(os.path.join(tools_folder, name), name)

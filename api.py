@@ -24,6 +24,8 @@ available_tools = get_all_tools_from_mongo()
 
 print("ALL THE AVAILABLE TOOLS",  available_tools)
 print(available_tools.keys())
+print("----")
+print("runway", available_tools["runway"])
 
 
 agents = get_collection("agents", env=env)
