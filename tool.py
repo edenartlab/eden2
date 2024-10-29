@@ -45,7 +45,7 @@ class ParameterType(str, Enum):
     STRING_ARRAY = "string[]"
     IMAGE_ARRAY = "image[]"
     VIDEO_ARRAY = "video[]"
-    IMAGE_VIDEO_ARRAY = "image|video[]"
+    IMAGE_VIDEO_ARRAY = "image[]|video[]"
     AUDIO_ARRAY = "audio[]"
     ZIP_ARRAY = "zip[]"
     LORA_ARRAY = "lora[]"
