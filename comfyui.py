@@ -615,10 +615,20 @@ class ComfyUI:
                     print("REMOVE LORA")
                     continue
                 
+                print("get models", env)
                 models = get_collection("models", env=env)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
-                base_model = lora.get("base_model")
+
+                # very nasty hack until we have a better way to transfer env to handlers
+                print("lora", lora)
+                if not lora:
+                    print("lora not found, try prod")
+                    models = get_collection("models", env="PROD")
+                    lora = models.find_one({"_id": ObjectId(lora_id)})
+                
                 print("LORA", lora)
+                base_model = lora.get("base_model")
+                print("base model", base_model)
                 if not lora:
                     raise Exception(f"Lora {lora_id} not found")
 
