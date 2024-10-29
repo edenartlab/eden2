@@ -22,13 +22,6 @@ import tool
 import eden_utils
 
 
-print("HI!")
-
-
-print("HI2!")
-
-
-
 client = instructor.from_openai(OpenAI())
 
 
@@ -39,7 +32,7 @@ class Character(BaseModel):
 
 def extract_characters(prompt: str):
     characters = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o-2024-08-06",
         response_model=Optional[List[Character]],
         messages=[
             {
@@ -55,14 +48,39 @@ def extract_characters(prompt: str):
     return characters or []
     
 
+def prompt_variations(prompt: str, n: int):
+    class PromptVariations(BaseModel):
+        prompts: List[str] = Field(..., description="A unique variation of the original prompt")
+
+    user_message = f"You are given the following prompt for a short-form video: {prompt}. Generate EXACTLY {n} variations of this prompt. Don't get too fancy or creative, just state the same thing in different ways, using synonyms or different phrase constructions."
+    prompts = client.chat.completions.create(
+        model="gpt-4o-2024-08-06",
+        response_model=PromptVariations,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful assistant who generates variations of a prompt for a short-form video.",
+            },
+            {
+                "role": "user",
+                "content": user_message,
+            },
+        ],
+    )
+    print("PROMPTS", prompts)
+    return prompts.prompts
+
+
+
 def write_reel(
     prompt: str, 
     characters: List[Character],
+    narration: str,
     music: bool,
     music_prompt: str
 ):
     
-    if characters:
+    if characters or narration:
         names = [c.name for c in characters]
         speaker_type, speaker_description = Literal[*names], "Name of the speaker, if any voiceover."
         speech_type, speech_description = str, "If there is a voiceover, the text of the speech."
@@ -90,7 +108,7 @@ def write_reel(
     Do not include an introduction or restatement of the prompt, just go straight into the reel itself."""
 
     reel = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o-2024-08-06",
         response_model=Reel,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -102,22 +120,38 @@ def write_reel(
     if music and music_prompt:
         reel.music_prompt = music_prompt
 
+    if narration:
+        reel.speech = narration
+
     return reel
     
 
 async def reel(args: dict, user: str = None, env: str = None):
-    print("OS TJOS MY REL")
     try:
     # if 1:
 
-        print("RUN A REEL!!!")
-
         prompt = args.get("prompt")
-        narrator = args.get("narrator")
-        music = args.get("music")
+        music = args.get("use_music")
         music_prompt = (args.get("music_prompt") or "").strip()
+        
+        narrator = args.get("use_narrator")
+        narration = (args.get("narration") or "").strip() if narrator else ""
+        narration = narration[:600]
+        if narration: # remove everything after the last space
+            last_space_idx = narration.rindex(" ")
+            narration = narration[:last_space_idx]
+        
         min_duration = args.get("min_duration")
         
+        # resolution = args.get("resolution", "none")
+        # width = args.get("width", None)
+        # height = args.get("width", None)
+
+        # print("resolution", resolution)
+        # print("width", width)
+        # print("height", height)
+        
+
         orientation = args.get("orientation")
         if orientation == "landscape":
             width = 1280
@@ -146,7 +180,7 @@ async def reel(args: dict, user: str = None, env: str = None):
             for c in characters
         }
 
-        story = write_reel(prompt, characters, music, music_prompt)
+        story = write_reel(prompt, characters, narration, music, music_prompt)
 
         print("story", story)
         
@@ -233,18 +267,33 @@ async def reel(args: dict, user: str = None, env: str = None):
         print("flux_args", flux_args)
 
 
-        num_clips = int(duration // 10)
+        num_clips = math.ceil(duration / 10)
         print("num_clips", num_clips)
+
+        flux_args = [flux_args.copy()] * num_clips
+
+        if num_clips > 1:
+            prompts = prompt_variations(prompt, num_clips)        
+            print("ORIGINAL PROMPT", prompt)
+            print("-----")
+            print("PROMPT VARIATIONS")
+            for p, new_prompt in enumerate(prompts):
+                print(p)
+                print("-----")
+                flux_args[p]["prompt"] = new_prompt
+            
+
         txt2img = tool.load_tool("../workflows/workspaces/flux/workflows/flux_dev")
         images = []
         for i in range(num_clips):
             print("i", i)
-            image = await txt2img.async_run(flux_args)
+            image = await txt2img.async_run(flux_args[i])
             print("THE IMAGE IS DONE!")
             print(image)
             output_url = image[0]["url"]
             images.append(output_url)
 
+        print("run runway")
         runway = tool.load_tool("tools/runway")
 
         videos = []
@@ -252,12 +301,15 @@ async def reel(args: dict, user: str = None, env: str = None):
         for i in range(num_clips):
             if i == num_clips - 1 and duration % 10 < 5:
                 dur = 5
+            print("video", i)
             video = await runway.async_run({
                 "prompt_image": images[i],
                 "prompt_text": story.image_prompt,
                 "duration": str(dur),
                 "ratio": "16:9" if orientation == "landscape" else "9:16"
             })
+            print("video is done", i)
+            print(video)
             videos.append(video[0])
 
         print("videos", videos)

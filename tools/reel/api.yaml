@@ -1,37 +1,51 @@
 name: Reel
-description: Generate a short reel-sized film 
+description: Generate short reel-sized films with music and narration
 cost_estimate: 200
 handler: reel
+# resolutions: [16-9_1280x768, 1-1_1024x1024, 9-16_768x1280]
+base_model: flux-dev
 output_type: video
 status: stage
-visible: false
 parameters:
 - name: prompt
   label: Prompt
   description: Describe what your reel is about
   type: string
   required: true
-- name: narrator
-  label: Narrator
-  description: Include a narrator in the reel
-  type: bool
-  default: true
-- name: music
-  label: Music
-  description: Include music in the reel
-  type: bool
-  default: true
-- name: music_prompt
-  label: Music prompt
-  description: Override music prompt. If left blank, music prompt is auto-generated.
+- name: orientation
+  label: Orientation
+  description: Landscape or portrait
   type: string
+  default: portrait
+  choices: ["landscape", "portrait"]
+  required: true
 - name: min_duration
   label: Minimum duration
   description: Minimum number of seconds for the reel
   type: int
   default: 10
   minimum: 5
-  maximum: 60
+  maximum: 30
+- name: use_narrator
+  label: Narration
+  description: Include a narrator in the reel
+  type: bool
+  default: true
+- name: narration
+  label: Narration text (auto-generated if blank)
+  description: Override narration. If left blank, narration prompt is auto-generated.
+  type: string
+  visible_if: use_narrator=true
+- name: use_music
+  label: Music
+  description: Include music in the reel
+  type: bool
+  default: true
+- name: music_prompt
+  label: Music prompt (auto-generated if blank)
+  description: Override music prompt. If left blank, music prompt is auto-generated.
+  type: string
+  visible_if: use_music=true
 # - name: width
 #   label: Width
 #   description: Width in pixels
@@ -48,12 +62,6 @@ parameters:
 #   minimum: 512
 #   maximum: 2048
 #   step: 8
-- name: orientation
-  label: Orientation
-  description: Landscape or portrait
-  type: string
-  default: portrait
-  choices: ["landscape", "portrait"]
 # - name: video_model
 #   label: Video model
 #   description: Video model to use for video generation

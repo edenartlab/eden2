@@ -119,7 +119,7 @@ def write_story(
     Do not include an introduction or restatement of the prompt, just go straight into the story itself."""
 
     story = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o-2024-08-06",
         response_model=Story,
         messages=[
             {"role": "system", "content": system_prompt},

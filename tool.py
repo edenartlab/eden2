@@ -101,6 +101,7 @@ class Tool(BaseModel):
     allowlist: SkipJsonSchema[Optional[str]] = Field(None, description="Feature flag allowed to use this tool (default: all users)")
     visible: SkipJsonSchema[Optional[bool]] = Field(True, description="Tool is visible on the UI")
     handler: SkipJsonSchema[str] = Field(False, description="Which type of tool")
+    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev", "flux-schnell"])
     parameters: List[ToolParameter]
 
     def __init__(self, data, key):
@@ -379,7 +380,6 @@ class ComfyUIIntermediateOutput(BaseModel):
     node_id: int
 
 class ComfyUITool(Tool):
-    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev", "flux-schnell"])
     parameters: List[ComfyUIParameter]
     comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
     comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")
