@@ -20,12 +20,6 @@ if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
 
-available_tools = get_all_tools_from_mongo()
-
-print("ALL THE AVAILABLE TOOLS",  available_tools)
-print(available_tools.keys())
-print("----")
-print("runway", available_tools["runway"])
 
 
 agents = get_collection("agents", env=env)
@@ -51,6 +45,7 @@ def task_handler(
     # try:
     if 1:
         workflow = request.get("workflow")
+        available_tools = get_all_tools_from_mongo()
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
         tool = available_tools[workflow]
@@ -76,6 +71,7 @@ def cancel(
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
+    available_tools = get_all_tools_from_mongo()
     tool = available_tools[task.workflow]
     try:
         tool.cancel(task)
@@ -92,8 +88,10 @@ async def replicate_update(request: Request):
     handler_id = body.get("id")
     status = body.get("status")
     error = body.get("error")
+    
 
     task = Task.from_handler_id(handler_id, env=env)
+    available_tools = get_all_tools_from_mongo()
     tool = available_tools[task.workflow]
     output_handler = tool.output_handler
 
@@ -159,9 +157,10 @@ def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    # 
+     
     if 1:
         workflow = request.get("workflow")
+        available_tools = get_all_tools_from_mongo()
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
         tool = available_tools[workflow]

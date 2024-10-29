@@ -35,6 +35,7 @@ tools:
   - key: tools/lora_trainer
   - key: tools/flux_trainer
   - key: tools/news
+  - key: tools/reel
   - key: tools/media_utils/image_concat
   - key: tools/media_utils/image_crop
   - key: tools/media_utils/video_concat
