@@ -342,7 +342,7 @@ async def async_openai_prompt(messages, system_message, tools):
     messages_json.extend([item for msg in messages for item in msg.openai_schema()])
     openai_tools = [t.openai_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
     response = await openai_client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o-2024-08-06",
         tools=openai_tools,
         messages=messages_json,
     )
