@@ -40,7 +40,8 @@ All of these will test using the staging API, so make sure you are running the A
 # Update API interfaces
 
 The relevant properties in tool yaml files include:
-- `private`: if true, tool will not be shown in the UI (but is still available over API)
+- `status`: "inactive", "stage" (stage only), or "prod" (stage and prod)
+- `visible`: if true, tool will not be shown in the UI (but is still available over API)
 - `thumbnail`: url to thumbnail image
 
 To update the API interface
