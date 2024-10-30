@@ -232,11 +232,16 @@ class Tool(BaseModel):
             result = await run_function(self, args, *args_, **kwargs)
             return self.get_user_result(result)
         return wrapper
-
+        
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', self.cost_estimate) # js to py
+        
+        # Convert JavaScript syntax to Python
+        cost_formula = self.cost_estimate
+        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', cost_formula)  # Array length
+        cost_formula = re.sub(r'(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)', r'\2 if \1 else \3', cost_formula)  # Ternary operator
+        
         cost_estimate = eval(cost_formula, args)
         assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
         return cost_estimate
