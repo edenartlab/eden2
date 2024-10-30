@@ -236,8 +236,6 @@ class Tool(BaseModel):
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        
-        # Convert JavaScript syntax to Python
         cost_formula = self.cost_estimate
         cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', cost_formula)  # Array length
         cost_formula = re.sub(r'(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)', r'\2 if \1 else \3', cost_formula)  # Ternary operator
