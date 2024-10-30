@@ -14,6 +14,7 @@ import tarfile
 import pathlib
 import tempfile
 import subprocess
+import copy
 
 from models import Task, User
 from mongo import mongo_client, get_collection
@@ -388,12 +389,15 @@ class ComfyUI:
             
             return outputs
 
-
     def _inject_embedding_mentions_sdxl(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
         # Hardcoded computation of the token_strength for the embedding trigger:
         token_strength = 0.5 + lora_strength / 2
 
         reference = f'(embedding:{embeddings_filename})'
+        
+        # Make two deep copies of the input text:
+        user_prompt = copy.deepcopy(text)
+        lora_prompt = copy.deepcopy(text)
 
         if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
             # Match all variations of the embedding_trigger:
@@ -401,16 +405,23 @@ class ComfyUI:
                 re.escape(embedding_trigger),
                 re.escape(embedding_trigger.lower())
             )
-            text = re.sub(pattern, reference, text, flags=re.IGNORECASE)
-            text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
-
-        if reference not in text: # Make sure the concept is always triggered:
-            if lora_mode == "style":
-                text = f"in the style of {reference}, {text}"
+            lora_prompt = re.sub(pattern, reference, lora_prompt, flags=re.IGNORECASE)
+            lora_prompt = re.sub(r'(<concept>)', reference, lora_prompt, flags=re.IGNORECASE)
+            if lora_mode == "face":
+                base_word = "person"
             else:
-                text = f"{reference}, {text}"
+                base_word = "object"
 
-        return text
+            user_prompt = re.sub(pattern, base_word, user_prompt, flags=re.IGNORECASE)
+            user_prompt = re.sub(r'(<concept>)', base_word, user_prompt, flags=re.IGNORECASE)
+
+        if reference not in lora_prompt: # Make sure the concept is always triggered:
+            if lora_mode == "style":
+                lora_prompt = f"in the style of {reference}, {lora_prompt}"
+            else:
+                lora_prompt = f"{reference}, {lora_prompt}"
+
+        return user_prompt, lora_prompt
 
     
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, caption_prefix):
@@ -661,7 +672,7 @@ class ComfyUI:
 
         for key, comfyui in comfyui_map.items():
             value = args.get(key)
-            if value is None:
+            if value is None or key == "no_token_prompt":
                 continue
 
             # if there's a lora, replace mentions with embedding name
@@ -669,8 +680,15 @@ class ComfyUI:
                 lora_strength = args.get("lora_strength", 0.5)
                 if base_model == "flux-dev":
                     value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
-                elif base_model == "sdxl":    
-                    value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
+                elif base_model == "sdxl":  
+                    no_token_prompt, value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
+                    
+                    if "no_token_prompt" in args:
+                        no_token_mapping = next((param.comfyui for param in tool_.parameters if param.name == "no_token_prompt"), None)
+                        if no_token_mapping:
+                            print("Updating no_token_prompt for SDXL: ", no_token_prompt)
+                            workflow[str(no_token_mapping.node_id)][no_token_mapping.field][no_token_mapping.subfield] = no_token_prompt
+
                 print("prompt updated:", value)
 
             if comfyui.preprocessing is not None:
