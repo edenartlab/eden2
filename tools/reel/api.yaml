@@ -1,5 +1,5 @@
 name: Reel
-description: Generate short reel-sized films with music and narration
+description: Generate short reel-sized films with music and narration. Video powered by Runway Gen3a.
 cost_estimate: 200
 handler: reel
 # resolutions: [16-9_1280x768, 1-1_1024x1024, 9-16_768x1280]
