@@ -1,20 +1,3 @@
-# parameter fields
-# - type
-# - label
-# - description : succinct description
-# - tip (optional) : additional or more verbose description
-# - example (optional) : a typical example of the field, not usually needed
-# - required (optional) : whether instance must specify the parameter value
-# - default (optional) : default value if field not specified
-# - choices (optional) : whether only certain choices are allowed for numbers or strings
-# - choices_labels (optional) : labels for choice fields
-# - minimum (optional) : minimum for number types
-# - maximum (optional) : maximum for number types
-
-
-# todo:
-# - handle choices for arrays and objects
-
 name: Widget
 description: This model represents a person with their details like name, age, hobbies, contacts, and address.
 tip: Widgets are good for some things

@@ -1,7 +1,7 @@
-from modal_tool import ModalTool
+from comfyui_tool import ComfyUITool
 
-# tool = ModalTool.from_dir('example_tool')
-
+tool = ComfyUITool.from_dir('tools/txt2img')
+print(tool)
 
 
 
@@ -18,7 +18,7 @@ from modal_tool import ModalTool
 #     "name": "world"
 # })
 # print(result)
-from bson import ObjectId
+
 
 
 # result = tool.run(
@@ -29,7 +29,7 @@ from bson import ObjectId
 #     }
 # )
 from models import User, Task
-
+from bson import ObjectId
 async def submit(tool_name, args, env, user_id):
     tool = ModalTool.from_dir(tool_name)
     user = User.load(user_id, env)
@@ -65,20 +65,20 @@ async def submit(tool_name, args, env, user_id):
 
 async def main():
     result = await submit(
-        tool_name='tools/tool3', 
+        tool_name='tools/txt2img', 
         args = {
-            "name": "w332orld"
+            "prompt": "a dog in the style of Starry Night"
         }, 
         env="STAGE", 
         user_id="65284b18f8bbb9bff13ebe65"
     )
     return result
 
-import asyncio
-result = asyncio.run(main())
+# import asyncio
+# result = asyncio.run(main())
 
 
-print(result)
+# print(result)
 
 
 

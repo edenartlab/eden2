@@ -36,4 +36,8 @@ def test_tool():
     }
 
 
-test_tool()
+# test_tool()
+
+
+tool = Tool.from_dir('example_tool')
+

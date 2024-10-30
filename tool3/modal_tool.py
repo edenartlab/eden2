@@ -12,35 +12,18 @@ import modal
 
 
 
-"""
-
-scenarios: 
-- just run the tool (admin user, no manna) and WAIT
-- run the tool with manna user and task and WAIT
-- run the tool with manna (non-admin user)
-
-
-
-"""
-
-
-
-
-
-env = "STAGE"
-
-
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        func = modal.Function.lookup("handlers", "run")
+        func = modal.Function.lookup("handlers2", "run")
         # result = await func.remote.aio(self.key, args)
         result = await func.remote.aio(tool_name="tool2", args=args)
         return result
 
-    @Tool.handle_submit
+    # @Tool.handle_submit
     async def async_submit(self, task: Task):
-        func = modal.Function.lookup("handlers", "submit")
+        print("SUBMIT!")
+        func = modal.Function.lookup("handlers2", "submit")
         job = func.spawn(str(task.id), env=env)
         return job.object_id
     
@@ -50,8 +33,8 @@ class ModalTool(Tool):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        return self.get_user_result(task.result)
-
+        # return self.get_user_result(task.result)
+        return task.result
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)

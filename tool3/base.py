@@ -25,9 +25,9 @@ class VersionableBaseModel(BaseModel):
         else:
             super().__init__(**kwargs)
 
-    @classmethod
-    def load_from5(cls, **kwargs):
-        return cls(**kwargs)
+    # @classmethod
+    # def load_from5(cls, **kwargs):
+    #     return cls(**kwargs)
 
     @classmethod
     def model_validate(cls, obj: Any):
@@ -243,7 +243,7 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
     model_schema = schema['schema']
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
-        for field, info in model_schema['properties'].items()
+        for field, info in model_schema['parameters'].items()
     })
     return base_model
 
@@ -271,7 +271,7 @@ def parse_schema(schema: dict):
         if 'default' in props:
             field_kwargs['default'] = props['default']
         
-        # Store additional properties
+        # Store additional parameters
         additional_props = {'required': field in required_fields}
         if 'label' in props:
             additional_props['label'] = props['label']
@@ -301,6 +301,9 @@ def parse_schema(schema: dict):
         else:
             fields[field] = (get_python_type(props), Field(**field_kwargs, **additional_props))
     
+        if 'required' in props:
+            additional_props['required'] = props['required']
+
         if not additional_props['required']:
             fields[field] = (Optional[fields[field][0]], fields[field][1])
             fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
