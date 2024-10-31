@@ -40,7 +40,7 @@ class ComfyUITool(Tool):
 
     @classmethod
     def from_dir(cls, tool_dir: str):
-        workspace = "myworkspace" # tool_dir.split('/')[-2]
+        workspace = tool_dir.split('/')[-3]
         tool = super().from_dir(tool_dir, workspace=workspace)
 
         yaml_file = os.path.join(tool_dir, 'api.yaml')
@@ -55,7 +55,7 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        func = modal.Function.lookup("handlers2", "run")
+        func = modal.Function.lookup("handlers3", "run")
         result = await func.remote.aio(self.key, args)
         # result = await func.remote.aio(tool_name="tool2", args=args)
         return result
@@ -63,9 +63,12 @@ class ComfyUITool(Tool):
     # @Tool.handle_submit
     async def async_submit(self, task: Task):
         print("SUBMIT!")
-        func = modal.Function.lookup("handlers2", "submit")
+        print(self.workspace)
+        func = modal.Function.lookup("handlers3", "submit")
+        env="STAGE"
         job = func.spawn(str(task.id), env=env)
         return job.object_id
+        
     
     async def async_process(self, task: Task):
         if not task.handler_id:

@@ -1,7 +1,7 @@
-from comfyui_tool import ComfyUITool
+from replicate_tool import ReplicateTool
 
-tool = ComfyUITool.from_dir('../../workflows/workspaces/img_tools/workflows/txt2img')
-print(tool)
+# tool = ModalTool.from_dir('example_tool')
+
 
 
 
@@ -18,7 +18,7 @@ print(tool)
 #     "name": "world"
 # })
 # print(result)
-
+from bson import ObjectId
 
 
 # result = tool.run(
@@ -29,10 +29,9 @@ print(tool)
 #     }
 # )
 from models import User, Task
-from bson import ObjectId
 
 async def submit(tool_name, args, env, user_id):
-    tool = ComfyUITool.from_dir('../../workflows/workspaces/img_tools/workflows/txt2img')
+    tool = ReplicateTool.from_dir(tool_name)
     user = User.load(user_id, env)
     args = tool.prepare_args(args)
     print(args)
@@ -66,41 +65,21 @@ async def submit(tool_name, args, env, user_id):
 
 async def main():
     result = await submit(
-        tool_name='tools/txt2img', 
+        tool_name='tools/flux_schnell', 
         args = {
-            "prompt": "a dog in the style of Starry Night"
+            "prompt": "a strawberry made out of diamonds"
         }, 
         env="STAGE", 
         user_id="65284b18f8bbb9bff13ebe65"
     )
     return result
 
-# import asyncio
-# result = asyncio.run(main())
+import asyncio
+result = asyncio.run(main())
 
 
-#print(result)
-
-
+print(result)
 
 
 
 
-for name, param in tool.comfyui_map.items():
-    node_id, field, subfield, remap = param.get('node_id'), param.get('field'), param.get('subfield'), param.get('remap')
-    subfields = [s.strip() for s in subfield.split(",")]
-    print(name, ":", node_id, field, subfields, remap)
-    
-print('-----')
-
-
-for name, param in tool.base_model.__fields__.items():
-    metadata = param.json_schema_extra or {}
-    file_type = metadata.get('file_type')
-    is_array = metadata.get('is_array')
-    
-    if file_type in ["image", "video", "audio", "lora", "zip"]:
-        print("FILE", name, file_type, is_array)
-
-
-        

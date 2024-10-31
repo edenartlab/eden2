@@ -1,16 +1,12 @@
 import asyncio
 import modal
 from datetime import datetime
-from functools import wraps
 
-
-# from modal_tool import task_handler
-from tool import Tool
-from models import Task, User, task_handler
+from models import Task, User
 from tools import handlers
 
 app = modal.App(
-    name="handlers2",
+    name="handlers3",
     secrets=[
         # modal.Secret.from_name("admin-key"),
         # modal.Secret.from_name("clerk-credentials"), # ?
@@ -43,37 +39,70 @@ async def _execute(tool_name: str, args: dict, user: str = None, env: str = "STA
     # handler = handlers[tool_name]
     print("GO!!!")
     print(tool_name, args, user, env)
-    result = {"ok33": "hello"}
-    intermediate_outputs = None
-    # result = await handler(args, user, env=env) 
-    print("FINAL RESULT", result)
-    print("INTERMEDIATE OUTPUTS", intermediate_outputs)
-    return result, intermediate_outputs
+    result = {"ok": "hello"}
+    
+    # result = await handler(args, user, env=env)    
+    return result
         
 
 @app.function(image=image, timeout=3600)
 async def run(tool_name: str, args: dict, user: str = None):
-    result, intermediate_outputs = await _execute(tool_name, args, user)
-    return result, intermediate_outputs
+    result = await _execute(tool_name, args, user)
+    return result
 
-# Example usage with both decorators
+
+
+
 @app.function(image=image, timeout=3600)
-@task_handler
-async def submit(tool_name: str, args: dict, user: str = None, env: str = "STAGE"):
-    result, intermediate_outputs = await _execute(tool_name, args, user, env=env)
-    return result, intermediate_outputs
+async def submit(task_id: str, env: str):
+    print("the task")
+    task = Task.load(task_id, env=env)
+    print(task)
+    
+    start_time = datetime.utcnow()
+    queue_time = (start_time - task.createdAt).total_seconds()
+    
+    task.update(
+        status="running",
+        performance={"waitTime": queue_time}
+    )
 
+    try:
+        print(task.workflow, task.args, task.user, env)
+        result = await _execute(
+            task.workflow, task.args, task.user, env=env
+        )
+        task_update = {
+            "status": "completed", 
+            "result": result
+        }
+        return task_update
+
+    except Exception as e:
+        print("Task failed", e)
+        task_update = {"status": "failed", "error": str(e)}
+        user = User.load(task.user, env=env)
+        user.refund_manna(task.cost or 0)
+
+    finally:
+        run_time = datetime.utcnow() - start_time
+        task_update["performance"] = {
+            "waitTime": queue_time,
+            "runTime": run_time.total_seconds()
+        }
+        task.update(**task_update)
+
+    
 @app.local_entrypoint()
 def main():
     async def run_example_remote():
-        result, intermediate_outputs = await run.remote.aio(
+        result = await run.remote.aio(
             tool_name="reel",
             args={
                 "prompt": "billy and jamie are playing tennis at wimbledon",
             }
         )
         print(result)
-        print(intermediate_outputs)
     asyncio.run(run_example_remote())
 
 
@@ -89,7 +118,7 @@ if __name__ == "__main__":
         #     },
         #     user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
         # )
-        output, intermediate_outputs = await _execute(
+        output = await _execute(
             tool_name="news",
             args={
                 "subject": "entertainment"
@@ -97,5 +126,4 @@ if __name__ == "__main__":
             user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
         )
         print(output)
-        print(intermediate_outputs)
     asyncio.run(run_example_local())

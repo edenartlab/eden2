@@ -9,6 +9,15 @@ import eden_utils
 
 
 class VersionableBaseModel(BaseModel):
+    """
+    A versioned wrapper for Pydantic BaseModels that tracks changes over time.
+
+    Attributes:
+        schema: The Pydantic model class
+        initial: Initial state of the model
+        current: Current state of the model
+        edits: List of applied edits
+    """
     schema: Type[BaseModel]
     initial: BaseModel
     current: BaseModel
@@ -65,7 +74,14 @@ def generate_edit_model(
     model: Type[BaseModel]
 ) -> Type[BaseModel]:
     """
-    Given a Pydantic BaseModel, generate a new BaseModel which represents an edit for that model.
+    Generate an edit model for a given Pydantic model.
+
+    Args:
+        model (Type[BaseModel]): The source Pydantic model to generate an edit model from
+
+    Returns:
+        Type[BaseModel]: A new Pydantic model class that represents possible edits
+                        to the source model
     """
 
     edit_fields: Dict[str, Any] = {}
@@ -128,7 +144,24 @@ def apply_edit(
     edit: BaseModel
 ) -> BaseModel:
     """
-    Given an instance and an edit, apply the edit to the instance.
+    Apply modifications specified in an edit model to a BaseModel instance.
+
+    This function handles three types of edits:
+    - add_*: Add new items to lists or dictionaries
+    - edit_*: Modify existing values, including nested models
+    - remove_*: Remove items from lists or dictionaries
+
+    Args:
+        instance (BaseModel): The original model instance to be modified
+        edit (BaseModel): An edit model containing the changes to apply
+
+    Returns:
+        BaseModel: A new instance with the edits applied, leaving the original unchanged
+
+    Example:
+        original = MyModel(field=[1, 2, 3])
+        edit = MyModelEdit(add_field={'index': 1, 'value': 4})
+        result = apply_edit(original, edit)  # result.field = [1, 4, 2, 3]
     """
 
     instance_copy = copy.deepcopy(instance)
@@ -202,13 +235,16 @@ def get_python_type(field_info):
 
     type_map = {
         'str': str,
-        'string': str,
         'int': int,
-        'integer': int,
         'float': float,
-        'boolean': bool,
+        'bool': bool,
         'array': List,
-        'object': Dict
+        'object': Dict,
+        'image': str,
+        'video': str,
+        'audio': str,
+        'lora': str,
+        'zip': str
     }
     field_type = field_info.get('type')
     if field_type == 'array' and 'items' in field_info:
@@ -272,9 +308,10 @@ def parse_schema(schema: dict):
             field_kwargs['default'] = props['default']
         
         # Store additional parameters
-        additional_props = {'required': field in required_fields}
-        if 'label' in props:
-            additional_props['label'] = props['label']
+        additional_props = {}
+        # additional_props = {'required': props.get('required') or field in required_fields}
+        # if 'label' in props:
+        #     additional_props['label'] = props['label']
         
         # Handle min and max for int and float
         if props['type'] in ['int', 'float']:
@@ -290,21 +327,30 @@ def parse_schema(schema: dict):
             fields[field] = (enum_type, Field(**field_kwargs, **additional_props))
             continue
         
+        # Add special handling for file types
+        if props['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+            additional_props['file_type'] = props['type']
+        if props['type'] == 'array' and 'items' in props:
+            if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+                additional_props['file_type'] = props['items']['type']
+
         if props['type'] == 'object':
             nested_model = create_model(field, **parse_schema(props))
             fields[field] = (nested_model, Field(**field_kwargs, **additional_props))
         elif props['type'] == 'array':
             item_type = get_python_type(props['items'])
+            additional_props['is_array'] = True
             if props['items']['type'] == 'object':
                 item_type = create_model(f"{field}Item", **parse_schema(props['items']))
             fields[field] = (List[item_type], Field(**field_kwargs, **additional_props))
         else:
             fields[field] = (get_python_type(props), Field(**field_kwargs, **additional_props))
     
-        if 'required' in props:
-            additional_props['required'] = props['required']
+        if 'alias' in props:
+            additional_props['alias'] = props['required']
 
-        if not additional_props['required']:
+        # if not additional_props['required']:
+        if not props.get('required') and not field in required_fields:
             fields[field] = (Optional[fields[field][0]], fields[field][1])
             fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
 

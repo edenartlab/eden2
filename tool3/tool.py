@@ -6,6 +6,8 @@ e.g.
         {'type': 'emai3l', 'value': 'widget@hotmail.com'},
         {'type': 'phon3e', 'value': '555-1234'},
 })
+
+test remap
 """
 
 import random
@@ -27,7 +29,9 @@ from base import parse_schema
 
 from models import Task, User
 
-
+from pprint import pprint
+from functools import wraps
+from datetime import datetime
 
 class Tool(BaseModel):
     key: str
@@ -57,7 +61,7 @@ class Tool(BaseModel):
         base_model = create_model(key, **fields)
         base_model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
 
-        tool_data = {k: schema.pop(k) for k in cls.__fields__.keys() if k in schema}
+        tool_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
         tool_data['test_args'] = test_args
         tool_data['base_model'] = base_model
         
@@ -189,8 +193,26 @@ class Tool(BaseModel):
         return asyncio.run(self.async_cancel(task))
 
 
+
+
+
+    
+
+
+
+
+
+
+
 def get_human_readable_error(error_list):
     errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
     error_str = "\n\t".join(errors)
     error_str = f"Invalid args\n\t{error_str}"
     return error_str
+
+
+
+# from comfyui_tool import ComfyUITool
+# def load_comfyui_tool(tool_path: str, name: str = None) -> ComfyUITool:
+#     tool = ComfyUITool.from_dir(tool_path, handler="comfyui")
+#     return tool
