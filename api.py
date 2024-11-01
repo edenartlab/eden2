@@ -152,27 +152,6 @@ def get_discord_channels(
     channel_ids = discord_agents.distinct('channel_id')
     return channel_ids
     
-
-def task_handler(
-    request: dict, 
-    _: dict = Depends(auth.authenticate_admin)
-):
-     
-    if 1:
-        workflow = request.get("workflow")
-        available_tools = get_all_tools_from_mongo()
-        if workflow not in available_tools:
-            raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
-        tool = available_tools[workflow]
-        task = Task(env=env, output_type=tool.output_type, **request)
-        tool.submit(task)
-        task.reload()
-        return task
-    # except Exception as e:
-    #     print(e)
-    #     raise HTTPException(status_code=400, detail=str(e))
-
-
 def create_handler(task_handler):
     async def websocket_handler(
         websocket: WebSocket, 
@@ -204,7 +183,6 @@ def create_handler(task_handler):
 web_app = FastAPI()
 
 web_app.websocket("/ws/chat")(create_handler(ws_chat))
-web_app.websocket("/ws/chat/discord")(create_handler(discord_ws_chat))
 web_app.websocket("/ws/chat/discord")(create_handler(discord_ws_chat))
 web_app.post("/chat/discord/channels")(get_discord_channels)
 
