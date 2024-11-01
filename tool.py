@@ -243,7 +243,7 @@ class Tool(BaseModel):
         cost_estimate = eval(cost_formula, args)
         assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
         return cost_estimate
-
+    
     def handle_submit(submit_function):
         async def wrapper(self, task: Task, *args, **kwargs):
             user = User.from_id(task.user, env=env)
