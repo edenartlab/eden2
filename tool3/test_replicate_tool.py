@@ -47,7 +47,7 @@ async def submit(tool_name, args, env, user_id):
         status="pending"
     )
     task.save()
-    handler_id = await tool.async_submit(task)
+    handler_id = await tool.async_start_task(task)
     task.update(handler_id=handler_id)
     user.spend_manna(task.cost)            
     return handler_id

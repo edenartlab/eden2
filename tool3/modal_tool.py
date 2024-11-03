@@ -1,145 +1,28 @@
-# import sys
-# sys.path.append('..')
-
-from tool import Tool
-
-
-
-from models import Task
+import modal
 from typing import Dict
 from functools import wraps
-import modal
 from datetime import datetime
 
-
-from models import Task, User
-
-
-# def task_handler2(func):
-#     @wraps(func)
-#     async def wrapper(task_id: str, env: str):
-#         task = Task.load(task_id, env=env)
-#         print(task)
-        
-#         start_time = datetime.utcnow()
-#         queue_time = (start_time - task.createdAt).total_seconds()
-        
-#         task.update(
-#             status="running",
-#             performance={"waitTime": queue_time}
-#         )
-
-#         try:
-#             result = await func(task.workflow, task.args, task.user, env=env)
-#             task_update = {
-#                 "status": "completed", 
-#                 "result": result
-#             }
-#             return task_update
-
-#         except Exception as e:
-#             print("Task failed", e)
-#             task_update = {"status": "failed", "error": str(e)}
-#             user = User.load(task.user, env=env)
-#             user.refund_manna(task.cost or 0)
-
-#         finally:
-#             run_time = datetime.utcnow() - start_time
-#             task_update["performance"] = {
-#                 "waitTime": queue_time,
-#                 "runTime": run_time.total_seconds()
-#             }
-#             task.update(**task_update)
-
-#     return wrapper
-
-
-# from pprint import pprint
-# import eden_utils
-
-# def task_handler(func):
-#     @wraps(func)
-#     async def wrapper(task_id: str, env: str):
-#         task = Task.load(task_id, env=env)
-#         print(task)
-        
-#         start_time = datetime.utcnow()
-#         queue_time = (start_time - task.createdAt).total_seconds()
-#         #boot_time = queue_time - self.launch_time if self.launch_time else 0
-        
-#         task.update(
-#             status="running",
-#             performance={"waitTime": queue_time}
-#         )
-
-#         result = []
-#         n_samples = task.args.get("n_samples", 1)
-#         pprint(task.args)
-        
-#         try:
-#             for i in range(n_samples):
-#                 args = task.args.copy()
-#                 if "seed" in args:
-#                     args["seed"] = args["seed"] + i
-
-#                 output, intermediate_outputs = await func(task.workflow, args, env=env)
-#                 print("intermediate_outputs", intermediate_outputs)
-
-#                 result_ = eden_utils.upload_media(output, env=env)
-#                 if intermediate_outputs:
-#                     result_[0]["intermediateOutputs"] = {
-#                         k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
-#                         for k, v in intermediate_outputs.items()
-#                     }
-                
-#                 result.extend(result_)
-
-#                 if i == n_samples - 1:
-#                     task_update = {
-#                         "status": "completed", 
-#                         "result": result
-#                     }
-#                 else:
-#                     task_update = {
-#                         "status": "running", 
-#                         "result": result
-#                     }
-#                     task.update(task_update)
-    
-#             return task_update
-
-#         except Exception as e:
-#             return task.catch_error(e)
-
-#         finally:
-#             run_time = datetime.utcnow() - start_time
-#             task_update["performance"] = {
-#                 "waitTime": queue_time,
-#                 "runTime": run_time.total_seconds()
-#             }
-#             task.update(**task_update)
-#             #self.launch_time = 0
-
-#     return wrapper
-
+from models import Task, User, task_handler_func
+from tools import handlers
+from tool import Tool
+import eden_utils
 
 
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         func = modal.Function.lookup("handlers2", "run")
-        # result = await func.remote.aio(self.key, args)
-        result = await func.remote.aio(tool_name="tool2", args=args)
+        result = await func.remote.aio(tool_key=self.key, args=args)
         return result
 
     # @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        print("SUBMIT!")
-        func = modal.Function.lookup("handlers2", "submit")
-        job = func.spawn(str(task.id), env="STAGE")
+    async def async_start_task(self, task: Task):
+        func = modal.Function.lookup("handlers2", "run_task")
+        job = func.spawn(task)
         return job.object_id
     
-    async def async_process(self, task: Task):
+    async def async_wait(self, task: Task):
         if not task.handler_id:
             task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
@@ -154,3 +37,68 @@ class ModalTool(Tool):
         await fc.cancel.aio()
 
 
+
+app = modal.App(
+    name="handlers2",
+    secrets=[
+        # modal.Secret.from_name("admin-key"),
+        # modal.Secret.from_name("clerk-credentials"), # ?
+        
+        modal.Secret.from_name("s3-credentials"),
+        modal.Secret.from_name("mongo-credentials"),
+        # modal.Secret.from_name("replicate"),
+        # modal.Secret.from_name("openai"),
+        # modal.Secret.from_name("anthropic"),
+        # modal.Secret.from_name("elevenlabs"),
+        # modal.Secret.from_name("newsapi"),
+        # modal.Secret.from_name("runway"),
+        # modal.Secret.from_name("sentry"),
+    ],   
+)
+
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("libmagic1", "ffmpeg", "wget")
+    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
+                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client",
+                 "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
+    # .copy_local_dir("../workflows", remote_path="/workflows")
+    # .copy_local_dir("../private_workflows", remote_path="/private_workflows")
+    # .copy_local_dir("tools", remote_path="/root/tools")
+)
+
+@app.function(image=image, timeout=3600)
+async def run(tool_key: str, args: dict, env: str):
+    result = await handlers[tool_key](args, env)
+    return eden_utils.prepare_result(result, env="STAGE")
+
+
+@app.function(image=image, timeout=3600)
+@task_handler_func
+async def run_task(tool_key: str, args: dict, env: str):
+    return await handlers[tool_key](args, env=env)
+
+
+if __name__ == "__main__":
+    import asyncio
+    async def run_example_local():
+        # output = await _execute(
+        #     tool_key="reel",
+        #     args={
+        #         "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
+        #         "narrator": True,
+        #         "music": True,
+        #         "min_duration": 10
+        #     },
+        #     user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
+        # )
+        output = await run_task(
+            tool_key="tool2",
+            args={
+                "subject": "entertainment"
+            },
+            user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
+        )
+        print(output)
+        
+    asyncio.run(run_example_local())

@@ -2,8 +2,6 @@ import os
 import re
 import random
 import time
-import yaml
-import json
 import math
 import magic
 import httpx
@@ -15,7 +13,8 @@ import requests
 import tempfile
 import subprocess
 import numpy as np
-from moviepy.editor import VideoFileClip
+from pprint import pformat
+from moviepy.editor import VideoFileClip, ImageClip, AudioClip
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
@@ -24,9 +23,37 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
+def prepare_result(result, env: str):
+    output = result["output"]
+    intermediate_outputs = result.get("intermediate_outputs")
+
+    output = output if isinstance(output, list) else [output]
+    result = [
+        upload_media(o, env) if is_file(o) else {"text": o}
+        for o in output
+    ]
+
+    if intermediate_outputs:
+        result[0]["intermediate_outputs"] = {
+            k: upload_media(v, env=env, save_thumbnails=False) 
+            for k, v in intermediate_outputs.items()
+        }
+    
+    return result
+
+
 def upload_media(output, env, save_thumbnails=True):
+    is_list = isinstance(output, list)
+    if not isinstance(output, list):
+        output = [output]
+
     result = []
+
     for o in output:
+        if not is_file(o):
+            result.append(o)
+            continue
+
         file_url, sha = s3.upload_file(o, env=env)
         filename = file_url.split("/")[-1]
 
@@ -42,11 +69,10 @@ def upload_media(output, env, save_thumbnails=True):
 
         result.append({
             "filename": filename,
-            # "metadata": None,
             "mediaAttributes": media_attributes
         })
 
-    return result
+    return result if is_list else result[0]
 
 
 def get_media_attributes(file_path):
@@ -501,9 +527,7 @@ def video_textbox(
     margin_left: int = 25,
     margin_right: int = 25,
     line_spacing: float = 1.25,
-):
-    from moviepy.editor import ImageClip, TextClip, AudioClip
-    
+):    
     font = get_font(font_ttf, font_size)
 
     canvas = Image.new("RGB", (width, height))
@@ -533,18 +557,32 @@ def video_textbox(
     return output_file.name
 
 
-def custom_print(string, color):
-    colors = {
-        "red": "\033[91m",
-        "green": "\033[92m",
-        "yellow": "\033[93m",
-        "blue": "\033[94m",
-        "magenta": "\033[95m",
-        "cyan": "\033[96m",
-        "white": "\033[97m"
-    }
-    return f"{colors[color]}{string}\033[0m"
-
-
 def concat_sentences(*sentences):
     return ' '.join([s.strip().rstrip('.') + '.' for s in sentences if s and s.strip()])
+
+
+def is_file(value):
+    return os.path.isfile(value) or value.startswith(('http://', 'https://'))
+
+
+def get_human_readable_error(error_list):
+    errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
+    error_str = "\n\t".join(errors)
+    error_str = f"Invalid args\n\t{error_str}"
+    return error_str
+
+
+def pprint(*args, indent=4):
+    colors = [
+        '\033[38;2;255;100;100m',
+        '\033[38;2;100;255;100m',
+        '\033[38;2;100;100;255m',
+        '\033[38;2;255;255;100m',
+        '\033[38;2;255;100;255m',
+        '\033[38;2;100;255;255m',
+    ]
+    color = random.choice(colors)
+    for arg in args:
+        string = pformat(arg, indent=indent)
+        colored_output = f"{color}{string}\033[0m"
+        print(colored_output)

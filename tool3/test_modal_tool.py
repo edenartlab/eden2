@@ -1,18 +1,15 @@
 from modal_tool import ModalTool
 
-# tool = ModalTool.from_dir('example_tool')
-
-
-
-
-# raise Exception("Not implemented")
-
-
+tool = ModalTool.from_dir('tools/tool1')
 
 
 # result = tool.run(args={
-#     "name": "world"
+#     "prompt_image": "https://dtut5r9j4w7j4.cloudfront.net/0d42768095507a7bbe2b16c789bf3ceb897de5f0e26297c0e7a68c51623796f9.png",
+#     "prompt_text": "Slow zoom in, a floating ceramic head starts singing in the forest"
 # })
+
+# print(result)
+
 
 # result = tool.run(args={
 #     "name": "world"
@@ -30,8 +27,8 @@ from bson import ObjectId
 # )
 from models import User, Task
 
-async def submit(tool_name, args, env, user_id):
-    tool = ModalTool.from_dir(tool_name)
+async def submit(tool_dir, args, env, user_id):
+    tool = ModalTool.from_dir(tool_dir)
     user = User.load(user_id, env)
     args = tool.prepare_args(args)
     print(args)
@@ -47,7 +44,7 @@ async def submit(tool_name, args, env, user_id):
         status="pending"
     )
     task.save()
-    handler_id = await tool.async_submit(task)
+    handler_id = await tool.async_start_task(task)
     task.update(handler_id=handler_id)
     user.spend_manna(task.cost)            
     return handler_id
@@ -65,21 +62,22 @@ async def submit(tool_name, args, env, user_id):
 
 async def main():
     result = await submit(
-        tool_name='tools/tool3', 
+        tool_dir="tools/tool2", 
         args = {
-            "name": "w332orld"
-        }, 
+            # "name": "hello world",
+        
+            "prompt_image": "prompt_image",
+            "prompt_text": "prompt_text"
+
+            # "prompt_image": "https://dtut5r9j4w7j4.cloudfront.net/0d42768095507a7bbe2b16c789bf3ceb897de5f0e26297c0e7a68c51623796f9.png",
+            # "prompt_text": "Slow zoom in, a floating ceramic head starts singing in the forest"
+        },         
         env="STAGE", 
         user_id="65284b18f8bbb9bff13ebe65"
     )
     return result
 
+
 import asyncio
 result = asyncio.run(main())
-
-
 print(result)
-
-
-
-

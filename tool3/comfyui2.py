@@ -20,7 +20,7 @@ from mongo import mongo_client, get_collection
 
 import eden_utils
 from comfyui_tool import ComfyUITool
-from modal_tool import task_handler
+from models import task_handler_method
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -35,6 +35,7 @@ app_name = f"comfyuiNEW-{workspace_name}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
 test_all = True if os.getenv("TEST_ALL") else False
+skip_tests = os.getenv("SKIP_TESTS")
 
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -122,10 +123,10 @@ image = (
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"../../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"../../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
-    .run_function(install_comfyui, force_build=True)
+    .run_function(install_comfyui) #, force_build=True)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .copy_local_dir(f"../../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
-    .env({"WORKFLOWS": test_workflows})
+    .env({"WORKFLOWS": test_workflows, "SKIP_TESTS": skip_tests})
 )
 
 gpu = modal.gpu.A100()
@@ -157,7 +158,7 @@ app = modal.App(
 class ComfyUI:
     
     def _start(self, port=8188):
-        print("Start sertver")
+        print("Start server")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
         cmd = f"python main.py --dont-print-server --listen --port {port}"
@@ -168,45 +169,76 @@ class ComfyUI:
         self.launch_time = t2 - t1
 
     def _execute(self, workflow_name: str, args: dict, env: str):
-        print("args", workflow_name, args)
-        tool_path = f"/root/workspace/workflows/{workflow_name}"
-        tool = ComfyUITool.from_dir(tool_path)
-        print("tool", tool)
-        print(type(tool))
-        workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
-        print("================")
-        print("workflow", workflow)
-        print("================")
-        self._validate_comfyui_args(workflow, tool)
-        workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
-        prompt_id = self._queue_prompt(workflow)['prompt_id']
-        outputs = self._get_outputs(prompt_id)
-        print("comfyui outputs", outputs)
-        output = outputs[str(tool.comfyui_output_node)]
-        intermediate_outputs = {
-            key: outputs[str(node_id)]
-            for key, node_id in tool.comfyui_intermediate_outputs.items()
-        }
-        print("outputs ", output)
-        if not output:
-            raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node}") 
-        return output, intermediate_outputs
+        try:
+            print("args", workflow_name, args)
+            tool_path = f"/root/workspace/workflows/{workflow_name}"
+            tool = ComfyUITool.from_dir(tool_path)
+            print("tool", tool)
+            print(type(tool))
+            workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
+            print("================")
+            print("workflow", workflow)
+            print("================")
+            self._validate_comfyui_args(workflow, tool)
+            workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
+            prompt_id = self._queue_prompt(workflow)['prompt_id']
+            outputs = self._get_outputs(prompt_id)
+            print("comfyui outputs", outputs)
+            output = outputs[str(tool.comfyui_output_node)]
+            intermediate_outputs = {
+                key: outputs[str(node_id)]
+                for key, node_id in tool.comfyui_intermediate_outputs.items()
+            }
+            print("outputs ", output)
+            print("outs puts are here")
+            if not output:
+                raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node}") 
+            print("lets return")
+            print("THJE OUTPUT")
+            print(output)
+            print("INTERMEDIATE OUTPUTS")
+            print(intermediate_outputs)
+            return {
+                "output": output,
+                "intermediate_outputs": intermediate_outputs
+            }
+        except Exception as e:
+            print("ERROR", e)
+            raise e
+    
 
     @modal.method()
-    def run(self, workflow_name: str, args: dict, env: str = "STAGE"):
-        output, intermediate_outputs = self._execute(workflow_name, args, env=env)
-        print("intermediate outputs", intermediate_outputs)
-        result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
-        result[0]["intermediateOutputs"] = {
-            k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
-            for k, v in intermediate_outputs.items()
-        }
-        return result
+    def run(self, tool_key: str, args: dict, env: str):
+        result = self._execute(tool_key, args, env=env)
+        return eden_utils.prepare_result(result, env=env)
+        # print("intermediate outputs", intermediate_outputs)
+        # result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
+        # result[0]["intermediateOutputs"] = {
+        #     k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
+        #     for k, v in intermediate_outputs.items()
+        # }
+        # return result
+
+
+    # @modal.method()
+    # async def run(tool_key: str, args: dict):
+    #     result = await handlers[tool_key](args)
+    #     return eden_utils.prepare_result(result, env="STAGE")
+
+
+    # @modal.method()
+    # @task_handler
+    # async def run_task(tool_key: str, args: dict):
+    #     return await handlers[tool_key](args)
+
 
     @modal.method()
-    @task_handler
-    def run_task(self, workflow_name: str, args: dict, env: str = "STAGE"):
-        return self._execute(workflow_name, args, env=env)
+    @task_handler_method
+    async def run_task(self, tool_key: str, args: dict, env: str):
+        print("---> we made it here <-----")
+        print(tool_key, args, env)
+        
+        return self._execute(tool_key, args, env=env)
 
     @modal.enter()
     def enter(self):
@@ -219,6 +251,10 @@ class ComfyUI:
     @modal.build()
     def test_workflows(self):
         print(" ==== TESTING WORKFLOWS ====")
+        if os.getenv("SKIP_TESTS"):
+            print("Skipping tests")
+            return
+        
         t1 = time.time()
         self._start()
         t2 = time.time()
@@ -499,11 +535,9 @@ class ComfyUI:
     def _inject_args_into_workflow(self, workflow, tool, args, env="STAGE"):
         embedding_trigger = None
 
-        print("args:", args)
+        print("args:", args)        
         
-        # download and transport files
-        
-        # for param in tool_.parameters: 
+        # download and transport files        
         for key, param in tool.base_model.__fields__.items():
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
@@ -620,3 +654,19 @@ class ComfyUI:
 def run():
     comfyui = ComfyUI()
     comfyui.print_test_results.remote()
+
+
+
+
+
+# @modal.method()
+# @task_handler
+# def run_task(tool_key: str, args: dict, env: str):
+#     print("===========")
+#     print("888111181871", tool_key, args, env)
+#     print("===========")
+#     print({"output": "that was a test"})
+#     # print("run_task", tool_key, args, env)
+#     # return self._execute(tool_key, args, env=env)
+#     comfy = ComfyUI()
+#     return comfy._execute(tool_key, args, env=env)

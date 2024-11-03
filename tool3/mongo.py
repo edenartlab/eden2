@@ -1,4 +1,5 @@
 import os
+import copy
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from dotenv import load_dotenv
@@ -71,6 +72,15 @@ class MongoModel(BaseModel):
         document['env'] = env
         return cls.model_validate(document)
 
+    def reload(self): 
+        collection = get_collection(self.get_collection_name(), self.env)
+        document = collection.find_one({"_id": self.id})
+        if not document:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}, env: {self.env}")
+        for key, value in document.items():
+            setattr(self, key, value)
+        return self
+
     def save(self, upsert_query=None):
         self.validate()
 
@@ -105,7 +115,7 @@ class MongoModel(BaseModel):
         if result.matched_count == 0:
             raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
         for key, value in update_args.items():
-            setattr(self, key, value)
+            setattr(self, key, copy.deepcopy(value))
         
 
 class VersionableMongoModel(VersionableBaseModel):

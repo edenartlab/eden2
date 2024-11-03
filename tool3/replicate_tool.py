@@ -3,7 +3,7 @@
 
 from tool import Tool
 
-
+import os
 from pydantic import Field
 from typing import List, Optional
 
@@ -147,9 +147,10 @@ class ReplicateTool(Tool):
     
     @Tool.handle_run
     async def async_run(self, args: Dict):        
-        args = prepare_args(args, self)
+        args = self.prepare_args(args)
+        args = self.format_args_for_replicate(args)
         if self.version:
-            prediction = _create_prediction(args, webhook=False)        
+            prediction = self.create_prediction(args, webhook=False)        
             prediction.wait()
             if self.output_handler == "eden":
                 output = [prediction.output[-1]["files"][0]]
@@ -165,10 +166,12 @@ class ReplicateTool(Tool):
         return result
 
     # @Tool.handle_submit
-    async def async_submit(self, task: Task, webhook: bool = True):
-        args = prepare_args(task.args, self)
+    async def async_start_task(self, task: Task, webhook: bool = True):
+        # args = prepare_args(task.args, self)
+        args = self.prepare_args(task.args)
+        args = self.format_args_for_replicate(args)
         if self.version:
-            prediction = _create_prediction(self, args, webhook=webhook)
+            prediction = self.create_prediction(args, webhook=webhook)
             return prediction.id
         else:
             # Replicate doesn't support spawning tasks for models without a version so just get results immediately
@@ -177,12 +180,13 @@ class ReplicateTool(Tool):
             handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up Replicate id
             return handler_id
 
-    async def async_process(self, task: Task):
+    async def async_wait(self, task: Task):
         if not task.handler_id:
             task.reload()
 
         if self.version is None:
-            return self.get_user_result(task.result)        
+            # return self.get_user_result(task.result)        
+            return task.result
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
             status = "starting"
@@ -197,14 +201,10 @@ class ReplicateTool(Tool):
                         self.output_handler
                     )
                     if result["status"] in ["failed", "cancelled", "completed"]:
-                        return self.get_user_result(result["result"])
+                        #return self.get_user_result(result["result"])
+                        return result["result"]
                 await asyncio.sleep(0.5)
                 prediction.reload()
-
-    async def async_submit_and_run(self, task: Task):
-        await self.async_submit(task, webhook=False)
-        result = await self.async_process(task)
-        return result
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
@@ -214,50 +214,48 @@ class ReplicateTool(Tool):
         except Exception as e:
             print("Replicate cancel error, probably task is timed out or already finished", e)
 
+    def format_args_for_replicate(self, args: dict):
+        new_args = args.copy()
+        new_args = {k: v for k, v in new_args.items() if v is not None}
+        for key, param in self.base_model.model_fields.items():
+            metadata = param.json_schema_extra or {}
+            is_array = metadata.get('is_array')
+            alias = metadata.get('alias')
+            if is_array:
+                new_args[param.name] = "|".join([str(p) for p in args[key]])
+            if alias:
+                new_args[alias] = new_args.pop(key)
+        return new_args
 
-import os
+    def create_prediction(self, args: dict, webhook=True):
+        user, model = self.model.split('/', 1)
+        webhook_url = get_webhook_url() if webhook else None
+        webhook_events_filter = ["start", "completed"] if webhook else None
 
-def _prepare_args(args, tool):
-    new_args = args.copy()
-    new_args = {k: v for k, v in new_args.items() if v is not None}
-    for key, param in tool.base_model.__fields__.items():
-        metadata = param.json_schema_extra or {}
-        is_array = metadata.get('is_array')
-        alias = metadata.get('alias')
-        if is_array:
-            new_args[param.name] = "|".join([str(p) for p in args[key]])
-        if alias:
-            new_args[alias] = new_args.pop(key)
-    return new_args
+        if self.version == "deployment":
+            deployment = replicate.deployments.get(f"{user}/{model}")
+            prediction = deployment.predictions.create(
+                input=args,
+                webhook=webhook_url,
+                webhook_events_filter=webhook_events_filter
+            )
+        else:
+            model = replicate.models.get(f"{user}/{model}")
+            version = model.versions.get(self.version)
+            prediction = replicate.predictions.create(
+                version=version,
+                input=args,
+                webhook=webhook_url,
+                webhook_events_filter=webhook_events_filter
+            )
+        return prediction
+
 
 def get_webhook_url():
     env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
     dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
     webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
     return webhook_url
-
-def create_prediction(tool: ReplicateTool, args: dict, webhook=True):
-    user, model = tool.model.split('/', 1)
-    webhook_url = get_webhook_url() if webhook else None
-    webhook_events_filter = ["start", "completed"] if webhook else None
-
-    if tool.version == "deployment":
-        deployment = replicate.deployments.get(f"{user}/{model}")
-        prediction = deployment.predictions.create(
-            input=args,
-            webhook=webhook_url,
-            webhook_events_filter=webhook_events_filter
-        )
-    else:
-        model = replicate.models.get(f"{user}/{model}")
-        version = model.versions.get(tool.version)
-        prediction = replicate.predictions.create(
-            version=version,
-            input=args,
-            webhook=webhook_url,
-            webhook_events_filter=webhook_events_filter
-        )
-    return prediction
 
 
 def replicate_update_task(task: Task, status, error, output, output_handler):

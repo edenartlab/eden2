@@ -7,6 +7,13 @@ from pydantic import Field, BaseModel
 from mongo import MongoModel, get_collection
 
 
+from functools import wraps
+from datetime import datetime
+from pprint import pprint
+import eden_utils
+
+
+
 # class Model(MongoModel):
 #     name: str
 #     user: ObjectId
@@ -42,10 +49,6 @@ from mongo import MongoModel, get_collection
 #         self.slug = f"{username}/{name}/v{version}"
 
 
-from functools import wraps
-from datetime import datetime
-from pprint import pprint
-import eden_utils
 
 class Task(MongoModel):
     workflow: str
@@ -74,88 +77,100 @@ class Task(MongoModel):
         task = tasks.find_one({"handler_id": handler_id})
         if not task:
             raise Exception("Task not found")    
-        return super().from_id(self, task["_id"], "tasks2", env)
+        return super().load(self, task["_id"], "tasks2", env)
 
-    def catch_error(self, error):
-        print("Task failed", error)
-        print("self", error)
-        print("self", type(error))
-        self.status = "error"
-        self.error = str(error)
-        self.save()
-        n_samples = self.args.get("n_samples", 1)
-        refund_amount = (self.cost or 0) * (n_samples - len(self.result)) / n_samples
-        user = User.from_id(self.user, env=self.env)
+    # def catch_error(self, error):
+    #     print("Task failed", error)
+    #     print("self", error)
+    #     print("self", type(error))
+    #     self.status = "error"
+    #     self.error = str(error)
+    #     self.save()
+    #     n_samples = self.args.get("n_samples", 1)
+    #     refund_amount = (self.cost or 0) * (n_samples - len(self.result)) / n_samples
+    #     user = User.load(self.user, env=self.env)
+    #     user.refund_manna(refund_amount)
+    #     return {"status": "failed", "error": str(error)}
+
+
+
+
+
+
+def task_handler_func(func):
+    @wraps(func)
+    async def wrapper(task: Task):
+        return await _task_handler(func, task)
+    return wrapper
+
+
+def task_handler_method(func):
+    @wraps(func)
+    async def wrapper(self, task: Task):
+        return await _task_handler(func, self, task)
+    return wrapper
+
+
+async def _task_handler(func, *args, **kwargs):
+    task = kwargs.pop("task", args[-1])
+
+    start_time = datetime.utcnow()
+    queue_time = (start_time - task.createdAt).total_seconds()
+    #boot_time = queue_time - self.launch_time if self.launch_time else 0
+    
+    task.update(
+        status="running",
+        performance={"waitTime": queue_time}
+    )
+
+    results = []
+    n_samples = task.args.get("n_samples", 1)
+    
+    try:
+        for i in range(n_samples):
+            task_args = task.args.copy()
+            if "seed" in task_args:
+                task_args["seed"] = task_args["seed"] + i
+
+            result = await func(*args[:-1], task.workflow, task_args, task.env)
+            result = eden_utils.prepare_result(result, env=task.env)
+            results.extend(result)
+            
+            if i == n_samples - 1:
+                task_update = {
+                    "status": "completed", 
+                    "result": results
+                }
+            else:
+                task_update = {
+                    "status": "running", 
+                    "result": results
+                }
+                task.update(**task_update)
+
+        return task_update
+
+    except Exception as error:
+        task_update = {
+            "status": "failed",
+            "error": str(error)
+        }
+        
+        n_samples = task.args.get("n_samples", 1)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
+        user = User.load(task.user, env=task.env)
         user.refund_manna(refund_amount)
+        
         return {"status": "failed", "error": str(error)}
 
-
-
-
-def task_handler(func):
-    @wraps(func)
-    async def wrapper(task_id: str, env: str):
-        task = Task.load(task_id, env=env)
-        print(task)
-        
-        start_time = datetime.utcnow()
-        queue_time = (start_time - task.createdAt).total_seconds()
-        #boot_time = queue_time - self.launch_time if self.launch_time else 0
-        
-        task.update(
-            status="running",
-            performance={"waitTime": queue_time}
-        )
-
-        result = []
-        n_samples = task.args.get("n_samples", 1)
-        pprint(task.args)
-        
-        try:
-            for i in range(n_samples):
-                args = task.args.copy()
-                if "seed" in args:
-                    args["seed"] = args["seed"] + i
-
-                output, intermediate_outputs = await func(task.workflow, args, env=env)
-                print("intermediate_outputs", intermediate_outputs)
-
-                result_ = eden_utils.upload_media(output, env=env)
-                if intermediate_outputs:
-                    result_[0]["intermediateOutputs"] = {
-                        k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
-                        for k, v in intermediate_outputs.items()
-                    }
-                
-                result.extend(result_)
-
-                if i == n_samples - 1:
-                    task_update = {
-                        "status": "completed", 
-                        "result": result
-                    }
-                else:
-                    task_update = {
-                        "status": "running", 
-                        "result": result
-                    }
-                    task.update(task_update)
-    
-            return task_update
-
-        except Exception as e:
-            return task.catch_error(e)
-
-        finally:
-            run_time = datetime.utcnow() - start_time
-            task_update["performance"] = {
-                "waitTime": queue_time,
-                "runTime": run_time.total_seconds()
-            }
-            task.update(**task_update)
-            #self.launch_time = 0
-
-    return wrapper
+    finally:
+        run_time = datetime.utcnow() - start_time
+        task_update["performance"] = {
+            "waitTime": queue_time,
+            "runTime": run_time.total_seconds()
+        }
+        task.update(**task_update)
+        #self.launch_time = 0
 
 
 class User(MongoModel):

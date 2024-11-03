@@ -235,9 +235,12 @@ def get_python_type(field_info):
 
     type_map = {
         'str': str,
+        'string': str,
         'int': int,
+        'integer': int,
         'float': float,
         'bool': bool,
+        'boolean': bool,
         'array': List,
         'object': Dict,
         'image': str,

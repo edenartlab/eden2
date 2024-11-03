@@ -4,12 +4,13 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from pydantic import Field
 import yaml
+import modal
 import os
 
 from tool import Tool
 from models import Task
 
-import modal
+
 
 
 
@@ -55,22 +56,18 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
-        func = modal.Function.lookup("handlers3", "run")
-        result = await func.remote.aio(self.key, args)
-        # result = await func.remote.aio(tool_name="tool2", args=args)
+        cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
+        result = await cls().run.remote.aio(self.key, args)
         return result
 
     # @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        print("SUBMIT!")
-        print(self.workspace)
-        func = modal.Function.lookup("handlers3", "submit")
-        env="STAGE"
-        job = func.spawn(str(task.id), env=env)
+    async def async_start_task(self, task: Task):
+        cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
+        job = await cls().run_task.spawn.aio(task)
         return job.object_id
         
     
-    async def async_process(self, task: Task):
+    async def async_wait(self, task: Task):
         if not task.handler_id:
             task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
@@ -78,9 +75,25 @@ class ComfyUITool(Tool):
         task.reload()
         # return self.get_user_result(task.result)
         return task.result
+    
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.cancel.aio()
+
+
+
+
+
+
+
+
+
+
+
+
+########################################################
+########################################################
+
 
 

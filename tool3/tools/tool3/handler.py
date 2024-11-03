@@ -1,7 +1,6 @@
 
-async def tool3(args: dict, user: str = None, env: str = None):   
+async def tool3(args: dict, env: str):   
     result = {
-        "name3": "tool3",
-        "args3": args
+        "output": "tool3 is this"
     }
     return result
