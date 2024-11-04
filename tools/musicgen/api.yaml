@@ -1,7 +1,7 @@
 name: Musicgen
 description: Generate music from text prompt
-output_type: audio
 cost_estimate: 0.1 * duration
+output_type: audio
 handler: replicate
 output_handler: normal
 model: meta/musicgen
