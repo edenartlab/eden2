@@ -1,23 +1,18 @@
 import sys
 sys.path.append(".")
 import os
-import json
 import asyncio
 import argparse
-import pathlib
-import requests
-from datetime import datetime
 
-from tool import get_tools
 import eden_utils
 from models import User, Task
 from tool import load_tool, get_tools
 
-# parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
-# parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (space-separated)", default=None)
+parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
+parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (space-separated)", default=None)
 # parser.add_argument("--workspaces", type=str, nargs='+', help="Which workspaces to test (space-separated)", default=None)
 # parser.add_argument("--save", action='store_true', help="Save results to a folder")
-# args = parser.parse_args()
+args = parser.parse_args()
 
 # if args.workspaces and args.tools:
 #     raise ValueError("Cannot specify both --workspaces and --tools")
@@ -95,32 +90,39 @@ from tool import load_tool, get_tools
 env = "STAGE"
 user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
-
 tools = get_tools("tools")
+tools.update(get_tools("../../workflows"))
+if args.tools:
+    tools = {k: v for k, v in tools.items() if k in args.tools}
 
+print(f"Testing tools: {', '.join(tools.keys())}")
 
 
 async def create_and_run_task(tool, args, env, user_id):
-    user = User.load(user_id, env)
-    args = tool.prepare_args(args)
-    cost = tool.calculate_cost(args.copy())
-    user.verify_manna_balance(cost)
-    task = Task(
-        env=env,
-        workflow=tool.key,
-        output_type="image", 
-        args=args,
-        user=user_id,
-        cost=cost,
-        status="pending"
-    )
-    task.save()
-    handler_id = await tool.async_start_task(task)
-    task.update(handler_id=handler_id)
-    user.spend_manna(task.cost)
-    result = await tool.async_wait(task)
-    eden_utils.pprint(f"Tool: {tool.key}:", result)
-    return result
+    try:
+        user = User.load(user_id, env)
+        args = tool.prepare_args(args)
+        cost = tool.calculate_cost(args.copy())
+        user.verify_manna_balance(cost)
+        task = Task(
+            env=env,
+            workflow=tool.key,
+            output_type="image", 
+            args=args,
+            user=user_id,
+            cost=cost,
+            status="pending"
+        )
+        task.save()
+        handler_id = await tool.async_start_task(task)
+        task.update(handler_id=handler_id)
+        user.spend_manna(task.cost)
+        result = await tool.async_wait(task)
+        eden_utils.pprint(f"Tool: {tool.key}:", result)
+        return result
+    except Exception as error:
+        eden_utils.pprint(f"Tool: {tool.key}: ERROR {error}")
+        return {"error": f"{error}"}
 
 
 async def run_all_tests():
@@ -129,10 +131,9 @@ async def run_all_tests():
         for key, tool in tools.items()
     }
     results = {
-        key: await task
-        for key, task in tasks.items()
+        key: result
+        for key, result in tasks.items()
     }
-
     # for key, result in results.items():
     #     eden_utils.pprint(f"\n\nTool: {key}:", result)
     

@@ -1,37 +1,20 @@
-"""
-Todo:
-- enforce choices on inner fields
-e.g.
-    'contacts': [
-        {'type': 'emai3l', 'value': 'widget@hotmail.com'},
-        {'type': 'phon3e', 'value': '555-1234'},
-})
-
-test remap
-"""
-
 import random
 import re
 import asyncio
 import json
 import os
-import sys
-sys.path.append('..')
+# import sys
+# sys.path.append('..')
 import eden_utils
 
-from bson import ObjectId
 import yaml
 from pydantic import BaseModel, Field, create_model, ValidationError
-from typing import Optional, List, Dict, Any, Type
+from typing import Optional, List, Dict, Any, Type, Literal
 
+import s3
 from base import parse_schema
-
-
 from models import Task, User
 
-from pprint import pprint
-from functools import wraps
-from datetime import datetime
 
 class Tool(BaseModel):
     key: str
@@ -39,10 +22,15 @@ class Tool(BaseModel):
     description: str
     tip: Optional[str] = None
     cost_estimate: str
+    output_type: Literal["bool", "str", "int", "float", "string", "image", "video", "audio", "image|video", "image|audio", "video|audio", "image|video|audio"]
     resolutions: Optional[List[str]] = None
-    gpu: Optional[str] = "A100"
-    private: Optional[bool] = False
+    base_model: Optional[str] = "sdxl"
+    gpu: Optional[str] = None    
+    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    allowlist: Optional[str] = None
+    visible: Optional[bool] = True
     test_args: Dict[str, Any]
+    handler: Literal["modal", "comfyui", "replicate", "runway", "elevenlabs", "hedra"] = "modal"
     base_model: Type[BaseModel] = Field(None, exclude=True)
 
     @classmethod
@@ -107,16 +95,32 @@ class Tool(BaseModel):
 
         return prepared_args
 
+    def prepare_result(self, result, env: str):
+        for r in result:
+            if "filename" in r:
+                filename = r.pop("filename")
+                r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+            if "model" in r:
+                r["model"] = str(r["model"])
+                r.pop("metadata")  # don't need to return model metadata here
+        return result
+    
+
     def handle_run(run_function):
-        async def wrapper(self, args: Dict, *args_, **kwargs):
+        async def wrapper(self, args: Dict, env: str): #, *args_, **kwargs):
             args = self.prepare_args(args)
-            result = await run_function(self, args, *args_, **kwargs)
-            # return self.get_user_result(result)
-            return result
+            result = await run_function(self, args, env) #, *args_, **kwargs)
+            return self.get_user_result(result, env)
         return wrapper
     
-    # task.update(handler_id=handler_id)
-
+    def handle_wait(wait_function):
+        async def wrapper(self, task: Task):
+            if not task.handler_id:
+                task.reload()
+            result = await wait_function(self, task)
+            return self.get_user_result(result, task.env)
+        return wrapper
+    
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
@@ -127,11 +131,6 @@ class Tool(BaseModel):
             task.status = "cancelled"
             task.save()
         return wrapper
-
-    # async def async_submit_and_run(self, task: Task):
-    #     await self.async_submit(task)
-    #     result = await self.async_process(task)
-    #     return result 
 
     async def async_run_task_and_wait(self, task: Task):
         await self.async_start_task(task, webhook=False)
@@ -154,8 +153,8 @@ class Tool(BaseModel):
     def async_cancel(self):
         raise NotImplementedError("Subclasses must implement async_cancel")
 
-    def run(self, args: Dict):
-        return asyncio.run(self.async_run(args))
+    def run(self, args: Dict, env: str):
+        return asyncio.run(self.async_run(args, env))
 
     def start_task(self, task: Task):
         return asyncio.run(self.async_start_task(task))
@@ -190,15 +189,18 @@ class Tool(BaseModel):
 
 
 
-def get_tools(path: str):
-    """Get all tools in a directory"""
-
-    return {
-        tool: load_tool(f"{path}/{tool}") 
-            for tool in os.listdir(path) 
-            if os.path.isdir(f"{path}/{tool}") and 
-            os.path.exists(f"{path}/{tool}/api.yaml")
-    }
+def get_tools(path: str) -> Dict[str, Tool]:
+    """Get all tools inside a directory"""
+    tools = {}
+    
+    for root, dirs, files in os.walk(path):
+        if "api.yaml" in files and "test.json" in files:
+            rel_path = os.path.relpath(root, path)
+            tool_name = rel_path.replace(os.path.sep, "/")  # Normalize path separator
+            print("LOAD TOOL", tool_name)
+            tools[tool_name] = load_tool(root)
+            
+    return tools
 
 
 def load_tool(tool_dir: str, **kwargs) -> Tool:

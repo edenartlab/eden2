@@ -1,6 +1,6 @@
 from urllib.error import URLError
-from datetime import datetime
 from bson import ObjectId
+from enum import Enum
 import os
 import re
 import git
@@ -15,11 +15,9 @@ import pathlib
 import tempfile
 import subprocess
 
-from models import Task, User
-from mongo import mongo_client, get_collection
-
 import eden_utils
 from comfyui_tool import ComfyUITool
+from mongo import get_collection
 from models import task_handler_method
 
 GPUs = {
@@ -170,42 +168,27 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, env: str):
         try:
-            print("args", workflow_name, args)
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = ComfyUITool.from_dir(tool_path)
-            print("tool", tool)
-            print(type(tool))
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
-            print("================")
-            print("workflow", workflow)
-            print("================")
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
-            print("comfyui outputs", outputs)
             output = outputs[str(tool.comfyui_output_node)]
             intermediate_outputs = {
                 key: outputs[str(node_id)]
                 for key, node_id in tool.comfyui_intermediate_outputs.items()
-            }
-            print("outputs ", output)
-            print("outs puts are here")
+            } if tool.comfyui_intermediate_outputs else {}
             if not output:
                 raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node}") 
-            print("lets return")
-            print("THJE OUTPUT")
-            print(output)
-            print("INTERMEDIATE OUTPUTS")
-            print(intermediate_outputs)
             return {
                 "output": output,
                 "intermediate_outputs": intermediate_outputs
             }
-        except Exception as e:
-            print("ERROR", e)
-            raise e
-    
+        except Exception as error:
+            print("ComfyUI pipeline error: ", error)
+            raise error
 
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
@@ -235,9 +218,6 @@ class ComfyUI:
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, env: str):
-        print("---> we made it here <-----")
-        print(tool_key, args, env)
-        
         return self._execute(tool_key, args, env=env)
 
     @modal.enter()
@@ -281,21 +261,30 @@ class ComfyUI:
             print("Running tests: ", tests)
             for test in tests:
                 tool = ComfyUITool.from_dir(f"/root/workspace/workflows/{workflow}")
+                print("THE WORKFLOW IS", workflow)
+                print(tool)
+                print(tool.status)
+                if tool.status == "inactive":
+                    print(f"{workflow} is inactive, skipping test")
+                    continue
                 test_args = json.loads(open(test, "r").read())
                 test_args = tool.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                output, intermediate_outputs = self._execute(workflow, test_args, env="STAGE")
-                if not output:
-                    raise Exception(f"No output from {test_name}")
-                result = eden_utils.upload_media(output, env="STAGE")
-                if intermediate_outputs:
-                    result[0]["intermediateOutputs"] = {
-                        k: eden_utils.upload_media(v, env="STAGE", save_thumbnails=False)
-                        for k, v in intermediate_outputs.items()
-                    }
-                t2 = time.time()                
+                result = self._execute(workflow, test_args, env="STAGE")
+                result = eden_utils.prepare_result(result, env="STAGE", save_thumbnails=False)
+                # output = result.get("output")
+                # intermediate_outputs = result.get("intermediate_outputs", {})
+                # if not output:
+                #     raise Exception(f"No output from {test_name}")
+                # result = eden_utils.upload_media(output, env="STAGE")
+                # if intermediate_outputs:
+                #     result[0]["intermediateOutputs"] = {
+                #         k: eden_utils.upload_media(v, env="STAGE", save_thumbnails=False)
+                #         for k, v in intermediate_outputs.items()
+                #     }
+                t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
 
@@ -509,41 +498,39 @@ class ComfyUI:
         return filename    
 
     def _validate_comfyui_args(self, workflow, tool):
-        for param in tool.comfyui_map.values():
-            node_id, field, subfield, remap = str(param.get('node_id')), str(param.get('field')), str(param.get('subfield')), param.get('remap')
+        for key, comfy_param in tool.comfyui_map.items():
+            node_id, field, subfield, remaps = str(comfy_param.get('node_id')), str(comfy_param.get('field')), str(comfy_param.get('subfield')), comfy_param.get('remap')
             subfields = [s.strip() for s in subfield.split(",")]
-            print(node_id, field, subfields, remap)
             for subfield in subfields:
-                print("search for", node_id, field, subfield)
-                print(node_id in workflow)
-                print(workflow[node_id])
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
-            for r in remap or []:
-                subfields = [s.strip() for s in str(r.get('subfield')).split(",")]
+            for remap in remaps or []:
+                subfields = [s.strip() for s in str(remap.get('subfield')).split(",")]
                 for subfield in subfields:
-                    if str(r.get('node_id')) not in workflow or str(r.get('field')) not in workflow[str(r.get('node_id'))] or subfield not in workflow[str(r.get('node_id'))][str(r.get('field'))]:
-                        raise Exception(f"Node ID {r.get('node_id')}, field {r.get('field')}, subfield {subfield} not found in workflow")
-                values = {v.get('input'): v.get('output') for v in r.get('value')}
-                if not param['choices']:
-                    raise Exception(f"Remap parameter {param.name} has no original choices")
-                if not all(choice in param['choices'] for choice in values.keys()):
-                    raise Exception(f"Remap parameter {param.name} has invalid choices: {values}")
-                if not all(choice in values.keys() for choice in param.get('choices')):
-                    raise Exception(f"Remap parameter {param.name} is missing original choices: {param.get('choices')}")
-
+                    if str(remap.get('node_id')) not in workflow or str(remap.get('field')) not in workflow[str(remap.get('node_id'))] or subfield not in workflow[str(remap.get('node_id'))][str(remap.get('field'))]:
+                        raise Exception(f"Node ID {remap.get('node_id')}, field {remap.get('field')}, subfield {subfield} not found in workflow")
+                param = tool.base_model.model_fields[key]
+                has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
+                if not has_choices:
+                    raise Exception(f"Remap parameter {key} has no original choices")
+                choices = [e.value for e in param.annotation]
+                if not all(choice in choices for choice in remap['map'].keys()):
+                    raise Exception(f"Remap parameter {key} has invalid choices: {remap['map']}")
+                if not all(choice in remap['map'].keys() for choice in choices):
+                    raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
+                                
     def _inject_args_into_workflow(self, workflow, tool, args, env="STAGE"):
         embedding_trigger = None
 
         print("args:", args)        
         
         # download and transport files        
-        for key, param in tool.base_model.__fields__.items():
+        for key, param in tool.base_model.model_fields.items():
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
 
-            if file_type in ["image", "video", "audio"]:
+            if file_type in ["image", "video", "audio", "image|video", "image|audio", "video|audio", "image|video|audio"]:
                 if is_array:
                     urls = args.get(key)
                     args[key] = [
@@ -598,7 +585,6 @@ class ComfyUI:
 
         for key, comfyui in tool.comfyui_map.items():
             
-
         # for key, comfyui in comfyui_map.items():
             value = args.get(key)
             if value is None:
@@ -639,13 +625,17 @@ class ComfyUI:
                 print("inject", node_id, field, subfield, " = ", value)
                 workflow[node_id][field][subfield] = value  
 
-            for r in comfyui.get('remap', []):
-                subfields = [s.strip() for s in str(r.get('subfield', '')).split(",")]
+            for remap in comfyui.get('remap', []):
+                print("THE REMAP IS")
+                print(remap)
+                subfields = [s.strip() for s in str(remap.get('subfield', '')).split(",")]
                 for subfield in subfields:
-                    values = {v['input']: v['output'] for v in r.get['value']}
-                    output_value = values.get(value)
-                    print("remap", str(r['node_id']), r['field'], subfield, " = ", output_value)
-                    workflow[str(r['node_id'])][r['field']][subfield] = output_value
+                    print("remap vla")
+                    print(value)
+                    print(remap.get('map'))
+                    output_value = remap.get('map').get(value)
+                    print("remap", str(remap['node_id']), remap['field'], subfield, " = ", output_value)
+                    workflow[str(remap['node_id'])][remap['field']][subfield] = output_value
 
         return workflow
 
@@ -654,19 +644,3 @@ class ComfyUI:
 def run():
     comfyui = ComfyUI()
     comfyui.print_test_results.remote()
-
-
-
-
-
-# @modal.method()
-# @task_handler
-# def run_task(tool_key: str, args: dict, env: str):
-#     print("===========")
-#     print("888111181871", tool_key, args, env)
-#     print("===========")
-#     print({"output": "that was a test"})
-#     # print("run_task", tool_key, args, env)
-#     # return self._execute(tool_key, args, env=env)
-#     comfy = ComfyUI()
-#     return comfy._execute(tool_key, args, env=env)

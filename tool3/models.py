@@ -14,40 +14,60 @@ import eden_utils
 
 
 
-# class Model(MongoModel):
-#     name: str
-#     user: ObjectId
-#     slug: str = None
-#     args: Dict[str, Any]
-#     task: ObjectId
-#     public: bool = False
-#     checkpoint: str
-#     base_model: str
-#     thumbnail: str
-#     users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
+class Model(MongoModel):
+    name: str
+    user: ObjectId
+    slug: str = None
+    args: Dict[str, Any]
+    task: ObjectId
+    public: bool = False
+    checkpoint: str
+    base_model: str
+    thumbnail: str
+    # users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
-#     def __init__(self, env, **data):
-#         super().__init__(collection_name="models", env=env, **data)
-#         self.users = get_collection("users", env=env)
-#         self._make_slug()
+    # def __init__(self, env, **data):
+    #     super().__init__(collection_name="models", env=env, **data)
+    #     # self.users = get_collection("users", env=env)
+    #     self._make_slug()
 
-#     @classmethod
-#     def from_id(self, document_id: str, env: str):
-#         self.users = get_collection("users", env=env)
-#         return super().from_id(self, document_id, "models", env)
+    def __init__(self, env, **data):
+        if isinstance(data.get('task'), str):
+            data['task'] = ObjectId(data['task'])
+        super().__init__(env=env, **data)
 
-#     def _make_slug(self):
-#         if self.collection is None:
-#             return
-#         if self.slug:
-#             return
-#         name = self.name.lower().replace(" ", "-")
-#         existing_docs = list(self.collection.find({"name": self.name, "user": self.user}))
-#         versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
-#         version = max(versions or [0]) + 1
-#         username = self.users.find_one({"_id": self.user})["username"]
-#         self.slug = f"{username}/{name}/v{version}"
 
+    # @classmethod
+    # def from_id(self, document_id: str, env: str):
+    #     # self.users = get_collection("users", env=env)
+    #     return super().from_id(self, document_id, "models", env)
+
+    @classmethod
+    def get_collection_name(cls) -> str:
+        return "models"
+
+    def _make_slug(self):
+        if self.collection is None:
+            return
+        if self.slug:
+            # slug already assigned
+            return
+        name = self.name.lower().replace(" ", "-")
+        existing_docs = list(self.collection.find({"name": self.name, "user": self.user}))
+        versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
+        new_version = max(versions or [0]) + 1
+        users = get_collection("users", env=self.env)
+        username = users.find_one({"_id": self.user})["username"]
+        # username = self.users.find_one({"_id": self.user})["username"]
+        self.slug = f"{username}/{name}/v{new_version}"
+
+    def save(self, **kwargs):
+        self._make_slug()
+        super().save(**kwargs)
+    
+    def update(self, **kwargs):
+        self._make_slug()
+        super().update(**kwargs)
 
 
 class Task(MongoModel):

@@ -1,19 +1,11 @@
-# import sys
-# sys.path.append('..')
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
-from pydantic import Field
+import os
 import yaml
 import modal
-import os
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
 
 from tool import Tool
 from models import Task
-
-
-
-
-
 
 
 class ComfyUIParameterMap(BaseModel):
@@ -55,9 +47,9 @@ class ComfyUITool(Tool):
         return tool
 
     @Tool.handle_run
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, env: str):
         cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
-        result = await cls().run.remote.aio(self.key, args)
+        result = await cls().run.remote.aio(self.key, args, env)
         return result
 
     # @Tool.handle_submit
@@ -66,34 +58,15 @@ class ComfyUITool(Tool):
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
         
-    
+    @Tool.handle_wait
     async def async_wait(self, task: Task):
-        if not task.handler_id:
-            task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        # return self.get_user_result(task.result)
         return task.result
-    
+        
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.cancel.aio()
-
-
-
-
-
-
-
-
-
-
-
-
-########################################################
-########################################################
-
-
 

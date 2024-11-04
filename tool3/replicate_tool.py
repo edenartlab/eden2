@@ -1,143 +1,16 @@
-# import sys
-# sys.path.append('..')
-
-from tool import Tool
-
 import os
+import asyncio
+import random
+import replicate
 from pydantic import Field
-from typing import List, Optional
-
-from models import Task
-from typing import Dict
+from typing import Dict, Optional
 from functools import wraps
-import modal
 from datetime import datetime
 
-import replicate
-import random
-
 import s3
-
-from models import Task, User
-
-
-env="STAGE"
-
-
-def task_handler2(func):
-    @wraps(func)
-    async def wrapper(task_id: str, env: str):
-        task = Task.load(task_id, env=env)
-        print(task)
-        
-        start_time = datetime.utcnow()
-        queue_time = (start_time - task.createdAt).total_seconds()
-        
-        task.update(
-            status="running",
-            performance={"waitTime": queue_time}
-        )
-
-        try:
-            result = await func(task.workflow, task.args, task.user, env=env)
-            task_update = {
-                "status": "completed", 
-                "result": result
-            }
-            return task_update
-
-        except Exception as e:
-            print("Task failed", e)
-            task_update = {"status": "failed", "error": str(e)}
-            user = User.load(task.user, env=env)
-            user.refund_manna(task.cost or 0)
-
-        finally:
-            run_time = datetime.utcnow() - start_time
-            task_update["performance"] = {
-                "waitTime": queue_time,
-                "runTime": run_time.total_seconds()
-            }
-            task.update(**task_update)
-
-    return wrapper
-
-
-from pprint import pprint
 import eden_utils
-
-def task_handler(func):
-    @wraps(func)
-    async def wrapper(task_id: str, env: str):
-        task = Task.load(task_id, env=env)
-        print(task)
-        
-        start_time = datetime.utcnow()
-        queue_time = (start_time - task.createdAt).total_seconds()
-        #boot_time = queue_time - self.launch_time if self.launch_time else 0
-        
-        task.update(
-            status="running",
-            performance={"waitTime": queue_time}
-        )
-
-        result = []
-        n_samples = task.args.get("n_samples", 1)
-        pprint(task.args)
-        
-        try:
-            for i in range(n_samples):
-                args = task.args.copy()
-                if "seed" in args:
-                    args["seed"] = args["seed"] + i
-
-                output, intermediate_outputs = await func(task.workflow, args, env=env)
-                print("intermediate_outputs", intermediate_outputs)
-
-                result_ = eden_utils.upload_media(output, env=env)
-                if intermediate_outputs:
-                    result_[0]["intermediateOutputs"] = {
-                        k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
-                        for k, v in intermediate_outputs.items()
-                    }
-                
-                result.extend(result_)
-
-                if i == n_samples - 1:
-                    task_update = {
-                        "status": "completed", 
-                        "result": result
-                    }
-                else:
-                    task_update = {
-                        "status": "running", 
-                        "result": result
-                    }
-                    task.update(task_update)
-    
-            return task_update
-
-        except Exception as e:
-            print("Task failed", e)
-            task_update = {"status": "failed", "error": str(e)}
-            refund_amount = (task.cost or 0) * (n_samples - len(result)) / n_samples
-            user = User.from_id(task.user, env=env)
-            user.refund_manna(refund_amount)
-
-        finally:
-            run_time = datetime.utcnow() - start_time
-            task_update["performance"] = {
-                "waitTime": queue_time,
-                "runTime": run_time.total_seconds()
-            }
-            task.update(**task_update)
-            #self.launch_time = 0
-
-    return wrapper
-
-
-import asyncio
-import replicate
+from models import Task, User, Model
+from tool import Tool
 
 
 class ReplicateTool(Tool):
@@ -146,8 +19,7 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
     
     @Tool.handle_run
-    async def async_run(self, args: Dict):        
-        args = self.prepare_args(args)
+    async def async_run(self, args: Dict, env="STAGE"):
         args = self.format_args_for_replicate(args)
         if self.version:
             prediction = self.create_prediction(args, webhook=False)        
@@ -161,31 +33,29 @@ class ReplicateTool(Tool):
                 output = [url for url in output]
         else:
             output = replicate.run(self.model, input=args)
-        env="STAGE"
+        
+        
         result = eden_utils.upload_media(output, env=env)
+        
         return result
 
     # @Tool.handle_submit
     async def async_start_task(self, task: Task, webhook: bool = True):
-        # args = prepare_args(task.args, self)
         args = self.prepare_args(task.args)
         args = self.format_args_for_replicate(args)
         if self.version:
             prediction = self.create_prediction(args, webhook=webhook)
             return prediction.id
         else:
-            # Replicate doesn't support spawning tasks for models without a version so just get results immediately
+            # Replicate doesn't support spawning tasks for models without a listed version so just get results immediately
             output = replicate.run(self.model, input=task.args)
             replicate_update_task(task, "succeeded", None, output, "normal")
-            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up Replicate id
+            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up a fake Replicate id
             return handler_id
 
+    @Tool.handle_wait
     async def async_wait(self, task: Task):
-        if not task.handler_id:
-            task.reload()
-
         if self.version is None:
-            # return self.get_user_result(task.result)        
             return task.result
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
@@ -201,7 +71,6 @@ class ReplicateTool(Tool):
                         self.output_handler
                     )
                     if result["status"] in ["failed", "cancelled", "completed"]:
-                        #return self.get_user_result(result["result"])
                         return result["result"]
                 await asyncio.sleep(0.5)
                 prediction.reload()
@@ -264,8 +133,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.error = error
         task.save()
         n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
-        user = User.from_id(task.user, env=env)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
+        user = User.from_id(task.user, env=task.env)
         user.refund_manna(refund_amount)
         return {"status": "failed", "error": error}
     
@@ -273,8 +142,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "cancelled"
         task.save()
         n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
-        user = User.from_id(task.user, env=env)
+        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
+        user = User.from_id(task.user, env=task.env)
         user.refund_manna(refund_amount)
         return {"status": "cancelled"}
     
@@ -287,15 +156,15 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     elif status == "succeeded":
         if output_handler == "normal":
             output = output if isinstance(output, list) else [output]
-            result = eden_utils.upload_media(output, env=env)
+            result = eden_utils.upload_media(output, env=task.env)
         
         elif output_handler in ["trainer", "eden"]:
-            result = replicate_process_eden(output)
+            result = replicate_process_eden(output, env=task.env)
 
             if output_handler == "trainer":
                 filename = result[0]["filename"]
                 thumbnail = result[0]["thumbnail"]
-                url = f"{s3.get_root_url(env=env)}/{filename}"
+                url = f"{s3.get_root_url(env=task.env)}/{filename}"
                 model = Model(
                     name=task.args["name"],
                     user=task.user,
@@ -304,10 +173,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     checkpoint=url, 
                     base_model="sdxl",
                     thumbnail=thumbnail,
-                    env=env
+                    env=task.env
                 )
                 # model.save()
-                model.save({"task": task.id})
+                model.save({"task": task.id})  # upsert_query prevents duplicates
                 result[0]["model"] = model.id
         
         run_time = (datetime.utcnow() - task.createdAt).total_seconds()
@@ -325,7 +194,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         }
 
 
-def replicate_process_eden(output):
+def replicate_process_eden(output, env):
     output = output[-1]
     if not output or "files" not in output:
         raise Exception("No output found")         

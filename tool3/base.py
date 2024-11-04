@@ -1,3 +1,16 @@
+"""
+Todo:
+- enforce choices on inner fields
+e.g.
+    'contacts': [
+        {'type': 'emai3l', 'value': 'widget@hotmail.com'},
+        {'type': 'phon3e', 'value': '555-1234'},
+})
+
+test remap
+"""
+
+
 import copy
 from enum import Enum
 from pydantic import BaseModel, Field, create_model
@@ -23,7 +36,7 @@ class VersionableBaseModel(BaseModel):
     current: BaseModel
     edits: List[BaseModel] = Field(default_factory=list)
 
-    def __init__(self, instance: BaseModel = None, **kwargs):
+    def __init__(self, instance: BaseModel=None, **kwargs):
         if instance is not None:
             data = {
                 "schema": type(instance),
@@ -35,7 +48,7 @@ class VersionableBaseModel(BaseModel):
             super().__init__(**kwargs)
 
     # @classmethod
-    # def load_from5(cls, **kwargs):
+    # def load_from(cls, **kwargs):
     #     return cls(**kwargs)
 
     @classmethod

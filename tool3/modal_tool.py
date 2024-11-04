@@ -11,7 +11,7 @@ import eden_utils
 
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, env="STAGE"):
         func = modal.Function.lookup("handlers2", "run")
         result = await func.remote.aio(tool_key=self.key, args=args)
         return result
@@ -22,13 +22,13 @@ class ModalTool(Tool):
         job = func.spawn(task)
         return job.object_id
     
+    @Tool.handle_wait
     async def async_wait(self, task: Task):
         if not task.handler_id:
             task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        # return self.get_user_result(task.result)
         return task.result
     
     @Tool.handle_cancel

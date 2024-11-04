@@ -2,15 +2,12 @@ import os
 import copy
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from pydantic.json_schema import SkipJsonSchema
-from dotenv import load_dotenv
 from pymongo import MongoClient
 from datetime import datetime
 from bson import ObjectId
 from abc import abstractmethod
 from typing import Annotated
 from base import generate_edit_model, recreate_base_model, VersionableBaseModel
-
-load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
@@ -23,6 +20,8 @@ db_names = {
     "ABRAHAM": MONGO_DB_NAME_ABRAHAM
 }
 
+# todo: this requires internet upon import
+# make it so only when imported it connects
 mongo_client = MongoClient(MONGO_URI)
 
 def get_collection(collection_name: str, env: str):

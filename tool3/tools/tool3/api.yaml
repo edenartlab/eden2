@@ -2,6 +2,7 @@ name: Widget
 description: This model represents a person with their details like name, age, hobbies, contacts, and address.
 tip: Widgets are good for some things
 cost_estimate: 50
+output_type: image
 comfyui_output_node: 161
 comfyui_intermediate_outputs:
   controlnet_signal: 323
