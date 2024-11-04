@@ -29,10 +29,12 @@ parameters:
   default: style
 - name: sd_model_version
   label: Base SD Model
+  hide_from_ui: true
+  hide_from_agent: true
   description: Base Stable Diffusion model to finetune from
   tip: Almost always, we want to train and SDXL LoRa. Only when we want to make animatediff animations do we need an sd15 lora.
   type: string
-  choices: [sdxl, sd15]
+  choices: [sdxl]
   default: sdxl
 - name: max_train_steps
   label: Training steps
