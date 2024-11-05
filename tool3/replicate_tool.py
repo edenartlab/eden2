@@ -19,7 +19,7 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, env="STAGE"):
+    async def async_run(self, args: Dict, env: str):
         args = self.format_args_for_replicate(args)
         if self.version:
             prediction = self.create_prediction(args, webhook=False)        
@@ -33,10 +33,8 @@ class ReplicateTool(Tool):
                 output = [url for url in output]
         else:
             output = replicate.run(self.model, input=args)
-        
-        
-        result = eden_utils.upload_media(output, env=env)
-        
+        result = {"output": output}
+        result = eden_utils.upload_result(result, env=env)
         return result
 
     # @Tool.handle_submit

@@ -1,12 +1,14 @@
 from urllib.error import URLError
 from bson import ObjectId
 from enum import Enum
+from pprint import pprint
 import os
 import re
 import git
 import time
 import json
 import glob
+import copy
 import modal
 import shutil
 import urllib
@@ -182,10 +184,13 @@ class ComfyUI:
             } if tool.comfyui_intermediate_outputs else {}
             if not output:
                 raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node}") 
-            return {
+            print("---- the final output is ----")
+            result = {
                 "output": output,
                 "intermediate_outputs": intermediate_outputs
             }
+            print(result)
+            return result
         except Exception as error:
             print("ComfyUI pipeline error: ", error)
             raise error
@@ -193,7 +198,8 @@ class ComfyUI:
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
         result = self._execute(tool_key, args, env=env)
-        return eden_utils.prepare_result(result, env=env)
+        return eden_utils.upload_result(result, env=env)
+
         # print("intermediate outputs", intermediate_outputs)
         # result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
         # result[0]["intermediateOutputs"] = {
@@ -206,7 +212,7 @@ class ComfyUI:
     # @modal.method()
     # async def run(tool_key: str, args: dict):
     #     result = await handlers[tool_key](args)
-    #     return eden_utils.prepare_result(result, env="STAGE")
+    #     return eden_utils.upload_result(result, env="STAGE")
 
 
     # @modal.method()
@@ -273,7 +279,7 @@ class ComfyUI:
                 print(f"Running test: {test_name}")
                 t1 = time.time()
                 result = self._execute(workflow, test_args, env="STAGE")
-                result = eden_utils.prepare_result(result, env="STAGE", save_thumbnails=False)
+                result = eden_utils.upload_result(result, env="STAGE", save_thumbnails=False)
                 # output = result.get("output")
                 # intermediate_outputs = result.get("intermediate_outputs", {})
                 # if not output:
@@ -360,11 +366,15 @@ class ComfyUI:
             
             return outputs
 
-    def _inject_embedding_mentions(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
+    def _inject_embedding_mentions_sdxl(self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength):
         # Hardcoded computation of the token_strength for the embedding trigger:
         token_strength = 0.5 + lora_strength / 2
 
-        reference = f'(embedding:{embeddings_filename}:{token_strength})'
+        reference = f'(embedding:{embeddings_filename})'
+        
+        # Make two deep copies of the input text:
+        user_prompt = copy.deepcopy(text)
+        lora_prompt = copy.deepcopy(text)
 
         if lora_mode == "face" or lora_mode == "object" or lora_mode == "concept":
             # Match all variations of the embedding_trigger:
@@ -372,16 +382,37 @@ class ComfyUI:
                 re.escape(embedding_trigger),
                 re.escape(embedding_trigger.lower())
             )
-            text = re.sub(pattern, reference, text, flags=re.IGNORECASE)
-            text = re.sub(r'(<concept>)', reference, text, flags=re.IGNORECASE)
-
-        if reference not in text: # Make sure the concept is always triggered:
-            if lora_mode == "style":
-                text = f"in the style of {reference}, {text}"
+            lora_prompt = re.sub(pattern, reference, lora_prompt, flags=re.IGNORECASE)
+            lora_prompt = re.sub(r'(<concept>)', reference, lora_prompt, flags=re.IGNORECASE)
+            if lora_mode == "face":
+                base_word = "person"
             else:
-                text = f"{reference}, {text}"
+                base_word = "object"
+
+            user_prompt = re.sub(pattern, base_word, user_prompt, flags=re.IGNORECASE)
+            user_prompt = re.sub(r'(<concept>)', base_word, user_prompt, flags=re.IGNORECASE)
+
+        if reference not in lora_prompt: # Make sure the concept is always triggered:
+            if lora_mode == "style":
+                lora_prompt = f"in the style of {reference}, {lora_prompt}"
+            else:
+                lora_prompt = f"{reference}, {lora_prompt}"
+
+        return user_prompt, lora_prompt
+
+    def _inject_embedding_mentions_flux(self, text, embedding_trigger, caption_prefix):
+        pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
+            re.escape(embedding_trigger),
+            re.escape(embedding_trigger.lower())
+        )
+        text = re.sub(pattern, caption_prefix, text, flags=re.IGNORECASE)
+        text = re.sub(r'(<concept>)', caption_prefix, text, flags=re.IGNORECASE)
+
+        if caption_prefix not in text: # Make sure the concept is always triggered:
+            text = f"{caption_prefix}, {text}"
 
         return text
+    
 
     def _transport_lora_flux(self, lora_url: str):
         loras_folder = "/root/models/loras"
@@ -391,7 +422,6 @@ class ComfyUI:
             raise ValueError(f"Lora URL Invalid: {lora_url}")
         
         lora_filename = lora_url.split("/")[-1]    
-        # name = lora_filename.split(".")[0]
         lora_path = os.path.join(loras_folder, lora_filename)
         print("tl destination folder", loras_folder)
 
@@ -404,6 +434,7 @@ class ComfyUI:
         
         print("destination path", lora_path)
         print("lora filename", lora_filename)
+
         return lora_filename
 
     def _transport_lora_sdxl(self, lora_url: str):
@@ -520,10 +551,21 @@ class ComfyUI:
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
     def _inject_args_into_workflow(self, workflow, tool, args, env="STAGE"):
-        embedding_trigger = None
 
-        print("args:", args)        
-        
+        # Helper function to validate and normalize URLs
+        def validate_url(url):
+            print("VALIDATE URL", url)
+            if not isinstance(url, str):
+                raise ValueError(f"Invalid URL type: {type(url)}. Expected string.")
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            return url
+
+        pprint(args)        
+
+        embedding_trigger = None
+        caption_prefix = None
+
         # download and transport files        
         for key, param in tool.base_model.model_fields.items():
             metadata = param.json_schema_extra or {}
@@ -531,14 +573,20 @@ class ComfyUI:
             is_array = metadata.get('is_array')
 
             if file_type in ["image", "video", "audio", "image|video", "image|audio", "video|audio", "image|video|audio"]:
+                if not args.get(key):
+                    continue
                 if is_array:
-                    urls = args.get(key)
+                    print("key", key)
+                    print("args", args)
+                    print("LETS VALIDATE THESE URLS", args.get(key))
+                    urls = [validate_url(url) for url in args.get(key)]
                     args[key] = [
                         eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
                         for url in urls
                     ] if urls else None
                 else:
-                    url = args.get(key)
+                    print("LETS VALIDATE THESE URLS", args.get(key))
+                    url = validate_url(args.get(key))
                     args[key] = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
             
             elif file_type == "lora":
@@ -572,7 +620,8 @@ class ComfyUI:
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
                 elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
-                    embeddings_filename, embedding_trigger, lora_mode = None, None, None
+                    embedding_trigger = lora.get("args", {}).get("name")
+                    caption_prefix = lora.get("args", {}).get("caption_prefix")
 
                 args[key] = lora_filename
                 print("lora filename", lora_filename)
@@ -587,13 +636,23 @@ class ComfyUI:
             
         # for key, comfyui in comfyui_map.items():
             value = args.get(key)
-            if value is None:
+            if value is None or key == "no_token_prompt":
                 continue
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
                 lora_strength = args.get("lora_strength", 0.5)
-                value = self._inject_embedding_mentions(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
+                if base_model == "flux-dev":
+                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
+                elif base_model == "sdxl":  
+                    no_token_prompt, value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
+                    
+                    if "no_token_prompt" in args:
+                        no_token_mapping = next((comfy_param for key, comfy_param in tool.comfyui_map.items() if key == "no_token_prompt"), None)
+                        if no_token_mapping:
+                            print("Updating no_token_prompt for SDXL: ", no_token_prompt)
+                            workflow[str(no_token_mapping.get('node_id'))][no_token_mapping.get('field')][no_token_mapping.get('subfield')] = no_token_prompt
+
                 print("prompt updated:", value)
 
             if comfyui.get('preprocessing') is not None:
@@ -618,8 +677,6 @@ class ComfyUI:
             print(comfyui)
 
             node_id, field, subfield = str(comfyui.get('node_id')), str(comfyui.get('field')), str(comfyui.get('subfield'))
-            subfields = [s.strip() for s in subfield.split(",")]
-            
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 print("inject", node_id, field, subfield, " = ", value)

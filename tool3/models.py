@@ -153,7 +153,7 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             result = await func(*args[:-1], task.workflow, task_args, task.env)
-            result = eden_utils.prepare_result(result, env=task.env)
+            result = eden_utils.upload_result(result, env=task.env)
             results.extend(result)
             
             if i == n_samples - 1:
@@ -191,6 +191,44 @@ async def _task_handler(func, *args, **kwargs):
         }
         task.update(**task_update)
         #self.launch_time = 0
+
+
+
+# @tool_handler_func
+# async def process_image(tool: str, args: Dict, env: str):
+#     return {
+#         "output": args["image_url"]
+#     }
+
+async def _tool_handler(func, *args, **kwargs):
+    if len(args) >= 3:
+        tool, args_, env = args[-3:]
+        args = args[:-3]
+    else:
+        tool = kwargs.get('tool')
+        args_ = kwargs.get('args')
+        env = kwargs.get('env')
+
+    result = await func(*args, tool, args_, env)
+    result = eden_utils.upload_result(result, env=env)
+    return result
+
+def tool_handler_func(func):
+    @wraps(func)
+    async def wrapper(tool: str, args: Dict, env: str):
+        return await _tool_handler(func, tool, args, env)
+    return wrapper
+
+def tool_handler_method(func):
+    @wraps(func)
+    async def wrapper(self, tool: str, args: Dict, env: str):
+        return await _tool_handler(func, self, tool, args, env)
+    return wrapper
+
+
+
+
+
 
 
 class User(MongoModel):

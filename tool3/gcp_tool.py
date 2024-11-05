@@ -9,7 +9,6 @@ from google.cloud import aiplatform
 from models import Task
 
 
-
 class GCPTool(Tool):
     gcr_image_uri: str
     machine_type: str
@@ -17,10 +16,10 @@ class GCPTool(Tool):
     
     # Todo: make work without task ID
     @Tool.handle_run
-    async def async_run(self, args: Dict, env="STAGE"):
-        raise NotImplementedError("Not implemented yet, need a Task ID")
+    async def async_run(self, args: Dict, env: str):
+        raise NotImplementedError("Not implemented yet, need a GCP Task ID")
         
-    @Tool.handle_submit
+    # @Tool.handle_submit
     async def async_start_task(self, task: Task):
         handler_id = submit_job(
             gcr_image_uri=self.gcr_image_uri,
@@ -32,7 +31,8 @@ class GCPTool(Tool):
         )
         return handler_id
     
-    async def async_process(self, task: Task):
+    @Tool.handle_wait
+    async def async_wait(self, task: Task):
         await gcp.poll_job_status(task.handler_id)
         task.reload()
         return task.result

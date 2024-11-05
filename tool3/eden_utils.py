@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
-def prepare_result(result, env: str, save_thumbnails=True):
+def upload_result(result, env: str, save_thumbnails=True):
     if "output" not in result:
         result_str = json.dumps(result)
         raise Exception(f"No output found in result: {result_str}")
@@ -577,17 +577,20 @@ def get_human_readable_error(error_list):
     return error_str
 
 
-def pprint(*args, indent=4):
-    colors = [
-        '\033[38;2;255;100;100m',
-        '\033[38;2;100;255;100m',
-        '\033[38;2;100;100;255m',
-        '\033[38;2;255;255;100m',
-        '\033[38;2;255;100;255m',
-        '\033[38;2;100;255;255m',
-    ]
-    color = random.choice(colors)
+def pprint(*args, color=None, indent=4):
+    colors = {
+        'red': '\033[38;2;255;100;100m',
+        'green': '\033[38;2;100;255;100m',
+        'blue': '\033[38;2;100;100;255m',
+        'yellow': '\033[38;2;255;255;100m',
+        'magenta': '\033[38;2;255;100;255m',
+        'cyan': '\033[38;2;100;255;255m',
+    }
+    if not color:
+        color = random.choice(list(colors.keys()))
+    if color not in colors:
+        raise ValueError(f"Invalid color: {color}")
     for arg in args:
         string = pformat(arg, indent=indent)
-        colored_output = f"{color}{string}\033[0m"
+        colored_output = f"{colors[color]}{string}\033[0m"
         print(colored_output)

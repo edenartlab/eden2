@@ -1,13 +1,10 @@
-import random
-import re
-import asyncio
-import json
 import os
-# import sys
-# sys.path.append('..')
-import eden_utils
-
+import re
 import yaml
+import json
+import random
+import asyncio
+import eden_utils
 from pydantic import BaseModel, Field, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 
@@ -17,6 +14,10 @@ from models import Task, User
 
 
 class Tool(BaseModel):
+    """
+    Base class for all tools.
+    """
+
     key: str
     name: str
     description: str
@@ -96,40 +97,85 @@ class Tool(BaseModel):
         return prepared_args
 
     def prepare_result(self, result, env: str):
-        for r in result:
-            if "filename" in r:
-                filename = r.pop("filename")
-                r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
-            if "model" in r:
-                r["model"] = str(r["model"])
-                r.pop("metadata")  # don't need to return model metadata here
+        if isinstance(result, list):
+            return [self.prepare_result(r, env=env) for r in result]
+        if "filename" in result:
+            filename = result.pop("filename")
+            result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+        if "model" in result:
+            result["model"] = str(result["model"])
+            result.pop("metadata")  # don't need to return model metadata here
+        if "intermediate_outputs" in result:
+            result["intermediate_outputs"] = {
+                k: self.prepare_result(v, env=env)
+                for k, v in result["intermediate_outputs"].items()
+            }
         return result
-    
 
     def handle_run(run_function):
-        async def wrapper(self, args: Dict, env: str): #, *args_, **kwargs):
+        async def wrapper(self, args: Dict, env: str):
             args = self.prepare_args(args)
-            result = await run_function(self, args, env) #, *args_, **kwargs)
-            return self.get_user_result(result, env)
+            result = await run_function(self, args, env)
+            return self.prepare_result(result, env)
+        return wrapper
+
+
+
+
+    
+    # def handle_start_task(submit_function):
+    #     async def wrapper(self, task: Task):
+    #         user = User.from_id(task.user, env=env)
+    #         task.args = self.prepare_args(task.args)
+    #         task.cost = self.calculate_cost(task.args.copy())
+    #         user.verify_manna_balance(task.cost)
+    #         task.status = "pending"
+    #         task.save()
+    #         handler_id = await submit_function(self, task, *args, **kwargs)
+    #         task.update({"handler_id": handler_id})
+    #         user.spend_manna(task.cost)
+    #         return handler_id
+    #     return wrapper
+    
+    # do we need this?
+    def handle_start_task(start_task_function):
+        async def wrapper(self, user_id: str, args: Dict, env: str):
+            args = self.prepare_args(args)
+            cost = self.calculate_cost(args.copy())
+            user = User.load(user_id, env=env)
+            user.verify_manna_balance(cost)            
+            task = Task(
+                env=env, 
+                workflow=self.key, 
+                output_type=self.output_type, 
+                args=args, 
+                user=user_id, 
+                cost=cost
+            )
+            task.save()            
+            handler_id = await start_task_function(self, args, env, user_id)
+            task.update(handler_id=handler_id)
+            user.spend_manna(task.cost)            
+            return task
         return wrapper
     
+
     def handle_wait(wait_function):
         async def wrapper(self, task: Task):
             if not task.handler_id:
                 task.reload()
             result = await wait_function(self, task)
-            return self.get_user_result(result, task.env)
+            return self.prepare_result(result, task.env)
         return wrapper
     
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
             n_samples = task.args.get("n_samples", 1)
-            refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
+            refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
             user = User.from_id(task.user, env=task.env)
             user.refund_manna(refund_amount)
-            task.status = "cancelled"
-            task.save()
+            task.update(status="cancelled")
         return wrapper
 
     async def async_run_task_and_wait(self, task: Task):
@@ -169,36 +215,21 @@ class Tool(BaseModel):
         return asyncio.run(self.async_cancel(task))
 
 
-
-
-    
-
-
-
-
-
-
-
-
-
-
-# from comfyui_tool import ComfyUITool
-# def load_comfyui_tool(tool_path: str, name: str = None) -> ComfyUITool:
-#     tool = ComfyUITool.from_dir(tool_path, handler="comfyui")
-#     return tool
-
-
-
-def get_tools(path: str) -> Dict[str, Tool]:
+def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
+    
     tools = {}
     
-    for root, dirs, files in os.walk(path):
+    for root, _, files in os.walk(path):
         if "api.yaml" in files and "test.json" in files:
             rel_path = os.path.relpath(root, path)
             tool_name = rel_path.replace(os.path.sep, "/")  # Normalize path separator
-            print("LOAD TOOL", tool_name)
-            tools[tool_name] = load_tool(root)
+            tool = load_tool(root)
+            if tool.status != "inactive" and not include_inactive:
+                tool_key = tool_name.split("/")[-1]
+                if tool_key in tools:
+                    raise ValueError(f"Duplicate tool {tool_key} found.")
+                tools[tool_key] = tool
             
     return tools
 
@@ -210,15 +241,11 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     from replicate_tool import ReplicateTool
     from modal_tool import ModalTool
     
-    # Read the yaml file to check handler type
-    yaml_file = os.path.join(tool_dir, 'api.yaml')
-    with open(yaml_file, 'r') as f:
+    api_file = os.path.join(tool_dir, 'api.yaml')
+    with open(api_file, 'r') as f:
         schema = yaml.safe_load(f)
     
-    # Get handler type from schema
     handler = schema.get('handler')
-    
-    # Map handlers to their respective tool classes
     handler_map = {
         "comfyui": ComfyUITool,
         "replicate": ReplicateTool,
@@ -227,5 +254,5 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     }
     
     tool_class = handler_map.get(handler, Tool)
+    
     return tool_class.from_dir(tool_dir, **kwargs)
-

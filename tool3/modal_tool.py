@@ -1,3 +1,4 @@
+import asyncio
 import modal
 from typing import Dict
 from functools import wraps
@@ -11,9 +12,9 @@ import eden_utils
 
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict, env="STAGE"):
+    async def async_run(self, args: Dict, env: str):
         func = modal.Function.lookup("handlers2", "run")
-        result = await func.remote.aio(tool_key=self.key, args=args)
+        result = await func.remote.aio(tool_key=self.key, args=args, env=env)
         return result
 
     # @Tool.handle_submit
@@ -37,13 +38,9 @@ class ModalTool(Tool):
         await fc.cancel.aio()
 
 
-
 app = modal.App(
     name="handlers2",
     secrets=[
-        # modal.Secret.from_name("admin-key"),
-        # modal.Secret.from_name("clerk-credentials"), # ?
-        
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         # modal.Secret.from_name("replicate"),
@@ -62,16 +59,12 @@ image = (
     .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
                  "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client",
                  "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
-    # .copy_local_dir("../workflows", remote_path="/workflows")
-    # .copy_local_dir("../private_workflows", remote_path="/private_workflows")
-    # .copy_local_dir("tools", remote_path="/root/tools")
 )
 
 @app.function(image=image, timeout=3600)
 async def run(tool_key: str, args: dict, env: str):
-    result = await handlers[tool_key](args, env)
-    return eden_utils.prepare_result(result, env="STAGE")
-
+    result = await handlers[tool_key](args, env=env)
+    return eden_utils.upload_result(result, env=env)
 
 @app.function(image=image, timeout=3600)
 @task_handler_func
@@ -80,25 +73,8 @@ async def run_task(tool_key: str, args: dict, env: str):
 
 
 if __name__ == "__main__":
-    import asyncio
     async def run_example_local():
-        # output = await _execute(
-        #     tool_key="reel",
-        #     args={
-        #         "prompt": "Jack and Abey are learning how to code ComfyUI at 204. Jack is from Madrid and plays jazz music",
-        #         "narrator": True,
-        #         "music": True,
-        #         "min_duration": 10
-        #     },
-        #     user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
-        # )
-        output = await run_task(
-            tool_key="tool2",
-            args={
-                "subject": "entertainment"
-            },
-            user="651c78aea52c1e2cd7de4fff" #"65284b18f8bbb9bff13ebe65"
-        )
-        print(output)
-        
-    asyncio.run(run_example_local())
+        return await run(
+            tool_key="tool2", args={"subject": "entertainment"}, env="STAGE"
+        )        
+    print(asyncio.run(run_example_local()))
