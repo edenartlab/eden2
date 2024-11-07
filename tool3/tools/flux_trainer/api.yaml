@@ -1,0 +1,75 @@
+name: Flux LoRA trainer
+description: Finetune a model on top of Flux-dev
+tip: |-
+  This will create a LoRA model from a base Flux-dev which captures and integrates the style, human face, or object represented in the training data.
+cost_estimate: 0.5 * max_train_steps
+output_type: lora
+gpu: A100
+handler: gcp
+status: prod
+gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
+machine_type: a2-highgpu-1g
+parameters:
+  name:
+    type: str
+    label: Name
+    description: Name of the LoRA
+    required: true
+  lora_training_urls:
+    type: array
+    items:
+      type: image
+    label: Images
+    description: Images to train LoRA with
+    required: true
+    min_length: 1
+  max_train_steps:
+    type: int
+    label: Training steps
+    description: |-
+      Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
+    default: 2000
+    minimum: 500
+    maximum: 5000
+    step: 10
+  lora_rank:
+    type: int
+    label: Rank
+    description: |-
+      LoRA rank. Higher gives model more capacity to learn but might lead to overfitting.
+    default: 16
+    minimum: 4
+    maximum: 64
+    step: 1
+  learning_rate:
+    type: float
+    label: Learning rate
+    description: |-
+      Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but slower.
+    default: 0.0003
+    minimum: 1.0e-05
+    maximum: 0.001
+    step: 1.0e-05
+  learning_rate_decay:
+    type: float
+    label: Learning rate decay
+    description: |-
+      Learning rate decay for training. Higher values decay faster but too high might cause overfitting. Low values are more accurate but slower.
+    default: 0.0001
+    minimum: 1.0e-05
+    maximum: 0.001
+    step: 1.0e-06
+  caption_prefix:
+    type: str
+    label: Caption prefix
+    description: Caption prefix for training.
+    default: TOK
+  seed:
+    type: int
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    default: random
+    minimum: 0
+    maximum: 2147483647

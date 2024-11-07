@@ -47,10 +47,15 @@ def get_root_url(env="STAGE"):
     """Returns the root URL for the specified bucket."""
     bucket_name = s3_buckets[env]
     return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
-    
-    
+
+
 def upload_file_from_url(url, name=None, file_type=None, env="STAGE"):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
+
+    if f"{s3_buckets[env]}.s3." in url and ".amazonaws.com" in url:
+        print(f"File is already uploaded at {url}")
+        filename = url.split("/")[-1]
+        return url, filename
 
     with requests.get(url, stream=True) as r:
         r.raise_for_status()

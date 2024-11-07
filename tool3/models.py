@@ -1,29 +1,25 @@
 from bson import ObjectId
-from typing import Dict, Any, Optional, List
-from pymongo.collection import Collection
-from pydantic.json_schema import SkipJsonSchema
-from pydantic import Field, BaseModel
-
-from mongo import MongoModel, get_collection
-
-
+from typing import Dict, Any, Optional, List, Literal
 from functools import wraps
 from datetime import datetime
-from pprint import pprint
-import eden_utils
+from pymongo.collection import Collection
+from pydantic.json_schema import SkipJsonSchema
+from pydantic import Field
 
+from mongo import MongoModel, get_collection
+import eden_utils
 
 
 class Model(MongoModel):
     name: str
     user: ObjectId
-    slug: str = None
-    args: Dict[str, Any]
     task: ObjectId
+    slug: str = None
+    thumbnail: str
     public: bool = False
+    args: Dict[str, Any]
     checkpoint: str
     base_model: str
-    thumbnail: str
     # users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
     # def __init__(self, env, **data):
@@ -32,6 +28,8 @@ class Model(MongoModel):
     #     self._make_slug()
 
     def __init__(self, env, **data):
+        if isinstance(data.get('user'), str):
+            data['user'] = ObjectId(data['user'])
         if isinstance(data.get('task'), str):
             data['task'] = ObjectId(data['task'])
         super().__init__(env=env, **data)
@@ -47,13 +45,14 @@ class Model(MongoModel):
         return "models"
 
     def _make_slug(self):
-        if self.collection is None:
-            return
+        # if self.collection is None:
+        #     return
         if self.slug:
             # slug already assigned
             return
         name = self.name.lower().replace(" ", "-")
-        existing_docs = list(self.collection.find({"name": self.name, "user": self.user}))
+        collection = get_collection(self.get_collection_name(), env=self.env)
+        existing_docs = list(collection.find({"name": self.name, "user": self.user}))
         versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
         new_version = max(versions or [0]) + 1
         users = get_collection("users", env=self.env)
@@ -61,9 +60,9 @@ class Model(MongoModel):
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"
 
-    def save(self, **kwargs):
+    def save(self, upsert_query=None):
         self._make_slug()
-        super().save(**kwargs)
+        super().save(upsert_query)
     
     def update(self, **kwargs):
         self._make_slug()
@@ -77,7 +76,7 @@ class Task(MongoModel):
     user: ObjectId
     handler_id: Optional[str] = None
     cost: float = None
-    status: str = "pending"
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
     error: Optional[str] = None
     result: Optional[Any] = None
     performance: Optional[Dict[str, Any]] = {}
@@ -138,10 +137,15 @@ async def _task_handler(func, *args, **kwargs):
     queue_time = (start_time - task.createdAt).total_seconds()
     #boot_time = queue_time - self.launch_time if self.launch_time else 0
     
+    print("LEWTS SET TASK TO RUNNING ! 1")
+    print(task)
     task.update(
         status="running",
         performance={"waitTime": queue_time}
     )
+
+    print("LEWTS SET TASK TO RUNNING ! 2")
+    print(task)
 
     results = []
     n_samples = task.args.get("n_samples", 1)

@@ -52,7 +52,7 @@ class ComfyUITool(Tool):
         result = await cls().run.remote.aio(self.key, args, env)
         return result
 
-    # @Tool.handle_submit
+    @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
         job = await cls().run_task.spawn.aio(task)

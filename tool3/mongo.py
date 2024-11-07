@@ -81,22 +81,41 @@ class MongoModel(BaseModel):
         return self
 
     def save(self, upsert_query=None):
+        print(" --> save", upsert_query)
         self.validate()
 
         data = self.model_dump(by_alias=True, exclude_none=True)
         collection = get_collection(self.get_collection_name(), self.env)
-
+        
         document_id = data.get('_id')
+        print(" --> save 111", document_id)
         if upsert_query:
+            print(" --> save 222", upsert_query)
             document_id_ = collection.find_one(upsert_query, {"_id": 1})
+            print(" --> save 333", document_id_)
             if document_id_:
+                print(" --> save 444")
                 document_id = document_id_["_id"]
-
-        if document_id:
-            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
-            collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
+                print(" --> save 555", document_id)
         else:
+            print(" --> save 222 none")
+            upsert_query = {"_id": document_id}
+
+        print(" --> save 666", document_id)
+        
+        if document_id:
+            print(" --> save docuyment", document_id)
+            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            print("SET THIS DATA")
+            print(data)
+            
+            collection.update_one(upsert_query, {'$set': data}, upsert=True)
+            print(data.keys())
+        else:
+            print(" --> save new doc", data)
             collection.insert_one(data)
+
+        print(" --> save done")
     
     def update(self, **kwargs):
         update_args = {}

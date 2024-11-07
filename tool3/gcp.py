@@ -1,44 +1,9 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
-# import gcp
 import time
-from typing import Dict
-from tool import Tool
 from google.oauth2 import service_account
 from google.cloud import aiplatform
-
-from models import Task
-
-
-class GCPTool(Tool):
-    gcr_image_uri: str
-    machine_type: str
-    gpu: str
-    
-    @Tool.handle_run
-    async def async_run(self, args: Dict, env: str):
-        raise NotImplementedError("Not implemented yet, need a GCP Task ID")
-        
-    @Tool.handle_start_task
-    async def async_start_task(self, task: Task):
-        handler_id = submit_job(
-            gcr_image_uri=self.gcr_image_uri,
-            machine_type=self.machine_type,
-            gpu=self.gpu,
-            gpu_count=1,
-            task_id=str(task.id),
-            env=task.env
-        )
-        return handler_id
-    
-    @Tool.handle_wait
-    async def async_wait(self, task: Task):
-        await poll_job_status(task.handler_id)
-        task.reload()
-        return task.result
-
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        await cancel_job(task.handler_id)
 
 
 def get_ai_platform_client():
@@ -121,8 +86,7 @@ def submit_job(
 
 async def poll_job_status(handler_id):
     while True:
-        # job = await aiplatform.CustomJob.get_async(handler_id)
-        job = aiplatform.CustomJob.get(handler_id)
+        job = await aiplatform.CustomJob.get_async(handler_id)
         status = job.state
         if status is None:
             status_str = "UNKNOWN"
@@ -150,13 +114,10 @@ async def cancel_job(handler_id):
         job_prefix = os.environ["GCP_JOB_PREFIX"]
         job_id = f"{job_prefix}{handler_id}"
         aiplatform = get_ai_platform_client()
-        # job = await aiplatform.CustomJob.get_async(job_id)
-        job = aiplatform.CustomJob.get(job_id)
+        job = await aiplatform.CustomJob.get_async(job_id)
         await job.cancel_async()
         print(f"Job {job_id} cancellation requested.")
         return True
     except Exception as e:
         print(f"Error canceling job {job_id}: {str(e)}")
         return False
-
-

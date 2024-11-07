@@ -23,7 +23,7 @@ class Tool(BaseModel):
     description: str
     tip: Optional[str] = None
     cost_estimate: str
-    output_type: Literal["bool", "str", "int", "float", "string", "image", "video", "audio", "image|video", "image|audio", "video|audio", "image|video|audio"]
+    output_type: Literal["bool", "str", "int", "float", "string", "image", "video", "audio", "lora"]
     resolutions: Optional[List[str]] = None
     base_model: Optional[str] = "sdxl"
     gpu: Optional[str] = None    
@@ -31,7 +31,7 @@ class Tool(BaseModel):
     allowlist: Optional[str] = None
     visible: Optional[bool] = True
     test_args: Dict[str, Any]
-    handler: Literal["modal", "comfyui", "replicate", "runway", "elevenlabs", "hedra"] = "modal"
+    handler: Literal["modal", "comfyui", "replicate", "gcp"] = "modal"
     base_model: Type[BaseModel] = Field(None, exclude=True)
 
     @classmethod
@@ -102,9 +102,11 @@ class Tool(BaseModel):
         if "filename" in result:
             filename = result.pop("filename")
             result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+        if "thumbnail" in result:
+            result["thumbnail"] = self.prepare_result(result["thumbnail"], env=env)
         if "model" in result:
             result["model"] = str(result["model"])
-            result.pop("metadata")  # don't need to return model metadata here
+            result.pop("metadata")  # don't need to return model metadata here since it's already in the task args
         if "intermediate_outputs" in result:
             result["intermediate_outputs"] = {
                 k: self.prepare_result(v, env=env)
@@ -119,31 +121,15 @@ class Tool(BaseModel):
             return self.prepare_result(result, env)
         return wrapper
 
-
-
-
-    
-    # def handle_start_task(submit_function):
-    #     async def wrapper(self, task: Task):
-    #         user = User.from_id(task.user, env=env)
-    #         task.args = self.prepare_args(task.args)
-    #         task.cost = self.calculate_cost(task.args.copy())
-    #         user.verify_manna_balance(task.cost)
-    #         task.status = "pending"
-    #         task.save()
-    #         handler_id = await submit_function(self, task, *args, **kwargs)
-    #         task.update({"handler_id": handler_id})
-    #         user.spend_manna(task.cost)
-    #         return handler_id
-    #     return wrapper
-    
-    # do we need this?
     def handle_start_task(start_task_function):
         async def wrapper(self, user_id: str, args: Dict, env: str):
+            # validate args and user manna balance
             args = self.prepare_args(args)
             cost = self.calculate_cost(args.copy())
             user = User.load(user_id, env=env)
             user.verify_manna_balance(cost)            
+            
+            # create task and set pending
             task = Task(
                 env=env, 
                 workflow=self.key, 
@@ -153,13 +139,20 @@ class Tool(BaseModel):
                 cost=cost
             )
             task.save()            
-            handler_id = await start_task_function(self, args, env, user_id)
-            task.update(handler_id=handler_id)
-            user.spend_manna(task.cost)            
+            
+            try:
+                # run task and spend manna
+                handler_id = await start_task_function(self, task)
+                task.update(handler_id=handler_id)
+                user.spend_manna(task.cost)            
+            except Exception as e:
+                task.update(status="failed", error=str(e))
+                raise Exception(f"Task failed: {e}. No manna deducted.")
+            
             return task
+
         return wrapper
     
-
     def handle_wait(wait_function):
         async def wrapper(self, task: Task):
             if not task.handler_id:
@@ -177,11 +170,6 @@ class Tool(BaseModel):
             user.refund_manna(refund_amount)
             task.update(status="cancelled")
         return wrapper
-
-    async def async_run_task_and_wait(self, task: Task):
-        await self.async_start_task(task, webhook=False)
-        result = await self.async_wait(task)
-        return result
 
     @property
     def async_run(self):
@@ -206,13 +194,36 @@ class Tool(BaseModel):
         return asyncio.run(self.async_start_task(task))
 
     def wait(self, task: Task):
-        return asyncio.run(self.async_start_task_and_wait(task))
+        return asyncio.run(self.async_wait(task))
 
-    def start_task_and_wait(self, task: Task):
-        return asyncio.run(self.async_start_task_and_wait(task))
-    
     def cancel(self, task: Task):
         return asyncio.run(self.async_cancel(task))
+
+
+def load_tool(tool_dir: str, **kwargs) -> Tool:
+    """Load the tool class based on the handler in api.yaml"""
+    
+    from comfyui_tool import ComfyUITool
+    from replicate_tool import ReplicateTool
+    from modal_tool import ModalTool
+    from gcp_tool import GCPTool
+    
+    api_file = os.path.join(tool_dir, 'api.yaml')
+    with open(api_file, 'r') as f:
+        schema = yaml.safe_load(f)
+
+    handler = schema.get('handler')
+    handler_map = {
+        "comfyui": ComfyUITool,
+        "replicate": ReplicateTool,
+        "modal": ModalTool,
+        "gcp": GCPTool,
+        None: ModalTool
+    }
+    
+    tool_class = handler_map.get(handler, Tool)
+    
+    return tool_class.from_dir(tool_dir, **kwargs)
 
 
 def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
@@ -232,27 +243,3 @@ def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
                 tools[tool_key] = tool
             
     return tools
-
-
-def load_tool(tool_dir: str, **kwargs) -> Tool:
-    """Load the tool class based on the handler in api.yaml"""
-    
-    from comfyui_tool import ComfyUITool
-    from replicate_tool import ReplicateTool
-    from modal_tool import ModalTool
-    
-    api_file = os.path.join(tool_dir, 'api.yaml')
-    with open(api_file, 'r') as f:
-        schema = yaml.safe_load(f)
-    
-    handler = schema.get('handler')
-    handler_map = {
-        "comfyui": ComfyUITool,
-        "replicate": ReplicateTool,
-        "modal": ModalTool,
-        None: ModalTool
-    }
-    
-    tool_class = handler_map.get(handler, Tool)
-    
-    return tool_class.from_dir(tool_dir, **kwargs)

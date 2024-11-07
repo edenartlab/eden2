@@ -25,25 +25,43 @@ import s3
 
 
 def upload_result(result, env: str, save_thumbnails=True):
+    print("UPLOAD A RESULT")
+    print(result)
     if "output" not in result:
         result_str = json.dumps(result)
         raise Exception(f"No output found in result: {result_str}")
     
     output = result["output"]
     intermediate_outputs = result.get("intermediate_outputs")
+    thumbnail = result.get("thumbnail")
+
+    print("-----")
+    print(output)
+    print("-----")
+    print(intermediate_outputs)
+    print("-----")
+    print(thumbnail)
+    print("-----")
 
     output = output if isinstance(output, list) else [output]
     result = [
-        upload_media(o, env, save_thumbnails=save_thumbnails) if is_file(o) else {"text": o}
+        upload_media(o, env, save_thumbnails=save_thumbnails) \
+            if is_file(o) else {"text": o}
         for o in output
     ]
+
+    if thumbnail:
+        print("add a thumbnail")
+        result[0]["thumbnail"] = upload_media(thumbnail, env=env, save_thumbnails=False)  #thumbnail
 
     if intermediate_outputs:
         result[0]["intermediate_outputs"] = {
             k: upload_media(v, env=env, save_thumbnails=False) 
             for k, v in intermediate_outputs.items()
         }
-    
+
+    print("the final result")
+    print(result)
     return result
 
 

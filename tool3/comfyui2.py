@@ -1,3 +1,14 @@
+"""
+WORKSPACE=audio modal deploy comfyui2.py
+WORKSPACE=batch_tools modal deploy comfyui2.py
+WORKSPACE=flux modal deploy comfyui2.py
+WORKSPACE=img_tools modal deploy comfyui2.py
+WORKSPACE=sd3 modal deploy comfyui2.py
+WORKSPACE=sdxl_test modal deploy comfyui2.py
+WORKSPACE=txt2img modal deploy comfyui2.py
+WORKSPACE=video modal deploy comfyui2.py
+"""
+
 from urllib.error import URLError
 from bson import ObjectId
 from enum import Enum

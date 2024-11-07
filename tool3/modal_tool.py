@@ -1,10 +1,8 @@
 import asyncio
 import modal
 from typing import Dict
-from functools import wraps
-from datetime import datetime
 
-from models import Task, User, task_handler_func
+from models import Task, task_handler_func
 from tools import handlers
 from tool import Tool
 import eden_utils
@@ -17,7 +15,7 @@ class ModalTool(Tool):
         result = await func.remote.aio(tool_key=self.key, args=args, env=env)
         return result
 
-    # @Tool.handle_submit
+    @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         func = modal.Function.lookup("handlers2", "run_task")
         job = func.spawn(task)
@@ -25,8 +23,6 @@ class ModalTool(Tool):
     
     @Tool.handle_wait
     async def async_wait(self, task: Task):
-        if not task.handler_id:
-            task.reload()
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()

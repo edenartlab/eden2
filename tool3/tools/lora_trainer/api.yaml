@@ -1,0 +1,70 @@
+name: LoRA trainer
+description: Finetune a model on top of base Stable Diffusion
+tip: |-
+  This will create a LoRA model from a base Stable Diffusion which captures and integrates the style, human face, or object represented in the training data.
+cost_estimate: 0.15 * max_train_steps
+output_type: lora
+handler: replicate
+model: edenartlab/lora-trainer
+version: deployment
+output_handler: trainer
+parameters:
+  name:
+    type: str
+    label: Name
+    description: Name of the LoRA
+    required: true
+  lora_training_urls:
+    type: array
+    items:
+      type: image
+    label: Images
+    description: Images to train LoRA with
+    required: true
+    min_length: 1
+  concept_mode:
+    type: str
+    label: Concept
+    description: Type of LoRA
+    choices: [face, object, style]
+    required: true
+    default: style
+  sd_model_version:
+    type: str
+    label: Base SD Model
+    description: Base Stable Diffusion model to finetune from
+    tip: |-
+      Almost always, we want to train and SDXL LoRa. Only when we want to make animatediff animations do we need an sd15 lora.
+    choices: [sdxl, sd15]
+    default: sdxl
+  max_train_steps:
+    type: int
+    label: Training steps
+    description: |-
+      Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
+    tip: |-
+      This should be left at the default 300 when SDXL is the base model, unless the user *specifically* instructs you otherwise. If the base model is SD15, then you should *change* this to 800, again unless the user specifically requests something else.
+    default: 300
+    minimum: 100
+    maximum: 1200
+    step: 10
+  resolution:
+    type: int
+    label: Resolution
+    description: |-
+      Resolution your images will be resized to for training (512 is great and your generations will still look perfect when rendering at eg 1024)
+    tip: |-
+      Do not change this unless you are specifically instructed to. Highly recommended to train at 512 for optimal speed and at 768 for best quality.
+    default: 512
+    minimum: 512
+    maximum: 768
+    step: 128
+  seed:
+    type: int
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set randomly.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    default: random
+    minimum: 0
+    maximum: 2147483647

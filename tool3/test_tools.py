@@ -13,7 +13,6 @@ parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (s
 parser.add_argument("--save", action='store_true', help="Save results to a folder")
 args = parser.parse_args()
 
-
 async def run_test(tool):
     try:
         result = await tool.async_run(tool.test_args, env="STAGE")
@@ -22,7 +21,6 @@ async def run_test(tool):
     except Exception as error:
         eden_utils.pprint(f"Tool: {tool.key}: ERROR {error}", color="red")
         return {"error": f"{error}"}
-
 
 async def run_all_tests():
     tools = get_tools("tools")
@@ -40,7 +38,6 @@ async def run_all_tests():
         save_results(tools, results)
 
     return results
-
 
 def save_results(tools, results):
     results_dir = f"tests_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
@@ -62,7 +59,6 @@ def save_results(tools, results):
                 response = requests.get(res.get("url"))
                 with open(file_path, "wb") as f:
                      f.write(response.content)
-
 
 if __name__ == "__main__":
     asyncio.run(run_all_tests())

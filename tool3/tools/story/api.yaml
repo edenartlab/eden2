@@ -1,0 +1,49 @@
+name: Story
+description: Generate a short reel-sized film
+cost_estimate: 10
+output_type: video
+status: stage
+visible: false
+parameters:
+  prompt:
+    type: str
+    label: Prompt
+    description: Describe what your reel is about
+    required: true
+  narrator:
+    type: bool
+    label: Narrator
+    description: Include a narrator in the reel
+    default: true
+  music:
+    type: bool
+    label: Music
+    description: Include music in the reel
+    default: true
+  music_prompt:
+    type: str
+    label: Music prompt
+    description: Override music prompt. If left blank, music prompt is auto-generated.
+  min_duration:
+    type: int
+    label: Minimum duration
+    description: Minimum number of seconds for the reel
+    default: 10
+    minimum: 5
+    maximum: 60
+  width:
+    type: int
+    label: Width
+    description: Width in pixels
+    default: 1024
+    minimum: 512
+    maximum: 2048
+    step: 8
+  height:
+    type: int
+    label: Height
+    description: Height in pixels
+    default: 768
+    minimum: 256
+    maximum: 2048
+    step: 8
