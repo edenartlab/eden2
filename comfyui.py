@@ -121,7 +121,7 @@ image = (
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
-    .run_function(install_comfyui, force_build=True)
+    .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .copy_local_dir(f"../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows})
