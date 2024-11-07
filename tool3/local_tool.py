@@ -16,19 +16,14 @@ class LocalTool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
-        print("98171616161521212`", args)
+        print("local tool run")
         result = await handlers[self.key](args, env=env)
-        print("3636363", result)
-        print("lets upload this result")
-        print(type(result))
-        print("result", result)
-        # zzzzz= eden_utils.upload_result(result, env=env)
-        zzzzz= result #self.prepare_result(result, env=env)
-        print("zzz")
-        print(type(zzzzz))
-        print(zzzzz)
-        print("3247823", zzzzz)
-        return zzzzz
+        print("result !!!", result)
+        print("done!!!!")
+        print("--\n\nletsupload")
+        cc =  eden_utils.upload_result(result, env=env)
+        print("cc", cc)
+        return cc
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
@@ -40,11 +35,9 @@ class LocalTool(Tool):
     @Tool.handle_wait
     async def async_wait(self, task: Task):
         if task.handler_id not in self._tasks:
-            raise ValueError(f"No task found with id {task.handler_id}")
-            
-        background_task = self._tasks[task.handler_id]
+            raise ValueError(f"No task found with id {task.handler_id}")            
         try:
-            result = await background_task
+            result = await self._tasks[task.handler_id]
             del self._tasks[task.handler_id]
             return result
         except asyncio.CancelledError:

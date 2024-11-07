@@ -12,7 +12,10 @@ class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
         func = modal.Function.lookup("handlers2", "run")
+        print("async 1")
         result = await func.remote.aio(tool_key=self.key, args=args, env=env)
+        print("result", result)
+        print("async 2")
         return result
 
     @Tool.handle_start_task
@@ -69,9 +72,9 @@ async def run_task(tool_key: str, args: dict, env: str):
     return await handlers[tool_key](args, env=env)
 
 
-if __name__ == "__main__":
-    async def run_example_local():
-        return await run(
-            tool_key="tool2", args={"subject": "entertainment"}, env="STAGE"
-        )        
-    print(asyncio.run(run_example_local()))
+# if __name__ == "__main__":
+#     async def run_example_local():
+#         return await run(
+#             tool_key="tool2", args={"subject": "entertainment"}, env="STAGE"
+#         )        
+#     print(asyncio.run(run_example_local()))

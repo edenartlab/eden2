@@ -1,7 +1,6 @@
 name: Test name 2
 description: Test description
 cost_estimate: 50
-handler: modal
 output_type: image
 status: stage
 visible: false

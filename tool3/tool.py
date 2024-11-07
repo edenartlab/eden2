@@ -104,10 +104,10 @@ class Tool(BaseModel):
             print("pr2")
             print(result)
             return [self.prepare_result(r, env=env) for r in result]
-        elif isinstance(result, dict):
-            print("pr3")
-            print(result)
-            return {k: self.prepare_result(v, env=env) for k, v in result.items()}
+        # elif isinstance(result, dict):
+        #     print("pr3")
+        #     print(result)
+        #     return {k: self.prepare_result(v, env=env) for k, v in result.items()}
         elif type(result) in [str, int, float]:
             print("pr4")
             return result
@@ -151,8 +151,10 @@ class Tool(BaseModel):
                 print("OR 0-")
                 result = await run_function(self, args, env)
                 print("OR 1")
+                
             except Exception as e:
                 print("OR 2")
+                print("exception", e)
                 result = {"error": str(e)}
                 print("OR 3")
             print("OR 4")
@@ -162,6 +164,8 @@ class Tool(BaseModel):
             print(y)
             print(result)
             print("OR 6")
+            print("YT IS NOW")
+            print(y)
             return y
         return wrapper
 
@@ -250,7 +254,7 @@ class Tool(BaseModel):
         return asyncio.run(self.async_cancel(task))
 
 
-def load_tool(tool_dir: str, **kwargs) -> Tool:
+def load_tool(tool_dir: str, prefer_local: bool = True, **kwargs) -> Tool:
     """Load the tool class based on the handler in api.yaml"""
     
     from comfyui_tool import ComfyUITool
@@ -258,6 +262,7 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     from modal_tool import ModalTool
     from gcp_tool import GCPTool
     from local_tool import LocalTool
+    
     api_file = os.path.join(tool_dir, 'api.yaml')
     with open(api_file, 'r') as f:
         schema = yaml.safe_load(f)
@@ -266,9 +271,10 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     handler_map = {
         "comfyui": ComfyUITool,
         "replicate": ReplicateTool,
-        "modal": LocalTool,
+        "modal": ModalTool,
         "gcp": GCPTool,
-        None: LocalTool
+        "local": LocalTool,
+        None: LocalTool if prefer_local else ModalTool
     }
     
     tool_class = handler_map.get(handler, Tool)
@@ -304,10 +310,10 @@ def prepare_result(result, env: str):
         print("pr2")
         print(result)
         return [prepare_result(r, env=env) for r in result]
-    elif isinstance(result, dict):
-        print("pr3")
-        print(result)
-        return {k: prepare_result(v, env=env) for k, v in result.items()}
+    # elif isinstance(result, dict):
+    #     print("pr3")
+    #     print(result)
+    #     return {k: prepare_result(v, env=env) for k, v in result.items()}
     elif type(result) in [str, int, float]:
         print("pr4")
         return result

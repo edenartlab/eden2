@@ -25,6 +25,9 @@ import s3
 
 
 def upload_result(result, env: str, save_thumbnails=True):
+    print("upload_result!!!")
+    print(result)
+
     if "output" not in result:
         result_str = json.dumps(result)
         raise Exception(f"No output found in result: {result_str}")
@@ -43,7 +46,7 @@ def upload_result(result, env: str, save_thumbnails=True):
     if thumbnail:
         result[0]["thumbnail"] = upload_media(thumbnail, env=env, save_thumbnails=False)  #thumbnail
 
-    if intermediate_outputs:
+    if intermediate_outputs and False:
         result[0]["intermediate_outputs"] = {
             k: upload_media(v, env=env, save_thumbnails=False) 
             for k, v in intermediate_outputs.items()

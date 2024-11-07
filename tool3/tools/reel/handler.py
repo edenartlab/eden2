@@ -221,7 +221,7 @@ async def handler(args: dict, env: str):
             
         # # # generate music
         # if music and story.music_prompt:
-        #     musicgen = load_tool("musicgen")
+        #     musicgen = load_tool("tools/musicgen")
         #     music = await musicgen.async_run({
         #         "prompt": story.music_prompt,
         #         "duration": int(duration)
@@ -332,7 +332,7 @@ async def handler(args: dict, env: str):
         # video_concat = load_tool("tools/media_utils/video_concat")
         # video = await video_concat.async_run({"videos": [v["url"] for v in videos]}, env=env)
         # print("video", video)
-        # video = video[0]
+        # video = video[0]['url']
 
 
         # # txt2vid = load_tool("../workflows/workspaces/video/workflows/txt2vid")
@@ -346,7 +346,7 @@ async def handler(args: dict, env: str):
         # # video = [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 31.6}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/75bf55b76a8e4cadbf824b4eee1673a8c41c24f6688a1d5f2f90723c237c4ae6.mp4'}]
         # print(video)
         # # output_url = video[0]["url"]
-        # output_url = video
+        # # output_url = video
         # # video = "output.mp4"
 
         # # print("txt2vid", output_url)
@@ -358,8 +358,8 @@ async def handler(args: dict, env: str):
         #     print("a 3")
         #     audio.export(buffer, format="mp3")
         #     print("a 4")
-        #     print("URL IS", video[0]["url"])
-        #     output = eden_utils.make_audiovideo_clip(video[0]["url"], buffer)
+        #     # print("URL IS", video[0]["url"])
+        #     output = eden_utils.make_audiovideo_clip(video, buffer)
         #     print(output)
         #     print("a 5")
         #     # output_url, _ = s3.upload_file(output)
@@ -380,21 +380,23 @@ async def handler(args: dict, env: str):
         #     "intermediate_outputs": {
         #         "story": story.model_dump(),
         #         "characters": [c.model_dump() for c in characters],
-        #         # "images": ["images"],
-        #         # "videos": ["videos"],
+        #         "images": images,
+        #         "videos": videos,
         #         "music": music,
         #         # "speech": speech_audio
         #     }
         # }
 
-        zz = {'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.', 'music_prompt': "213413", 'speaker': "None222", 'speech': "2342"}, 'characters': ["SDFA"], 'images': ['images'], 'videos': ['videos'], 'music': "ddd"}}
+        zz = {'output': '/var/folders/h_/8038q2513yz414f7j3yqy_580000gn/T/tmpkjf59iem.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A cinematic asteroid view of Mars hurtling through space and colliding dramatically with Earth, causing an immense explosion.', 'music_prompt': 'Intense orchestral music building to a crescendo, evoking tension and epic disaster.', 'speaker': 'narrator', 'speech': "Witness the catastrophic collision of Mars and Earth, a cosmic dance of destruction, captured with stunning simulation, as the red planet meets our blue world in an inevitable, fiery embrace. Watch as continents crumble and atmospheres collide, forever altering the solar system's story."}, 'characters': [{'name': 'narrator', 'description': 'The narrator of the reel is a voiceover artist who provides some narration for the reel'}], 'images': ['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6532b48aa71c98b56a9ab41f63a24c09029527360af26b9e089218de4043e8f8.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e423f8290876ee4694f811bb1716e5d70acdf6ab6b6ea3480357ca5ae6af2f2b.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3892e536589147b729ff8d31ae93457f24361cb01450de707a700ef798828bc8.png'], 'videos': [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/5020c31bf1fdf2f590113a75148a021aae38eb809532d2799b9c434f3548f832.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/2559354dcfbfe2921e468580e8ed66823f332924191bdeb5f6aed4d3ae4a19ba.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/1ddbcdbfaa3c4a8ab218a79cbbf1d95f92cc105b0d5e30fe8c5cd0bc8f00bfa4.mp4'}], 'music': [{'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 28.044}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e3b1438800d80293a2cc87a6371cd6947ad9e10bd449b5bfe27e4891dbab9448.mp3'}]}}
 
-        zz = {
-            'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4',
-            'intermediate_outputs': {
-                'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.'}
-            }
-        }
+        # zz = {'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.', 'music_prompt': "213413", 'speaker': "None222", 'speech': "2342"}, 'characters': ["SDFA"], 'images': ['images'], 'videos': ['videos'], 'music': "ddd"}}
+
+        # zz = {
+        #     'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4',
+        #     'intermediate_outputs': {
+        #         'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.'}
+        #     }
+        # }
 
         print("zz", zz)
 
