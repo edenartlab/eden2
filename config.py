@@ -15,7 +15,7 @@ ordered_tools = [
     "txt2img", "flux_dev", "flux_schnell", 
     "layer_diffusion", "remix_flux_schnell", "remix", "inpaint", "flux_inpainting", "outpaint", "face_styler", 
     "upscaler", "background_removal", "background_removal_video", "style_transfer",
-    "animate_3D", "txt2vid", "img2vid", "video_upscaler", "vid2vid_sdxl",
+    "animate_3D", "txt2vid", "img2vid", "video_upscaler", "vid2vid_sdxl", "video_FX",
     "texture_flow", "runway",
     "stable_audio", "musicgen"
 ]
