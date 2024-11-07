@@ -10,12 +10,16 @@ parameters:
     label: Prompt
     description: Describe what your reel is about
     required: true
-  narrator:
+  use_narrator:
     type: bool
     label: Narrator
     description: Include a narrator in the reel
     default: true
-  music:
+  narration:
+    type: str
+    label: Narration
+    description: Override narration. If left blank, narration is auto-generated.
+  use_music:
     type: bool
     label: Music
     description: Include music in the reel
@@ -31,19 +35,9 @@ parameters:
     default: 10
     minimum: 5
     maximum: 60
-  width:
-    type: int
-    label: Width
-    description: Width in pixels
-    default: 1024
-    minimum: 512
-    maximum: 2048
-    step: 8
-  height:
-    type: int
-    label: Height
-    description: Height in pixels
-    default: 1024
-    minimum: 512
-    maximum: 2048
-    step: 8
+  orientation:
+    type: str
+    label: Orientation
+    description: The aspect ratio of the reel
+    default: portrait
+    choices: [landscape, portrait]

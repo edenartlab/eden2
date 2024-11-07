@@ -1,16 +1,14 @@
 from test_tools import *
 
 async def run_test(tool):
-    try:
-        user_id = os.getenv("EDEN_TEST_USER_STAGE")
-        task = await tool.async_start_task(user_id, tool.test_args, "STAGE")
-        result = await tool.async_wait(task)
+    user_id = os.getenv("EDEN_TEST_USER_STAGE")
+    task = await tool.async_start_task(user_id, tool.test_args, "STAGE")
+    result = await tool.async_wait(task)
+    if "error" in result:
+        eden_utils.pprint(f"Tool: {tool.key}: ERROR {result['error']}", color="red")
+    else:
         eden_utils.pprint(f"Tool: {tool.key}:", result, color="green")
-        return result
-
-    except Exception as error:
-        eden_utils.pprint(f"Tool: {tool.key}: ERROR {error}", color="red")
-        return {"error": f"{error}"}
+    return result
 
 async def run_all_tests():
     tools = get_tools("tools")

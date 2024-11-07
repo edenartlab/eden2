@@ -1,0 +1,19 @@
+name: Image paste
+description: Concatenate several images into a horizontal strip
+cost_estimate: 0.1
+output_type: image
+status: stage
+visible: false
+parameters:
+  images:
+    type: array
+    items:
+      type: image
+    label: Images
+    description: Image URLs to paste together
+    required: true
+  height:
+    type: int
+    label: Height
+    description: Height of the resulting image
+    default: 512

@@ -147,6 +147,7 @@ def generate_edit_model(
         **{key: (value[0], Field(default=value[1], description=value[2])) for key, value in edit_fields.items()},
         __base__=BaseModel
     )
+
     edit_model.__doc__ = edit_model_description
 
     return edit_model
@@ -181,6 +182,7 @@ def apply_edit(
     updates = {}
     for field_name, value in edit:
         if value is not None:
+            
             if field_name.startswith('add_'):
                 original_field = field_name.replace('add_', '')
                 if isinstance(value, dict) and 'index' in value:
@@ -196,6 +198,7 @@ def apply_edit(
                         setattr(instance_copy, original_field, {})
                     for key, new_value in value.items():
                         getattr(instance_copy, original_field)[key] = new_value
+            
             elif field_name.startswith('edit_'):
                 original_field = field_name.replace('edit_', '')
                 if isinstance(value, dict) and 'index' in value and 'value' in value:
@@ -221,6 +224,7 @@ def apply_edit(
                     setattr(instance_copy, original_field, nested_updated)
                 else:
                     updates[original_field] = value
+            
             elif field_name.startswith('remove_'):
                 original_field = field_name.replace('remove_', '')
                 if getattr(instance_copy, original_field) is None:

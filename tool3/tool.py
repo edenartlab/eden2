@@ -79,7 +79,7 @@ class Tool(BaseModel):
         for field, field_info in self.base_model.model_fields.items():
             if field in args:
                 prepared_args[field] = args[field]
-            elif field_info.default:
+            elif field_info.default is not None:
                 if field_info.default == "random":
                     minimum, maximum = field_info.metadata[0].ge, field_info.metadata[1].le
                     prepared_args[field] = random.randint(minimum, maximum)
@@ -97,28 +97,72 @@ class Tool(BaseModel):
         return prepared_args
 
     def prepare_result(self, result, env: str):
+        print("pr1")
+        print(result)
+        print(type(result))
         if isinstance(result, list):
+            print("pr2")
+            print(result)
             return [self.prepare_result(r, env=env) for r in result]
+        elif isinstance(result, dict):
+            print("pr3")
+            print(result)
+            return {k: self.prepare_result(v, env=env) for k, v in result.items()}
+        elif type(result) in [str, int, float]:
+            print("pr4")
+            return result
+        print("pr4")
         if "filename" in result:
+            print("pr5")
             filename = result.pop("filename")
+            print("pr6")
             result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+            print("pr7")
         if "thumbnail" in result:
+            print("pr8")
             result["thumbnail"] = self.prepare_result(result["thumbnail"], env=env)
+            print("pr9")
+        print("pr10")
         if "model" in result:
+            print("pr11")
             result["model"] = str(result["model"])
+            print("pr12")
             result.pop("metadata")  # don't need to return model metadata here since it's already in the task args
         if "intermediate_outputs" in result:
+            print("pr12")
             result["intermediate_outputs"] = {
                 k: self.prepare_result(v, env=env)
                 for k, v in result["intermediate_outputs"].items()
             }
+            print("pr13")
+        print("THE RESU")
+        print("GO!!! 11")
+        print("the type is")
+        print(type(result))
+        print(result)
+        print("GO!!!  22 ")
         return result
 
     def handle_run(run_function):
         async def wrapper(self, args: Dict, env: str):
-            args = self.prepare_args(args)
-            result = await run_function(self, args, env)
-            return self.prepare_result(result, env)
+            try:
+                print("OR 0")
+                args = self.prepare_args(args)
+                print("OR 0-")
+                result = await run_function(self, args, env)
+                print("OR 1")
+            except Exception as e:
+                print("OR 2")
+                result = {"error": str(e)}
+                print("OR 3")
+            print("OR 4")
+            print(result)
+            y= self.prepare_result(result, env)
+            print("OR 5")
+            print(y)
+            print(result)
+            print("OR 6")
+            return y
         return wrapper
 
     def handle_start_task(start_task_function):
@@ -157,7 +201,13 @@ class Tool(BaseModel):
         async def wrapper(self, task: Task):
             if not task.handler_id:
                 task.reload()
-            result = await wait_function(self, task)
+            try:
+                result = await wait_function(self, task)
+            except Exception as e:
+                print("OR 5")
+                print(e)
+                task.update(status="failed", error=str(e))
+                raise e
             return self.prepare_result(result, task.env)
         return wrapper
     
@@ -207,7 +257,7 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     from replicate_tool import ReplicateTool
     from modal_tool import ModalTool
     from gcp_tool import GCPTool
-    
+    from local_tool import LocalTool
     api_file = os.path.join(tool_dir, 'api.yaml')
     with open(api_file, 'r') as f:
         schema = yaml.safe_load(f)
@@ -216,9 +266,9 @@ def load_tool(tool_dir: str, **kwargs) -> Tool:
     handler_map = {
         "comfyui": ComfyUITool,
         "replicate": ReplicateTool,
-        "modal": ModalTool,
+        "modal": LocalTool,
         "gcp": GCPTool,
-        None: ModalTool
+        None: LocalTool
     }
     
     tool_class = handler_map.get(handler, Tool)
@@ -243,3 +293,52 @@ def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
                 tools[tool_key] = tool
             
     return tools
+
+
+
+
+def prepare_result(result, env: str):
+    print("pr1")
+    print(result)
+    if isinstance(result, list):
+        print("pr2")
+        print(result)
+        return [prepare_result(r, env=env) for r in result]
+    elif isinstance(result, dict):
+        print("pr3")
+        print(result)
+        return {k: prepare_result(v, env=env) for k, v in result.items()}
+    elif type(result) in [str, int, float]:
+        print("pr4")
+        return result
+    print("pr4")
+    if "filename" in result:
+        print("pr5")
+        filename = result.pop("filename")
+        print("pr6")
+        result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
+        print("pr7")
+    if "thumbnail" in result:
+        print("pr8")
+        result["thumbnail"] = prepare_result(result["thumbnail"], env=env)
+        print("pr9")
+    print("pr10")
+    if "model" in result:
+        print("pr11")
+        result["model"] = str(result["model"])
+        print("pr12")
+        result.pop("metadata")  # don't need to return model metadata here since it's already in the task args
+    if "intermediate_outputs" in result:
+        print("pr12")
+        result["intermediate_outputs"] = {
+            k: prepare_result(v, env=env)
+            for k, v in result["intermediate_outputs"].items()
+        }
+        print("pr13")
+    print("THE RESU")
+    print("GO!!! 11")
+    print("the type is")
+    print(type(result))
+    print(result)
+    print("GO!!!  22 ")
+    return result

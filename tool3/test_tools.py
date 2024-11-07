@@ -14,14 +14,13 @@ parser.add_argument("--save", action='store_true', help="Save results to a folde
 args = parser.parse_args()
 
 async def run_test(tool):
-    try:
-        result = await tool.async_run(tool.test_args, env="STAGE")
+    result = await tool.async_run(tool.test_args, env="STAGE")
+    if "error" in result:
+        eden_utils.pprint(f"Tool: {tool.key}: ERROR {result['error']}", color="red")
+    else:
         eden_utils.pprint(f"Tool: {tool.key}:", result, color="green")
-        return result
-    except Exception as error:
-        eden_utils.pprint(f"Tool: {tool.key}: ERROR {error}", color="red")
-        return {"error": f"{error}"}
-
+    return result
+        
 async def run_all_tests():
     tools = get_tools("tools")
     tools.update(get_tools("../../workflows"))
@@ -32,8 +31,7 @@ async def run_all_tests():
 
     print(f"Testing tools: {', '.join(tools.keys())}")
 
-    results = await asyncio.gather(*[run_test(tool) for tool in tools.values()])    
-    # results = [[{'mediaAttributes': {'mimeType': 'image/jpeg', 'width': 1024, 'height': 1024, 'aspectRatio': 1.0}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg'}], [{'mediaAttributes': {'mimeType': 'image/jpeg', 'width': 1024, 'height': 1024, 'aspectRatio': 1.0}, 'intermediate_outputs': {'key1': 'value1', 'key2': {'filename': '62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg', 'mediaAttributes': {'mimeType': 'image/jpeg', 'width': 1024, 'height': 1024, 'aspectRatio': 1.0}}, 'key3': 'args'}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg'}], {'output': ['https://replicate.delivery/yhqm/tWdmL0zKlSqhA5iAIOR4w2Yu9wZlB7X5H0kMUlxezmEIC62JA/out.mp3']}, {'output': ['https://replicate.delivery/yhqm/aorbQeOVEST7FKjFEZgAVedOrhG5vFbu8aN2HMrPxxISE0tTA/out-0.png']}]
+    results = await asyncio.gather(*[run_test(tool) for tool in tools.values()])
     if args.save:
         save_results(tools, results)
 

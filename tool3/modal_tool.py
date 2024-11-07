@@ -39,13 +39,14 @@ app = modal.App(
     secrets=[
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
-        # modal.Secret.from_name("replicate"),
-        # modal.Secret.from_name("openai"),
-        # modal.Secret.from_name("anthropic"),
-        # modal.Secret.from_name("elevenlabs"),
-        # modal.Secret.from_name("newsapi"),
-        # modal.Secret.from_name("runway"),
-        # modal.Secret.from_name("sentry"),
+        modal.Secret.from_name("replicate"),
+        modal.Secret.from_name("openai"),
+        modal.Secret.from_name("anthropic"),
+        modal.Secret.from_name("elevenlabs"),
+        modal.Secret.from_name("hedra"),
+        modal.Secret.from_name("newsapi"),
+        modal.Secret.from_name("runway"),
+        modal.Secret.from_name("sentry"),
     ],   
 )
 

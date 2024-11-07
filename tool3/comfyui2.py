@@ -211,27 +211,6 @@ class ComfyUI:
         result = self._execute(tool_key, args, env=env)
         return eden_utils.upload_result(result, env=env)
 
-        # print("intermediate outputs", intermediate_outputs)
-        # result = eden_utils.upload_media(output, env=env, save_thumbnails=False)
-        # result[0]["intermediateOutputs"] = {
-        #     k: eden_utils.upload_media(v, env=env, save_thumbnails=False)
-        #     for k, v in intermediate_outputs.items()
-        # }
-        # return result
-
-
-    # @modal.method()
-    # async def run(tool_key: str, args: dict):
-    #     result = await handlers[tool_key](args)
-    #     return eden_utils.upload_result(result, env="STAGE")
-
-
-    # @modal.method()
-    # @task_handler
-    # async def run_task(tool_key: str, args: dict):
-    #     return await handlers[tool_key](args)
-
-
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, env: str):
@@ -278,9 +257,6 @@ class ComfyUI:
             print("Running tests: ", tests)
             for test in tests:
                 tool = ComfyUITool.from_dir(f"/root/workspace/workflows/{workflow}")
-                print("THE WORKFLOW IS", workflow)
-                print(tool)
-                print(tool.status)
                 if tool.status == "inactive":
                     print(f"{workflow} is inactive, skipping test")
                     continue
@@ -291,16 +267,6 @@ class ComfyUI:
                 t1 = time.time()
                 result = self._execute(workflow, test_args, env="STAGE")
                 result = eden_utils.upload_result(result, env="STAGE", save_thumbnails=False)
-                # output = result.get("output")
-                # intermediate_outputs = result.get("intermediate_outputs", {})
-                # if not output:
-                #     raise Exception(f"No output from {test_name}")
-                # result = eden_utils.upload_media(output, env="STAGE")
-                # if intermediate_outputs:
-                #     result[0]["intermediateOutputs"] = {
-                #         k: eden_utils.upload_media(v, env="STAGE", save_thumbnails=False)
-                #         for k, v in intermediate_outputs.items()
-                #     }
                 t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -565,7 +531,6 @@ class ComfyUI:
 
         # Helper function to validate and normalize URLs
         def validate_url(url):
-            print("VALIDATE URL", url)
             if not isinstance(url, str):
                 raise ValueError(f"Invalid URL type: {type(url)}. Expected string.")
             if not url.startswith(('http://', 'https://')):
@@ -587,16 +552,12 @@ class ComfyUI:
                 if not args.get(key):
                     continue
                 if is_array:
-                    print("key", key)
-                    print("args", args)
-                    print("LETS VALIDATE THESE URLS", args.get(key))
                     urls = [validate_url(url) for url in args.get(key)]
                     args[key] = [
                         eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None 
                         for url in urls
                     ] if urls else None
                 else:
-                    print("LETS VALIDATE THESE URLS", args.get(key))
                     url = validate_url(args.get(key))
                     args[key] = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
             
@@ -694,13 +655,8 @@ class ComfyUI:
                 workflow[node_id][field][subfield] = value  
 
             for remap in comfyui.get('remap', []):
-                print("THE REMAP IS")
-                print(remap)
                 subfields = [s.strip() for s in str(remap.get('subfield', '')).split(",")]
                 for subfield in subfields:
-                    print("remap vla")
-                    print(value)
-                    print(remap.get('map'))
                     output_value = remap.get('map').get(value)
                     print("remap", str(remap['node_id']), remap['field'], subfield, " = ", output_value)
                     workflow[str(remap['node_id'])][remap['field']][subfield] = output_value
