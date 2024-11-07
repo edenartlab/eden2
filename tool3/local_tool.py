@@ -16,14 +16,8 @@ class LocalTool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
-        print("local tool run")
         result = await handlers[self.key](args, env=env)
-        print("result !!!", result)
-        print("done!!!!")
-        print("--\n\nletsupload")
-        cc =  eden_utils.upload_result(result, env=env)
-        print("cc", cc)
-        return cc
+        return eden_utils.upload_result(result, env=env)
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
@@ -41,7 +35,7 @@ class LocalTool(Tool):
             del self._tasks[task.handler_id]
             return result
         except asyncio.CancelledError:
-            return None
+            return {"status": "cancelled"}
     
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):

@@ -24,68 +24,68 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
-def upload_result(result, env: str, save_thumbnails=True):
-    print("upload_result!!!")
-    print(result)
+def prepare_result(result, env: str, summarize=False):
+    if isinstance(result, dict):
+        if "filename" in result:
+            filename = result.pop("filename")
+            url = f"{s3.get_root_url(env=env)}/{filename}"
+            if summarize:
+                return url
+            else:
+                result["url"] = url
+        return {k: prepare_result(v, env, summarize) for k, v in result.items()}
+    elif isinstance(result, list):
+        return [prepare_result(item, env, summarize) for item in result]
+    else:
+        return result
 
-    if "output" not in result:
-        result_str = json.dumps(result)
-        raise Exception(f"No output found in result: {result_str}")
-    
-    output = result["output"]
-    intermediate_outputs = result.get("intermediate_outputs")
-    thumbnail = result.get("thumbnail")
 
-    output = output if isinstance(output, list) else [output]
-    result = [
-        upload_media(o, env, save_thumbnails=save_thumbnails) \
-            if is_file(o) else {"text": o}
-        for o in output
-    ]
-
-    if thumbnail:
-        result[0]["thumbnail"] = upload_media(thumbnail, env=env, save_thumbnails=False)  #thumbnail
-
-    if intermediate_outputs and False:
-        result[0]["intermediate_outputs"] = {
-            k: upload_media(v, env=env, save_thumbnails=False) 
-            for k, v in intermediate_outputs.items()
-        }
-
-    return result
+def upload_result(result, env: str, save_thumbnails=False):
+    if isinstance(result, dict):
+        return {k: upload_result(v, env) for k, v in result.items()}
+    elif isinstance(result, list):
+        return [upload_result(item, env) for item in result]
+    elif isinstance(result, str) and is_file(result):
+        return upload_media(result, env, save_thumbnails=save_thumbnails)
+    else:
+        return result
 
 
 def upload_media(output, env, save_thumbnails=True):
-    is_list = isinstance(output, list)
-    if not isinstance(output, list):
-        output = [output]
+    file_url, sha = s3.upload_file(output, env=env)
+    filename = file_url.split("/")[-1]
 
-    result = []
+    media_attributes, thumbnail = get_media_attributes(output)
 
-    for o in output:
-        if not is_file(o):
-            result.append(o)
-            continue
+    if save_thumbnails and thumbnail:
+        for width in [384, 768, 1024, 2560]:
+            img = thumbnail.copy()
+            img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
+            img_bytes = PIL_to_bytes(img)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
 
-        file_url, sha = s3.upload_file(o, env=env)
-        filename = file_url.split("/")[-1]
+    return {
+        "filename": filename,
+        "mediaAttributes": media_attributes
+    }
 
-        media_attributes, thumbnail = get_media_attributes(o)
+    
 
-        if save_thumbnails and thumbnail:
-            for width in [384, 768, 1024, 2560]:
-                img = thumbnail.copy()
-                img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
-                img_bytes = PIL_to_bytes(img)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
 
-        result.append({
-            "filename": filename,
-            "mediaAttributes": media_attributes
-        })
 
-    return result if is_list else result[0]
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def get_media_attributes(file_path):

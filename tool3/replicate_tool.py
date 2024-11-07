@@ -37,7 +37,11 @@ class ReplicateTool(Tool):
             result = {
                 "output": replicate.run(self.model, input=args)
             }
+        print("1 result")
+        print(result)
         result = eden_utils.upload_result(result, env=env)
+        print("2 result")
+        print(result)
         return result
 
     @Tool.handle_start_task
@@ -159,10 +163,13 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     
     elif status == "succeeded":
         if output_handler == "normal":
-            output = output if isinstance(output, list) else [output]
-            result = eden_utils.upload_media(output, env=task.env)
+            # output = output if isinstance(output, list) else [output]
+            print("output :)", output)
+            # result = eden_utils.upload_media(output, env=task.env)
+            output = {"output": output}
+            result = eden_utils.upload_result(output, env=task.env)
         
-        elif output_handler in ["trainer", "eden"]:
+        elif output_handler in ["trainer", "eden"]: 
             result = replicate_process_eden(output, env=task.env)
 
             if output_handler == "trainer":
@@ -223,5 +230,5 @@ def replicate_process_eden(output, env):
 
         results.append(result)
 
-    return results
+    return {"output": results}
     

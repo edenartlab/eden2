@@ -8,7 +8,7 @@ import eden_utils
 from pydantic import BaseModel, Field, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 
-import s3
+import eden_utils
 from base import parse_schema
 from models import Task, User
 
@@ -96,77 +96,14 @@ class Tool(BaseModel):
 
         return prepared_args
 
-    def prepare_result(self, result, env: str):
-        print("pr1")
-        print(result)
-        print(type(result))
-        if isinstance(result, list):
-            print("pr2")
-            print(result)
-            return [self.prepare_result(r, env=env) for r in result]
-        # elif isinstance(result, dict):
-        #     print("pr3")
-        #     print(result)
-        #     return {k: self.prepare_result(v, env=env) for k, v in result.items()}
-        elif type(result) in [str, int, float]:
-            print("pr4")
-            return result
-        print("pr4")
-        if "filename" in result:
-            print("pr5")
-            filename = result.pop("filename")
-            print("pr6")
-            result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
-            print("pr7")
-        if "thumbnail" in result:
-            print("pr8")
-            result["thumbnail"] = self.prepare_result(result["thumbnail"], env=env)
-            print("pr9")
-        print("pr10")
-        if "model" in result:
-            print("pr11")
-            result["model"] = str(result["model"])
-            print("pr12")
-            result.pop("metadata")  # don't need to return model metadata here since it's already in the task args
-        if "intermediate_outputs" in result:
-            print("pr12")
-            result["intermediate_outputs"] = {
-                k: self.prepare_result(v, env=env)
-                for k, v in result["intermediate_outputs"].items()
-            }
-            print("pr13")
-        print("THE RESU")
-        print("GO!!! 11")
-        print("the type is")
-        print(type(result))
-        print(result)
-        print("GO!!!  22 ")
-        return result
-
     def handle_run(run_function):
         async def wrapper(self, args: Dict, env: str):
             try:
-                print("OR 0")
                 args = self.prepare_args(args)
-                print("OR 0-")
                 result = await run_function(self, args, env)
-                print("OR 1")
-                
             except Exception as e:
-                print("OR 2")
-                print("exception", e)
                 result = {"error": str(e)}
-                print("OR 3")
-            print("OR 4")
-            print(result)
-            y= self.prepare_result(result, env)
-            print("OR 5")
-            print(y)
-            print(result)
-            print("OR 6")
-            print("YT IS NOW")
-            print(y)
-            return y
+            return eden_utils.prepare_result(result, env)
         return wrapper
 
     def handle_start_task(start_task_function):
@@ -208,11 +145,9 @@ class Tool(BaseModel):
             try:
                 result = await wait_function(self, task)
             except Exception as e:
-                print("OR 5")
-                print(e)
-                task.update(status="failed", error=str(e))
-                raise e
-            return self.prepare_result(result, task.env)
+                result = {"status": "failed", "error": str(e)}
+                # task.update(**result)                
+            return eden_utils.prepare_result(result, task.env)
         return wrapper
     
     def handle_cancel(cancel_function):
@@ -299,52 +234,3 @@ def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
                 tools[tool_key] = tool
             
     return tools
-
-
-
-
-def prepare_result(result, env: str):
-    print("pr1")
-    print(result)
-    if isinstance(result, list):
-        print("pr2")
-        print(result)
-        return [prepare_result(r, env=env) for r in result]
-    # elif isinstance(result, dict):
-    #     print("pr3")
-    #     print(result)
-    #     return {k: prepare_result(v, env=env) for k, v in result.items()}
-    elif type(result) in [str, int, float]:
-        print("pr4")
-        return result
-    print("pr4")
-    if "filename" in result:
-        print("pr5")
-        filename = result.pop("filename")
-        print("pr6")
-        result["url"] = f"{s3.get_root_url(env=env)}/{filename}"
-        print("pr7")
-    if "thumbnail" in result:
-        print("pr8")
-        result["thumbnail"] = prepare_result(result["thumbnail"], env=env)
-        print("pr9")
-    print("pr10")
-    if "model" in result:
-        print("pr11")
-        result["model"] = str(result["model"])
-        print("pr12")
-        result.pop("metadata")  # don't need to return model metadata here since it's already in the task args
-    if "intermediate_outputs" in result:
-        print("pr12")
-        result["intermediate_outputs"] = {
-            k: prepare_result(v, env=env)
-            for k, v in result["intermediate_outputs"].items()
-        }
-        print("pr13")
-    print("THE RESU")
-    print("GO!!! 11")
-    print("the type is")
-    print(type(result))
-    print(result)
-    print("GO!!!  22 ")
-    return result

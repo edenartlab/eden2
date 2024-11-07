@@ -1,4 +1,3 @@
-import asyncio
 import modal
 from typing import Dict
 
@@ -12,10 +11,7 @@ class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
         func = modal.Function.lookup("handlers2", "run")
-        print("async 1")
         result = await func.remote.aio(tool_key=self.key, args=args, env=env)
-        print("result", result)
-        print("async 2")
         return result
 
     @Tool.handle_start_task

@@ -25,12 +25,9 @@ async def run_all_tests():
     tools = get_tools("tools")
     tools.update(get_tools("../../workflows"))
     # tools.update(get_tools("../../private_workflows"))
-
     if args.tools:
         tools = {k: v for k, v in tools.items() if k in args.tools}
-
     print(f"Testing tools: {', '.join(tools.keys())}")
-
     results = await asyncio.gather(*[run_test(tool) for tool in tools.values()])
     if args.save:
         save_results(tools, results)
