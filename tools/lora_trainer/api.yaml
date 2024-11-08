@@ -8,6 +8,7 @@ handler: replicate
 output_handler: trainer
 model: edenartlab/lora-trainer
 base_model: SDXL
+thumbnail: app/LoRA-trainer-SDXL.png
 version: deployment
 parameters:
 - name: name
