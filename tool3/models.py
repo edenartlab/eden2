@@ -156,7 +156,12 @@ async def _task_handler(func, *args, **kwargs):
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i
 
-            result = await func(*args[:-1], task.workflow, task_args, task.env)
+
+            if task.workflow == "style_transfer":
+                wf= "txt2img"
+            else:
+                wf = task.workflow
+            result = await func(*args[:-1], wf, task_args, task.env)
             print("-- the final result --")
             print(result)
             result = eden_utils.upload_result(result, env=task.env)
@@ -258,20 +263,23 @@ class User(MongoModel):
     subscriptionTier: Optional[int] = None
     highestMonthlySubscriptionTier: Optional[int] = None
     deleted: bool    
-    mannas: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
+    # mannas: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
-    def __init__(self, env, **data):
-        super().__init__(env=env, **data)
-        self.mannas = get_collection("mannas", env=env)
-        if not self.mannas.find_one({"user": self.id}):
-            raise Exception("Mannas not found")
+    # def __init__(self, env, **data):
+    #     super().__init__(env=env, **data)
+    #     self.mannas = get_collection("mannas", env=env)
+    #     if not self.mannas.find_one({"user": self.id}):
+    #         raise Exception("Mannas not found")
     
     @classmethod
     def get_collection_name(cls) -> str:
         return "users"
     
     def verify_manna_balance(self, amount: float):
-        manna = self.mannas.find_one({"user": self.id})
+        mannas = get_collection("mannas", env=self.env)
+        manna = mannas.find_one({"user": self.id})
+        if not manna:
+            raise Exception("Mannas not found")
         balance = manna.get("balance") + manna.get("subscriptionBalance", 0)
         if balance < amount:
             raise Exception(f"Insufficient manna balance. Need {amount} but only have {balance}")
@@ -279,19 +287,23 @@ class User(MongoModel):
     def spend_manna(self, amount: float):
         if amount == 0:
             return
-        manna = self.mannas.find_one({"user": self.id})
+        # manna = self.mannas.find_one({"user": self.id})
+        mannas = get_collection("mannas", env=self.env)
+        manna = mannas.find_one({"user": self.id})
+        if not manna:
+            raise Exception("Mannas not found")
         subscription_balance = manna.get("subscriptionBalance", 0)
         # Use subscription balance first
         if subscription_balance > 0:
             subscription_spend = min(subscription_balance, amount)
-            self.mannas.update_one(
+            mannas.update_one(
                 {"user": self.id},
                 {"$inc": {"subscriptionBalance": -subscription_spend}}
             )
             amount -= subscription_spend
         # If there's remaining amount, use regular balance
         if amount > 0:
-            self.mannas.update_one(
+            mannas.update_one(
                 {"user": self.id},
                 {"$inc": {"balance": -amount}}
             )
@@ -300,5 +312,6 @@ class User(MongoModel):
         if amount == 0:
             return
         # todo: make it refund to subscription balance first
-        self.mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
+        mannas = get_collection("mannas", env=self.env)
+        mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
 

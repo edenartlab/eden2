@@ -1,0 +1,52 @@
+name: Style transfer
+description: Reimagine an image in a different style
+resolutions: []  # get rid of width/height selector
+
+parent_tool: txt2img
+
+parameters:
+  prompt:
+    label: Prompt
+    description: Describe the style you want to use
+    tip: |-
+      This should be a description of the style you want to use.
+    required: true
+
+  # activate init image 
+  use_init_image:
+    default: true
+    hide_from_ui: true
+  init_image:
+    label: Input image
+    required: true
+    visible_if: ""
+  
+  use_ipadapter:
+    default: false
+    hide_from_ui: true
+
+  # activate controlnet  
+  use_controlnet:
+    label: Controlnet
+    default: true
+    hide_from_ui: true
+  preprocessor:
+    label: Input image preprocessor
+    visible_if: ""
+  controlnet_strength:
+    label: Input image strength
+    visible_if: ""
+
+  # remove lora
+  use_lora:
+    hide_from_ui: true
+
+  # remove width/height considerations
+  size_from_input:
+    hide_from_ui: true
+  enforce_SDXL_resolution:
+    hide_from_ui: true
+  width:
+    hide_from_ui: true
+  height:
+    hide_from_ui: true

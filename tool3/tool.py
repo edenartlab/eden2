@@ -1,18 +1,22 @@
 import os
 import re
+import copy
 import yaml
 import json
 import random
 import asyncio
 import eden_utils
+from pprint import pprint
 from pydantic import BaseModel, Field, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 
 import eden_utils
 from base import parse_schema
 from models import Task, User
+from mongo import MongoModel, get_collection
 
 
+# class Tool(MongoModel):
 class Tool(BaseModel):
     """
     Base class for all tools.
@@ -31,21 +35,21 @@ class Tool(BaseModel):
     allowlist: Optional[str] = None
     visible: Optional[bool] = True
     test_args: Dict[str, Any]
-    handler: Literal["modal", "comfyui", "replicate", "gcp"] = "modal"
-    base_model: Type[BaseModel] = Field(None, exclude=True)
+    handler: Literal["local", "modal", "comfyui", "replicate", "gcp"] = "local"
+    # base_model: Type[BaseModel] = Field(None, exclude=True)
+    base_model: Type[BaseModel] = None
+
+
+    # do somethig about base_model BaseModel and "sdxl"
+
+    parent_tool: Optional[str] = None
+
+    # @classmethod
+    # def get_collection_name(cls) -> str:
+    #     return "tools2"
 
     @classmethod
-    def from_dir(cls, tool_dir: str, **kwargs):
-        key = tool_dir.split('/')[-1]
-        yaml_file = os.path.join(tool_dir, 'api.yaml')
-        test_file = os.path.join(tool_dir, 'test.json')
-
-        with open(yaml_file, 'r') as f:
-            schema = yaml.safe_load(f)
-                
-        with open(test_file, 'r') as f:
-            test_args = json.load(f)
-
+    def _create_tool(cls, key: str, schema: dict, test_args: dict, env: str, **kwargs):
         fields = parse_schema(schema)
         base_model = create_model(key, **fields)
         base_model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
@@ -56,8 +60,57 @@ class Tool(BaseModel):
         
         if 'cost_estimate' in tool_data:
             tool_data['cost_estimate'] = str(tool_data['cost_estimate'])
+            
+        return cls(env=env, key=key, **tool_data, **kwargs)
 
-        return cls(key=key, **tool_data, **kwargs)
+    @classmethod
+    def from_dir(cls, env: str, tool_dir: str, **kwargs):
+        key = tool_dir.split('/')[-1]
+        yaml_file = os.path.join(tool_dir, 'api.yaml')
+        test_file = os.path.join(tool_dir, 'test.json')
+
+        with open(yaml_file, 'r') as f:
+            schema = yaml.safe_load(f)
+                
+        with open(test_file, 'r') as f:
+            test_args = json.load(f)
+
+        return cls._create_tool(key, schema, test_args, env, **kwargs)
+
+    @classmethod
+    def from_mongo(cls, key: str, env: str, **kwargs):
+        tools = get_collection("tools2", env=env)
+        schema = tools.find_one({"key": key})
+        key = schema.pop('key')
+        test_args = schema.pop('test_args')
+
+        return cls._create_tool(key, schema, test_args, env, **kwargs)
+        
+    @classmethod
+    def from_preset(cls, preset_tool, schema: dict, test_args: dict) -> 'Tool':
+        """Create a new tool instance from a preset (parent) tool."""
+        tool_class = type(preset_tool)
+        preset_data = preset_tool.model_dump()
+        base_model = preset_tool.base_model
+
+        # Update base model parameters
+        for key, parameter in schema.pop("parameters", {}).items():
+            if key not in base_model.model_fields:
+                raise ValueError(f"Parameter {key} not found in base model")
+            for attr_name, attr_value in parameter.items():
+                if hasattr(base_model.model_fields[key], attr_name):
+                    setattr(base_model.model_fields[key], attr_name, attr_value)
+
+        # Update preset data with new schema values
+        preset_data.update(schema)
+        preset_data['test_args'] = test_args
+        preset_data['base_model'] = base_model
+        preset_data['description'] = eden_utils.concat_sentences(
+            schema.get('description', preset_data.get('description')), 
+            schema.get('tip', preset_data.get('tip'))
+        )
+    
+        return tool_class.model_validate(preset_data)
 
     def calculate_cost(self, args):
         if not self.cost_estimate:
@@ -146,7 +199,6 @@ class Tool(BaseModel):
                 result = await wait_function(self, task)
             except Exception as e:
                 result = {"status": "failed", "error": str(e)}
-                # task.update(**result)                
             return eden_utils.prepare_result(result, task.env)
         return wrapper
     
@@ -187,20 +239,136 @@ class Tool(BaseModel):
 
     def cancel(self, task: Task):
         return asyncio.run(self.async_cancel(task))
+    
 
 
-def load_tool(tool_dir: str, prefer_local: bool = True, **kwargs) -> Tool:
+def load_tool_from_mongo(key: str, env: str, prefer_local: bool = True) -> Tool:
     """Load the tool class based on the handler in api.yaml"""
     
+    tools = get_collection("tools2", env=env)
+    schema = tools.find_one({"key": key})
+    key = schema.pop('key')
+
+    tool_class = _get_tool_class(schema, prefer_local)
+    return tool_class.from_mongo(key=key, env=env)
+
+
+def load_tool_from_dir(tool_dir: str, env: str, prefer_local: bool = True) -> Tool:
+    """Load the tool class based on the handler in api.yaml"""
+    
+    api_file = os.path.join(tool_dir, 'api.yaml')
+    with open(api_file, 'r') as f:
+        schema = yaml.safe_load(f)
+
+    if schema.get("parent_tool"):
+        tool_dirs = sum([_get_tool_dirs(path) for path in ["tools", "../../workflows"]], [])
+        tool_dirs = {tool_dir.split("/")[-1]: tool_dir for tool_dir in tool_dirs}
+        
+        if schema["parent_tool"] not in tool_dirs:
+            raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")
+        
+        parent_tool = load_tool_from_dir(tool_dir=tool_dirs[schema["parent_tool"]], env=env)
+        
+        test_args_file = os.path.join(tool_dir, 'test.json')
+        with open(test_args_file, 'r') as f:
+            test_args = json.load(f)
+
+        schema['key'] = tool_dir.split("/")[-1]
+        return Tool.from_preset(parent_tool, schema, test_args)
+    else:
+        tool_class = _get_tool_class(schema, prefer_local)
+        return tool_class.from_dir(tool_dir=tool_dir, env=env)
+
+
+def save_tool(tool_dir: str, env: str) -> Tool:
+    """Save tool to mongo"""
+    
+    api_file = os.path.join(tool_dir, 'api.yaml')
+    with open(api_file, 'r') as f:
+        schema = yaml.safe_load(f)
+
+    key = tool_dir.split("/")[-1]
+    schema["key"] = key
+    if schema.get("handler") == "comfyui":
+        schema["workspace"] = tool_dir.split('/')[-3]
+
+    test_args_file = os.path.join(tool_dir, 'test.json')
+    with open(test_args_file, 'r') as f:
+        schema["test_args"] = json.load(f)
+
+    tools = get_collection("tools2", env=env)
+    tools.replace_one({"key": key}, schema, upsert=True)
+
+
+def _get_tool_dirs(path: str) -> List[str]:
+    """Get all tool directories inside a directory"""
+    
+    tool_dirs = []
+    
+    for root, _, files in os.walk(path):
+        if "api.yaml" in files and "test.json" in files:
+            tool_dirs.append(os.path.relpath(root))
+            
+    return tool_dirs
+
+
+def get_tools_from_dir(path: str, env: str, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools inside a directory"""
+    
+    tools = {}
+
+    tool_dirs = _get_tool_dirs(path)
+    print("ALL THE TOOL DIRS", tool_dirs)
+
+
+    for tool_dir in tool_dirs:
+        tool = load_tool_from_dir(tool_dir, env=env)
+        if tool.status != "inactive" and not include_inactive:
+            print("THIS IS THE TOOL PARENT", tool.key, tool.parent_tool)
+            # key = tool.parent_tool or tool.key
+            if tool.key in tools:
+                raise ValueError(f"Duplicate tool {tool.key} found.")
+            tools[tool.key] = tool
+        
+    return tools
+
+def get_tools_from_mongo(env: str, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools from mongo"""
+    
+    tools = {}
+    tools_collection = get_collection("tools2", env=env)
+    for tool in tools_collection.find():
+        tool = load_tool_from_mongo(tool['key'], env=env)
+        if tool.status != "inactive" and not include_inactive:
+            if tool.key in tools:
+                raise ValueError(f"Duplicate tool {tool.key} found.")
+            tools[tool.key] = tool
+        
+    return tools
+
+
+def save_tools(tools: List[str] = None, env: str = "STAGE") -> Dict[str, Tool]:
+    """Get all tools inside a directory"""
+    
+    tool_dirs = []
+    for path in ["tools", "../../workflows"]:
+        tool_dirs += _get_tool_dirs(path, env=env)
+    
+    for tool_dir in tool_dirs:
+        key = tool_dir.split("/")[-1]
+        if tools and key not in tools:
+            continue
+        save_tool(tool_dir, env=env)
+        
+    return tools
+
+
+def _get_tool_class(schema: dict, prefer_local: bool = True):
     from comfyui_tool import ComfyUITool
     from replicate_tool import ReplicateTool
     from modal_tool import ModalTool
     from gcp_tool import GCPTool
     from local_tool import LocalTool
-    
-    api_file = os.path.join(tool_dir, 'api.yaml')
-    with open(api_file, 'r') as f:
-        schema = yaml.safe_load(f)
 
     handler = schema.get('handler')
     handler_map = {
@@ -213,24 +381,5 @@ def load_tool(tool_dir: str, prefer_local: bool = True, **kwargs) -> Tool:
     }
     
     tool_class = handler_map.get(handler, Tool)
+    return tool_class
     
-    return tool_class.from_dir(tool_dir, **kwargs)
-
-
-def get_tools(path: str, include_inactive: bool = False) -> Dict[str, Tool]:
-    """Get all tools inside a directory"""
-    
-    tools = {}
-    
-    for root, _, files in os.walk(path):
-        if "api.yaml" in files and "test.json" in files:
-            rel_path = os.path.relpath(root, path)
-            tool_name = rel_path.replace(os.path.sep, "/")  # Normalize path separator
-            tool = load_tool(root)
-            if tool.status != "inactive" and not include_inactive:
-                tool_key = tool_name.split("/")[-1]
-                if tool_key in tools:
-                    raise ValueError(f"Duplicate tool {tool_key} found.")
-                tools[tool_key] = tool
-            
-    return tools

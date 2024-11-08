@@ -14,7 +14,7 @@ import instructor
 
 import s3
 import voice
-from tool import load_tool
+from tool import load_tool_from_dir
 import eden_utils
 
 

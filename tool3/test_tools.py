@@ -6,7 +6,7 @@ import os
 import requests
 
 import eden_utils
-from tool import get_tools
+from tool import get_tools_from_dir, get_tools_from_mongo
 
 parser = argparse.ArgumentParser(description="Test all tools including ComfyUI workflows")
 parser.add_argument("--tools", type=str, nargs='+', help="Which tools to test (space-separated)", default=None)
@@ -22,8 +22,8 @@ async def run_test(tool):
     return result
         
 async def run_all_tests():
-    tools = get_tools("tools")
-    tools.update(get_tools("../../workflows"))
+    tools = get_tools_from_dir("tools", env="STAGE")
+    tools.update(get_tools_from_dir("../../workflows", env="STAGE"))
     # tools.update(get_tools("../../private_workflows"))
     if args.tools:
         tools = {k: v for k, v in tools.items() if k in args.tools}
@@ -31,7 +31,6 @@ async def run_all_tests():
     results = await asyncio.gather(*[run_test(tool) for tool in tools.values()])
     if args.save:
         save_results(tools, results)
-
     return results
 
 def save_results(tools, results):

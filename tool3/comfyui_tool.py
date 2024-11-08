@@ -6,6 +6,7 @@ from typing import List, Optional, Dict
 
 from tool import Tool
 from models import Task
+from mongo import get_collection
 
 
 class ComfyUIParameterMap(BaseModel):
@@ -27,18 +28,30 @@ class ComfyUIInfo(BaseModel):
 
 class ComfyUITool(Tool):
     workspace: str
-    comfyui_output_node: int
+    comfyui_output_node_id: int
     comfyui_intermediate_outputs: Optional[Dict[str, int]] = None
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
     @classmethod
-    def from_dir(cls, tool_dir: str):
+    def from_dir(cls, tool_dir: str, env: str):
         workspace = tool_dir.split('/')[-3]
-        tool = super().from_dir(tool_dir, workspace=workspace)
+        tool = super().from_dir(env=env, tool_dir=tool_dir, workspace=workspace)
 
         yaml_file = os.path.join(tool_dir, 'api.yaml')
         with open(yaml_file, 'r') as f:
             schema = yaml.safe_load(f)
+
+        for field, props in schema.get('parameters', {}).items():
+            if 'comfyui' in props:
+                tool.comfyui_map[field] = props['comfyui']
+
+        return tool
+    
+    @classmethod
+    def from_mongo(cls, key: str, env: str):
+        tools = get_collection("tools2", env=env)
+        schema = tools.find_one({"key": key})
+        tool = super().from_mongo(env=env, key=key)
 
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:

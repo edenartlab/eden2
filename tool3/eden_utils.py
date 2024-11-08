@@ -70,23 +70,6 @@ def upload_media(output, env, save_thumbnails=True):
         "mediaAttributes": media_attributes
     }
 
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def get_media_attributes(file_path):
     is_url = file_path.startswith('http://') or file_path.startswith('https://')

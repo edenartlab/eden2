@@ -11,8 +11,8 @@ async def run_test(tool):
     return result
 
 async def run_all_tests():
-    tools = get_tools("tools")
-    tools.update(get_tools("../../workflows"))
+    tools = get_tools_from_dir("tools", env="STAGE")
+    tools.update(get_tools_from_dir("../../workflows", env="STAGE"))
     # tools.update(get_tools("../../private_workflows"))
     
     if args.tools:

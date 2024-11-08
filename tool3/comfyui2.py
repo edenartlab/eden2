@@ -1,12 +1,12 @@
 """
-WORKSPACE=audio modal deploy comfyui2.py
-WORKSPACE=batch_tools modal deploy comfyui2.py
-WORKSPACE=flux modal deploy comfyui2.py
-WORKSPACE=img_tools modal deploy comfyui2.py
-WORKSPACE=sd3 modal deploy comfyui2.py
-WORKSPACE=sdxl_test modal deploy comfyui2.py
-WORKSPACE=txt2img modal deploy comfyui2.py
-WORKSPACE=video modal deploy comfyui2.py
+WORKSPACE=audio SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui2.py
 """
 
 from urllib.error import URLError
@@ -182,24 +182,29 @@ class ComfyUI:
     def _execute(self, workflow_name: str, args: dict, env: str):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
-            tool = ComfyUITool.from_dir(tool_path)
+            tool = ComfyUITool.from_dir(tool_path, env=env)
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
-            output = outputs[str(tool.comfyui_output_node)]
-            intermediate_outputs = {
-                key: outputs[str(node_id)]
-                for key, node_id in tool.comfyui_intermediate_outputs.items()
-            } if tool.comfyui_intermediate_outputs else {}
+            output = outputs[str(tool.comfyui_output_node_id)]
+            # intermediate_outputs = {
+            #     key: outputs[str(node_id)]
+            #     for key, node_id in tool.comfyui_intermediate_outputs.items()
+            # } if tool.comfyui_intermediate_outputs else {}
             if not output:
-                raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node}") 
+                raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node_id}") 
             print("---- the final output is ----")
             result = {
                 "output": output,
-                "intermediate_outputs": intermediate_outputs
+                # "intermediate_outputs": intermediate_outputs
             }
+            if tool.comfyui_intermediate_outputs:
+                result["intermediate_outputs"] = {
+                    key: outputs[str(node_id)]
+                    for key, node_id in tool.comfyui_intermediate_outputs.items()
+                } 
             print(result)
             return result
         except Exception as error:
@@ -208,12 +213,16 @@ class ComfyUI:
 
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
+        if tool_key == "style_transfer":
+            tool_key = "txt2img"
         result = self._execute(tool_key, args, env=env)
         return eden_utils.upload_result(result, env=env)
 
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, env: str):
+        if tool_key == "style_transfer":
+            tool_key = "txt2img"
         return self._execute(tool_key, args, env=env)
 
     @modal.enter()
@@ -590,7 +599,7 @@ class ComfyUI:
 
                 if base_model == "sdxl":
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
-                elif base_model == "flux-dev":
+                elif base_model == "flux_dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_trigger = lora.get("args", {}).get("name")
                     caption_prefix = lora.get("args", {}).get("caption_prefix")
@@ -614,7 +623,7 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
                 lora_strength = args.get("lora_strength", 0.5)
-                if base_model == "flux-dev":
+                if base_model == "flux_dev":
                     value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
                 elif base_model == "sdxl":  
                     no_token_prompt, value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
