@@ -7,7 +7,7 @@ cost_estimate: 0.05 * max_train_steps
 handler: gcp
 gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
 machine_type: a2-highgpu-1g
-base_model: flux-dev
+base_model: flux_dev
 thumbnail: app/LoRA-trainer-flux-dev.png
 gpu: A100
 status: prod

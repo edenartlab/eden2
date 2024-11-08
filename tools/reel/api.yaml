@@ -6,6 +6,7 @@ handler: reel
 base_model: flux-dev
 output_type: video
 status: stage
+private: true
 parameters:
 - name: prompt
   label: Prompt
