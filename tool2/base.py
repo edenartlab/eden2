@@ -233,7 +233,7 @@ class ComfyUIInfo(BaseModel):
 
 class ComfyUITool(Tool):
     workspace: str
-    comfyui_output_node: int
+    comfyui_output_node_id: int
     comfyui_intermediate_outputs: Optional[Dict[str, int]] = None
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
@@ -345,7 +345,7 @@ name: "Person"
 description: "This model represents a person with their details like name, age, hobbies, contacts, and address."
 tip: "Person is a model that represents a person and stuff."
 cost_estimate: "50"
-comfyui_output_node: 161
+comfyui_output_node_id: 161
 comfyui_intermediate_outputs:
   controlnet_signal: 323
 properties:

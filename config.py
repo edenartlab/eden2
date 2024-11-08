@@ -10,7 +10,7 @@ if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 
 api_tools = [
-    "txt2img", "flux-dev", "flux-schnell", 
+    "txt2img", "flux_dev", "flux_schnell", 
     "img2img", "controlnet", "layer_diffusion", 
     "remix", "inpaint", "outpaint", "face_styler", "storydiffusion",
     "upscaler", "background_removal", "background_removal_video",     

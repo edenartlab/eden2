@@ -596,7 +596,7 @@ class ComfyUI:
 
                 if base_model == "sdxl":
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
-                elif base_model == "flux-dev":
+                elif base_model == "flux_dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embeddings_filename, embedding_trigger, lora_mode = None, None, None
 
