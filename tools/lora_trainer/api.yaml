@@ -7,6 +7,7 @@ cost_estimate: 0.15 * max_train_steps
 handler: replicate
 output_handler: trainer
 model: edenartlab/lora-trainer
+base_model: SDXL
 version: deployment
 parameters:
 - name: name
