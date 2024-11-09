@@ -1,6 +1,7 @@
 parent_tool: ../workflows/workspaces/img_tools/workflows/txt2img
 name: Style transfer
 description: Reimagine an image in a different style
+thumbnail: app/controlnet-preset.png
 resolutions: []  # get rid of width/height selector
 parameters:
 - name: prompt
