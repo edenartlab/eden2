@@ -81,7 +81,7 @@ import os
 import requests
 
 import eden_utils
-from tool import get_tools_from_dir, get_tools_from_mongo
+# from tool import get_tools_from_dir, get_tools_from_mongo
 
 parser = argparse.ArgumentParser(description="Save tools to mongo")
 parser.add_argument("--tools", type=str, nargs='+', help="Which tools to save (space-separated)", default=None)
@@ -108,7 +108,7 @@ async def run_all_tests():
 
 
 from base import parse_schema
-from tool import get_tools_from_dir, get_tools_from_mongo
+# from tool import get_tools_from_dir, get_tools_from_mongo
 import yaml
 import json
 
@@ -133,28 +133,30 @@ from tool import load_tool_from_dir, load_tool_from_mongo
 
 tool_dir = "../../workflows/workspaces/flux/workflows/flux_dev"
 tool_dir = "tools/flux_schnell"
+# tool_dir = "tools/style_transfer"
 
-"""
 import tool
 
-flux = tool.load_tool_from_dir(tool_dir=tool_dir, env="STAGE")
+tool_dirs = tool._get_tool_dirs()
+print(tool_dirs)
 
+flux = tool.load_tool_from_dir(tool_dir=tool_dirs['flux_dev'])
+print(flux)
 
 tool.save_tool(tool_dir, env="STAGE")
 
-from tool import Tool
+# from tool import Tool
 
-# flux2 = Tool.from_mongo(env="STAGE", key="flux_dev")
-
-
-#flux2 = tool.load_tool_from_mongo(key="flux_dev", env="STAGE")
-flux2 = tool.load_tool_from_mongo(key="flux_schnell", env="STAGE")
+# # flux2 = Tool.from_mongo(env="STAGE", key="flux_dev")
 
 
+# #flux2 = tool.load_tool_from_mongo(key="flux_dev", env="STAGE")
+# flux2 = tool.load_tool_from_mongo(key="style_transfer", env="STAGE")
 
-t1 = tool.get_tools_from_dir("tools", env="STAGE")
-t2 = tool.get_tools_from_mongo("STAGE")
-"""
+
+
+# t1 = tool.get_tools_from_dir("tools", env="STAGE")
+# t2 = tool.get_tools_from_mongo("STAGE")
 
 
 

@@ -74,36 +74,33 @@ class Tool(BaseModel):
 
         with open(api_file, 'r') as f:
             schema = yaml.safe_load(f)
-                
+        
+        if schema.get("handler") == "comfyui":
+            schema["workspace"] = tool_dir.split('/')[-3]
+        
         with open(test_file, 'r') as f:
             test_args = json.load(f)
 
-        # does this need to be here?
-        if schema.get("handler") == "comfyui":
-            schema["workspace"] = tool_dir.split('/')[-3]
-
-        parent_tool = schema.get("parent_tool")
         
+        parent_tool = schema.get("parent_tool")
         if parent_tool:
-            tool_dirs = _get_tool_dirs()
-            if schema["parent_tool"] not in tool_dirs:
-                raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")            
-            parent_dir = tool_dirs[schema["parent_tool"]]
-            parent_api_file = os.path.join(parent_dir, 'api.yaml')
-            with open(parent_api_file, 'r') as f:
-                parent_schema = yaml.safe_load(f)
-            
-            parameter_presets = schema.pop("parameters", {})
-            parent_parameters = parent_schema.pop("parameters", {})
-            for k, v in parameter_presets.items():
-                parent_parameters[k].update(v)
-            
-            parent_schema.update(schema)
-            parent_schema['parameters'] = parent_parameters
-            schema = parent_schema
-
+            return Tool.from_preset(key, parent_tool, schema, test_args)
+        
+        
         tool_class = _get_tool_class(schema.get('handler'))
+        
         return tool_class._create_tool(key, schema, test_args, **kwargs)
+        # return cls._create_tool(key, schema, test_args, **kwargs)
+
+    # @classmethod
+    # def from_mongo(cls, key: str, env: str, **kwargs):
+    #     tools = get_collection("tools2", env=env)
+    #     schema = tools.find_one({"key": key})
+    #     key = schema.pop('key')
+    #     test_args = schema.pop('test_args')
+    #     # raise Exception("STOP")
+
+
 
     @classmethod
     def from_mongo(cls, key: str, env: str, prefer_local: bool = True, **kwargs):
@@ -113,17 +110,81 @@ class Tool(BaseModel):
         schema = tools.find_one({"key": key})
         key = schema.pop('key')
 
+        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
+        # return tool_class.from_mongo(key=key, env=env)
+
+        test_args = schema.pop('test_args')
+        print("LETS MAKE", key)
+        print("SCHEMA", schema.keys())
+        
+        pprint(schema['parameters'])
+        print("TEST ARGS", test_args.keys())
+        return tool_class._create_tool(key, schema, test_args, **kwargs)
+        
+    @classmethod
+    def from_preset(cls, key, parent_tool, schema: dict, test_args: dict) -> 'Tool':
+        """Create a new tool instance from a preset (parent) tool."""
+        
+        tool_dirs = _get_tool_dirs()
+        if schema["parent_tool"] not in tool_dirs:
+            raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")
+        
+        parent_dir = tool_dirs[schema["parent_tool"]]
+        parent_tool = Tool.from_dir(tool_dir=parent_dir)
+        tool_class = type(parent_tool)
+        # base_model = parent_tool.base_model
+
+        
+        parent_api_file = os.path.join(parent_dir, 'api.yaml')
+        with open(parent_api_file, 'r') as f:
+            parent_schema = yaml.safe_load(f)
+
+
+
+        parameter_presets = schema.pop("parameters", {})
+
+        parent_parameters = parent_schema.pop("parameters", {})
+        for k, v in parameter_presets.items():
+            if k == "prompt":
+                print("=====")
+                print(k, v)
+                print(parent_parameters[k])
+                print("=====")
+            parent_parameters[k].update(v)
+        print("PRESET SCHEMA", parent_parameters)
+
+        # Update base model parameters
+        # for k, parameter in parameter_presets.items():
+        #     if k not in base_model.model_fields:
+        #         raise ValueError(f"Parameter {k} not found in base model")
+        #     for attr_name, attr_value in parameter.items():
+        #         if hasattr(base_model.model_fields[k], attr_name):
+        #             setattr(base_model.model_fields[k], attr_name, attr_value)
+
+        # Update preset data with new schema values
+        preset_data = parent_tool.model_dump()
+
+        print("PRESET DATA", preset_data.keys())
+
+        # print("params are", base_model.model_fields.keys())
+
+        preset_data.update(schema)
+        preset_data['key'] = key
+        preset_data['test_args'] = test_args
+        # preset_data['base_model'] = base_model
+        preset_data['parameter_presets'] = parameter_presets
+        preset_data['parameters'] = parent_parameters
+        preset_data['description'] = eden_utils.concat_sentences(
+            schema.get('description', preset_data.get('description')), 
+            schema.get('tip', preset_data.get('tip'))
+        )
+
+        schema = preset_data
+        key = preset_data.pop('key')
         test_args = schema.pop('test_args')
 
-        if 'parent_tool' in schema:
-            parent_tool = Tool.from_mongo(schema['parent_tool'], env=env)
-            if parent_tool.handler == "comfyui":
-                schema['workspace'] = parent_tool.workspace
-            # todo, replicate and others
-
-        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
-
-        return tool_class._create_tool(key, schema, test_args, **kwargs)    
+        return tool_class._create_tool(key, schema, test_args)
+        #return tool_class.model_validate(preset_data)
 
     def calculate_cost(self, args):
         if not self.cost_estimate:
@@ -312,8 +373,7 @@ def save_tool(tool_dir: str, env: str) -> Tool:
             parent_schema = yaml.safe_load(f)
         
         parent_schema["parameter_presets"] = schema.pop("parameters")
-        for k, v in parent_schema["parameter_presets"].items():
-            parent_schema["parameters"][k].update(v)
+        parent_schema["parameters"].update(parent_schema["parameter_presets"])
         parent_schema.update(schema)
         schema = parent_schema
 
@@ -363,11 +423,13 @@ def _get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List
 def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
     
+    tools = {}
     tool_dirs = _get_tool_dirs(root_dir)
-    tools = {
-        key: Tool.from_dir(tool_dir, include_inactive=include_inactive) 
-        for key, tool_dir in tool_dirs.items()
-    }
+
+    for key, tool_dir in tool_dirs.items():
+        # tool = load_tool_from_dir(tool_dir, include_inactive=include_inactive)
+        tool = Tool.from_dir(tool_dir, include_inactive=include_inactive)
+        tools[key] = tool
 
     return tools
 

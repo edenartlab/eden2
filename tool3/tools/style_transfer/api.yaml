@@ -1,5 +1,7 @@
 name: Style transfer
 description: Reimagine an image in a different style
+tip: |-
+  This is a tip for style transfer.
 resolutions: []  # get rid of width/height selector
 
 parent_tool: txt2img
@@ -9,7 +11,7 @@ parameters:
     label: Prompt
     description: Describe the style you want to use
     tip: |-
-      This should be a description of the style you want to use.
+      This should be a description of the style you want to use!
     required: true
 
   # activate init image 

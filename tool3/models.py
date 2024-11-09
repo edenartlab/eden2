@@ -132,20 +132,17 @@ def task_handler_method(func):
 
 async def _task_handler(func, *args, **kwargs):
     task = kwargs.pop("task", args[-1])
-
+    parent_tool = kwargs.pop("parent_tool", None)
+    
     start_time = datetime.utcnow()
     queue_time = (start_time - task.createdAt).total_seconds()
     #boot_time = queue_time - self.launch_time if self.launch_time else 0
     
-    print("LEWTS SET TASK TO RUNNING ! 1")
     print(task)
     task.update(
         status="running",
         performance={"waitTime": queue_time}
     )
-
-    print("LEWTS SET TASK TO RUNNING ! 2")
-    print(task)
 
     results = []
     n_samples = task.args.get("n_samples", 1)
@@ -156,27 +153,11 @@ async def _task_handler(func, *args, **kwargs):
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i
 
-
-            if task.workflow == "style_transfer":
-                wf= "txt2img"
-            else:
-                wf = task.workflow
-            result = await func(*args[:-1], wf, task_args, task.env)
-            print("-- the final result --")
-            print(result)
+            result = await func(*args[:-1], parent_tool or task.workflow, task_args, task.env)
             result = eden_utils.upload_result(result, env=task.env)
-
-            print("-- the result after upload --")
-            print(result)
-
-
-            print("THE RESULTS ARE NOW")
-
             results.extend([result])
             
             if i == n_samples - 1:
-                print("LETs add resu")
-                print(results)
                 task_update = {
                     "status": "completed", 
                     "result": results

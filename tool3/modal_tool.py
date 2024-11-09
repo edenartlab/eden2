@@ -11,13 +11,13 @@ class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
         func = modal.Function.lookup("handlers2", "run")
-        result = await func.remote.aio(tool_key=self.key, args=args, env=env)
+        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args, env=env)
         return result
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         func = modal.Function.lookup("handlers2", "run_task")
-        job = func.spawn(task)
+        job = func.spawn(task, parent_tool=self.parent_tool)
         return job.object_id
     
     @Tool.handle_wait

@@ -213,16 +213,12 @@ class ComfyUI:
 
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
-        if tool_key == "style_transfer":
-            tool_key = "txt2img"
         result = self._execute(tool_key, args, env=env)
         return eden_utils.upload_result(result, env=env)
 
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, env: str):
-        if tool_key == "style_transfer":
-            tool_key = "txt2img"
         return self._execute(tool_key, args, env=env)
 
     @modal.enter()

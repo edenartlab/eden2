@@ -33,9 +33,9 @@ class ComfyUITool(Tool):
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
     @classmethod
-    def from_dir(cls, tool_dir: str, env: str):
+    def from_dir(cls, tool_dir: str):
         workspace = tool_dir.split('/')[-3]
-        tool = super().from_dir(env=env, tool_dir=tool_dir, workspace=workspace)
+        tool = super().from_dir(tool_dir=tool_dir, workspace=workspace)
 
         yaml_file = os.path.join(tool_dir, 'api.yaml')
         with open(yaml_file, 'r') as f:
@@ -62,7 +62,7 @@ class ComfyUITool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
         cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
-        result = await cls().run.remote.aio(self.key, args, env)
+        result = await cls().run.remote.aio(self.parent_tool or self.key, args, env)
         return result
 
     @Tool.handle_start_task

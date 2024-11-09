@@ -37,11 +37,7 @@ class ReplicateTool(Tool):
             result = {
                 "output": replicate.run(self.model, input=args)
             }
-        print("1 result")
-        print(result)
         result = eden_utils.upload_result(result, env=env)
-        print("2 result")
-        print(result)
         return result
 
     @Tool.handle_start_task
