@@ -1,6 +1,7 @@
 import os
 import re
 import copy
+import click
 import yaml
 import json
 import random
@@ -9,6 +10,7 @@ import eden_utils
 from pprint import pprint
 from pydantic import BaseModel, Field, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
+import datetime
 
 import eden_utils
 from base import parse_schema
@@ -50,6 +52,28 @@ class Tool(BaseModel):
     #     return "tools2"
 
     @classmethod
+    def load_from_dir(cls, tool_dir: str, **kwargs):
+        """Load the tool class from a directory api.yaml and test.json"""
+
+        key = tool_dir.split('/')[-1]
+        schema, test_args = cls._get_schema_from_dir(tool_dir)
+        tool_class = _get_tool_class(schema.get('handler'))
+
+        return tool_class._create_tool(key, schema, test_args, **kwargs)
+
+    @classmethod
+    def load(cls, key: str, env: str, prefer_local: bool = True, **kwargs):
+        """Load the tool class based on the handler in api.yaml"""
+        
+        tools = get_collection("tools2", env=env)
+        schema = tools.find_one({"key": key})
+        key = schema.pop('key')
+        test_args = schema.pop('test_args')
+
+        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
+        return tool_class._create_tool(key, schema, test_args, **kwargs)    
+
+    @classmethod
     def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
         """Create a new tool instance from a schema"""
 
@@ -66,9 +90,7 @@ class Tool(BaseModel):
         return cls(key=key, **tool_data, **kwargs)
 
     @classmethod
-    def from_dir(cls, tool_dir: str, **kwargs):
-        key = tool_dir.split('/')[-1]
-        
+    def _get_schema_from_dir(cls, tool_dir: str, **kwargs):
         api_file = os.path.join(tool_dir, 'api.yaml')
         test_file = os.path.join(tool_dir, 'test.json')
 
@@ -78,52 +100,33 @@ class Tool(BaseModel):
         with open(test_file, 'r') as f:
             test_args = json.load(f)
 
-        # does this need to be here?
         if schema.get("handler") == "comfyui":
             schema["workspace"] = tool_dir.split('/')[-3]
 
         parent_tool = schema.get("parent_tool")
         
         if parent_tool:
-            tool_dirs = _get_tool_dirs()
+            tool_dirs = get_tool_dirs()
             if schema["parent_tool"] not in tool_dirs:
                 raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")            
             parent_dir = tool_dirs[schema["parent_tool"]]
             parent_api_file = os.path.join(parent_dir, 'api.yaml')
             with open(parent_api_file, 'r') as f:
                 parent_schema = yaml.safe_load(f)
-            
-            parameter_presets = schema.pop("parameters", {})
+
+            if parent_schema.get("handler") == "comfyui":
+                parent_schema["workspace"] = parent_dir.split('/')[-3]
+
+            parent_schema["parameter_presets"] = schema.pop("parameters", {})
             parent_parameters = parent_schema.pop("parameters", {})
-            for k, v in parameter_presets.items():
+            for k, v in parent_schema["parameter_presets"].items():
                 parent_parameters[k].update(v)
             
             parent_schema.update(schema)
             parent_schema['parameters'] = parent_parameters
             schema = parent_schema
-
-        tool_class = _get_tool_class(schema.get('handler'))
-        return tool_class._create_tool(key, schema, test_args, **kwargs)
-
-    @classmethod
-    def from_mongo(cls, key: str, env: str, prefer_local: bool = True, **kwargs):
-        """Load the tool class based on the handler in api.yaml"""
         
-        tools = get_collection("tools2", env=env)
-        schema = tools.find_one({"key": key})
-        key = schema.pop('key')
-
-        test_args = schema.pop('test_args')
-
-        if 'parent_tool' in schema:
-            parent_tool = Tool.from_mongo(schema['parent_tool'], env=env)
-            if parent_tool.handler == "comfyui":
-                schema['workspace'] = parent_tool.workspace
-            # todo, replicate and others
-
-        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
-
-        return tool_class._create_tool(key, schema, test_args, **kwargs)    
+        return schema, test_args
 
     def calculate_cost(self, args):
         if not self.cost_estimate:
@@ -180,7 +183,7 @@ class Tool(BaseModel):
             user = User.load(user_id, env=env)
             user.verify_manna_balance(cost)            
             
-            # create task and set pending
+            # create task and set to pending
             task = Task(
                 env=env, 
                 workflow=self.key, 
@@ -254,91 +257,64 @@ class Tool(BaseModel):
         return asyncio.run(self.async_cancel(task))
     
 
+def save_tool_from_dir(tool_dir: str, env: str) -> Tool:
+    """Upload tool from directory to mongo"""
 
-
-
-# def load_tool_from_mongo(key: str, env: str, prefer_local: bool = True) -> Tool:
-#     """Load the tool class based on the handler in api.yaml"""
+    schema, test_args = Tool._get_schema_from_dir(tool_dir)
+    schema['key'] = tool_dir.split('/')[-1]
+    schema['test_args'] = test_args
     
-#     tools = get_collection("tools2", env=env)
-#     schema = tools.find_one({"key": key})
-#     key = schema.pop('key')
-
-#     tool_class = _get_tool_class(schema.get('handler'), prefer_local)
-#     return tool_class.from_mongo(key=key, env=env)
-
-
-# def load_tool_from_dir(tool_dir: str, prefer_local: bool = True) -> Tool:
-#     """Load the tool class based on the handler in api.yaml"""
-    
-#     api_file = os.path.join(tool_dir, 'api.yaml')
-#     with open(api_file, 'r') as f:
-#         schema = yaml.safe_load(f)
-    
-#     if schema.get("parent_tool"):
-#         all_tool_dirs = _get_tool_dirs()
-#         if schema["parent_tool"] not in all_tool_dirs:
-#             raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")
-        
-#         parent_dir = all_tool_dirs[schema["parent_tool"]]
-#         parent_tool = load_tool_from_dir(tool_dir=parent_dir)
-#         test_args_file = os.path.join(tool_dir, 'test.json')
-#         with open(test_args_file, 'r') as f:
-#             test_args = json.load(f)
-        
-#         schema['key'] = tool_dir.split("/")[-1]
-#         return Tool.from_preset(parent_tool, schema, test_args)
-#     else:
-#         tool_class = _get_tool_class(schema, prefer_local)
-#         return tool_class.from_dir(tool_dir=tool_dir)
-
-
-def save_tool(tool_dir: str, env: str) -> Tool:
-    """Save tool to mongo"""
-    
-    api_file = os.path.join(tool_dir, 'api.yaml')
-    with open(api_file, 'r') as f:
-        schema = yaml.safe_load(f)
-
-    key = tool_dir.split("/")[-1]
-    schema["key"] = key
-
-    if schema.get("parent_tool"):        
-        all_tool_dirs = _get_tool_dirs()
-        parent_tool_dir = all_tool_dirs[schema["parent_tool"]]
-
-        parent_api_file = os.path.join(parent_tool_dir, 'api.yaml')
-        with open(parent_api_file, 'r') as f:
-            parent_schema = yaml.safe_load(f)
-        
-        parent_schema["parameter_presets"] = schema.pop("parameters")
-        for k, v in parent_schema["parameter_presets"].items():
-            parent_schema["parameters"][k].update(v)
-        parent_schema.update(schema)
-        schema = parent_schema
-
-    elif schema.get("handler") == "comfyui":
-        schema["workspace"] = tool_dir.split('/')[-3]
-
-    test_args_file = os.path.join(tool_dir, 'test.json')
-    with open(test_args_file, 'r') as f:
-        schema["test_args"] = json.load(f)
-
     tools = get_collection("tools2", env=env)
-    tools.replace_one({"key": key}, schema, upsert=True)
+    tool = tools.find_one({"key": schema['key']})
+    
+    time = datetime.datetime.utcnow()
+    schema['createdAt'] = tool.get('createdAt', time) if tool else time
+    schema['updatedAt'] = time
+    
+    tools.replace_one({"key": schema['key']}, schema, upsert=True)
 
 
+# def save_tools(tools: List[str] = None, env: str = "STAGE") -> Dict[str, Tool]:
+#     """Get all tools inside a directory and upload to mongo"""
+    
+#     tool_dirs = get_tool_dirs()
+    
+#     for key, tool_dir in tool_dirs.items():
+#         if tools and key not in tools:
+#             continue
+#         save_tool_from_dir(tool_dir, env=env)
+        
+#     return tools
 
 
+def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools inside a directory"""
+    
+    tool_dirs = get_tool_dirs(root_dir)
+    tools = {
+        key: Tool.load_from_dir(tool_dir, include_inactive=include_inactive) 
+        for key, tool_dir in tool_dirs.items()
+    }
+
+    return tools
 
 
+def get_tools_from_mongo(env: str, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools from mongo"""
+    
+    tools = {}
+    tools_collection = get_collection("tools2", env=env)
+    for tool in tools_collection.find():
+        tool = Tool.load(tool['key'], env=env)
+        if tool.status != "inactive" and not include_inactive:
+            if tool.key in tools:
+                raise ValueError(f"Duplicate tool {tool.key} found.")
+            tools[tool.key] = tool
+        
+    return tools
 
 
-
-
-
-
-def _get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[str]:
+def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""
     
     tool_dirs = {}
@@ -360,47 +336,6 @@ def _get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List
     return tool_dirs
 
 
-def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
-    """Get all tools inside a directory"""
-    
-    tool_dirs = _get_tool_dirs(root_dir)
-    tools = {
-        key: Tool.from_dir(tool_dir, include_inactive=include_inactive) 
-        for key, tool_dir in tool_dirs.items()
-    }
-
-    return tools
-
-
-def get_tools_from_mongo(env: str, include_inactive: bool = False) -> Dict[str, Tool]:
-    """Get all tools from mongo"""
-    
-    tools = {}
-    tools_collection = get_collection("tools2", env=env)
-    for tool in tools_collection.find():
-        # tool = load_tool_from_mongo(tool['key'], env=env)
-        tool = Tool.from_mongo(tool['key'], env=env)
-        if tool.status != "inactive" and not include_inactive:
-            if tool.key in tools:
-                raise ValueError(f"Duplicate tool {tool.key} found.")
-            tools[tool.key] = tool
-        
-    return tools
-
-
-def save_tools(tools: List[str] = None, env: str = "STAGE") -> Dict[str, Tool]:
-    """Get all tools inside a directory"""
-    
-    tool_dirs = _get_tool_dirs()
-    
-    for key, tool_dir in tool_dirs.items():
-        if tools and key not in tools:
-            continue
-        save_tool(tool_dir, env=env)
-        
-    return tools
-
-
 def _get_tool_class(handler: str, prefer_local: bool = True):
     from comfyui_tool import ComfyUITool
     from replicate_tool import ReplicateTool
@@ -420,3 +355,103 @@ def _get_tool_class(handler: str, prefer_local: bool = True):
     tool_class = handler_map.get(handler, Tool)
     return tool_class
     
+
+@click.group()
+def cli():
+    """Tool management CLI"""
+    pass
+
+@cli.command()
+@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
+@click.argument('tools', nargs=-1, required=False)
+def update(env: str, tools: tuple):
+    """Update tools in mongo"""
+    
+    tool_dirs = get_tool_dirs()
+    
+    if tools:
+        tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
+    else:
+        confirm = click.confirm(f"Update all {len(tool_dirs)} tools on {env}?", default=False)
+        if not confirm:
+            return
+
+    for key, tool_dir in tool_dirs.items():
+        try:
+            save_tool_from_dir(tool_dir, env=env)
+            click.echo(click.style(f"Updated {env}:{key}", fg='green'))
+        except Exception as e:
+            click.echo(click.style(f"Failed to update {env}:{key}: {e}", fg='red'))
+
+    click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
+
+
+@cli.command()
+@click.option('--from_dirs', default=True, help='Whether to load tools from folders (default is from mongo)')
+@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
+@click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
+@click.option('--parallel', is_flag=True, default=True, help='Run tests in parallel threads')
+@click.option('--save', is_flag=True, default=True, help='Save test results')
+@click.argument('tools', nargs=-1, required=False)
+def test(
+    tools: tuple,
+    from_dirs: bool, 
+    env: str, 
+    api: bool, 
+    parallel: bool, 
+    save: bool
+):
+    """Run tools with test args"""
+
+    from test_tools2 import save_test_results
+
+    async def async_test_tool(tool, api, env):
+        color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
+        click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
+        click.echo(click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color))
+
+        if api:
+            user_id = os.getenv("EDEN_TEST_USER_STAGE")
+            task = await tool.async_start_task(user_id, tool.test_args, env=env)
+            result = await tool.async_wait(task)
+        else:
+            result = await tool.async_run(tool.test_args, env=env)
+        
+        if "error" in result:
+            click.echo(click.style(f"Failed to test {tool.key}: {result['error']}", fg='red', bold=True))
+        else:
+            click.echo(click.style(f"Result: {json.dumps(result, indent=2)}", fg=color))
+
+        return result
+
+    async def async_run_tests(tools, api, env, parallel):
+        tasks = [async_test_tool(tool, api, env) for tool in tools.values()]
+        if parallel:
+            results = await asyncio.gather(*tasks)
+        else:
+            results = [await task for task in tasks]
+        return results
+
+    if from_dirs:
+        all_tools = get_tools_from_dirs()
+    else:
+        all_tools = get_tools_from_mongo(env=env)
+
+    if tools:
+        tools = {k: v for k, v in all_tools.items() if k in tools}
+    else:
+        tools = all_tools
+        confirm = click.confirm(f"Run tests for all {len(tools)} tools?", default=False)
+        if not confirm:
+            return
+
+    results = asyncio.run(async_run_tests(tools, api, env, parallel))
+    if save:
+        save_test_results(tools, results)
+
+    errors = [result for result in results if "error" in result]
+    click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors: {', '.join(errors)}", fg='blue', bold=True))
+
+
+if __name__ == '__main__':
+    cli()

@@ -1,12 +1,8 @@
-"""
-Todo:
-- enforce types in contacts
-"""
 from tool import *
 
 
 def test_tool():
-    tool = Tool.from_dir('example_tool')
+    tool = Tool.load_from_dir('tools/example_tool')
 
     args = tool.prepare_args({
         'type': 'thingy',
@@ -14,12 +10,14 @@ def test_tool():
         'price': 1,
         'skills': ["cooking", "swimming"],
         'contacts': [
-            {'type': 'emai3l', 'value': 'widget@hotmail.com'},
-            {'type': 'phon3e', 'value': '555-1234'},
+            {'type': 'email', 'value': 'widget@hotmail.com'},
+            {'type': 'phone', 'value': '555-1234'},
         ]
     })
 
     age = args.get('age')  # this was randomly set
+    
+    assert isinstance(age, int)
 
     assert args == {
         'name': 'John', 
@@ -28,16 +26,12 @@ def test_tool():
         'age': age,
         'skills': ['cooking', 'swimming'], 
         'contacts': [
-            {'type': 'emai3l', 'value': 'widget@hotmail.com'}, 
-            {'type': 'phon3e', 'value': '555-1234'}
+            {'type': 'email', 'value': 'widget@hotmail.com'}, 
+            {'type': 'phone', 'value': '555-1234'}
         ],
         'address': None, 
         'matrix': None
     }
 
 
-# test_tool()
-
-
-tool = Tool.from_dir('example_tool')
-
+test_tool()

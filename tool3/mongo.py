@@ -22,10 +22,11 @@ db_names = {
 
 # todo: this requires internet upon import
 # make it so only when imported it connects
-mongo_client = MongoClient(MONGO_URI)
+# mongo_client = MongoClient(MONGO_URI)
 
 def get_collection(collection_name: str, env: str):
     db_name = db_names[env]
+    mongo_client = MongoClient(MONGO_URI)
     return mongo_client[db_name][collection_name]
 
 

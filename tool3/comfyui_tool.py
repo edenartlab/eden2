@@ -33,13 +33,14 @@ class ComfyUITool(Tool):
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
     @classmethod
-    def from_dir(cls, tool_dir: str):
-        workspace = tool_dir.split('/')[-3]
-        tool = super().from_dir(tool_dir=tool_dir, workspace=workspace)
+    def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
+        """Create a new tool instance from a schema"""
 
-        yaml_file = os.path.join(tool_dir, 'api.yaml')
-        with open(yaml_file, 'r') as f:
-            schema = yaml.safe_load(f)
+        tool = super()._create_tool(key, schema, test_args, **kwargs)
+
+        # yaml_file = os.path.join(tool_dir, 'api.yaml')
+        # with open(yaml_file, 'r') as f:
+        #     schema = yaml.safe_load(f)
 
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
@@ -47,17 +48,44 @@ class ComfyUITool(Tool):
 
         return tool
     
-    @classmethod
-    def from_mongo(cls, key: str, env: str):
-        tools = get_collection("tools2", env=env)
-        schema = tools.find_one({"key": key})
-        tool = super().from_mongo(env=env, key=key)
+    # @classmethod
+    # def from_mongo(cls, key: str, env: str):
+    #     tools = get_collection("tools2", env=env)
+    #     schema = tools.find_one({"key": key})
+    #     tool = super().from_mongo(env=env, key=key)
 
-        for field, props in schema.get('parameters', {}).items():
-            if 'comfyui' in props:
-                tool.comfyui_map[field] = props['comfyui']
+    #     for field, props in schema.get('parameters', {}).items():
+    #         if 'comfyui' in props:
+    #             tool.comfyui_map[field] = props['comfyui']
 
-        return tool
+    #     return tool
+    
+    # @classmethod
+    # def from_dir(cls, tool_dir: str):
+    #     workspace = tool_dir.split('/')[-3]
+    #     tool = super().from_dir(tool_dir=tool_dir, workspace=workspace)
+
+    #     yaml_file = os.path.join(tool_dir, 'api.yaml')
+    #     with open(yaml_file, 'r') as f:
+    #         schema = yaml.safe_load(f)
+
+    #     for field, props in schema.get('parameters', {}).items():
+    #         if 'comfyui' in props:
+    #             tool.comfyui_map[field] = props['comfyui']
+
+    #     return tool
+    
+    # @classmethod
+    # def from_mongo(cls, key: str, env: str):
+    #     tools = get_collection("tools2", env=env)
+    #     schema = tools.find_one({"key": key})
+    #     tool = super().from_mongo(env=env, key=key)
+
+    #     for field, props in schema.get('parameters', {}).items():
+    #         if 'comfyui' in props:
+    #             tool.comfyui_map[field] = props['comfyui']
+
+    #     return tool
 
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):

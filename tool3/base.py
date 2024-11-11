@@ -1,23 +1,8 @@
-"""
-Todo:
-- enforce choices on inner fields
-e.g.
-    'contacts': [
-        {'type': 'emai3l', 'value': 'widget@hotmail.com'},
-        {'type': 'phon3e', 'value': '555-1234'},
-})
-
-test remap
-"""
-
-
 import copy
 from enum import Enum
 from pydantic import BaseModel, Field, create_model
 from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args
 
-import sys
-sys.path.append('..')
 import eden_utils
 
 
