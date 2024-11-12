@@ -52,7 +52,6 @@ class Tool(BaseModel):
         """Load the tool class from a directory api.yaml and test.json"""
 
         key = tool_dir.split('/')[-1]
-        print("LOADING TOOL FROM DIR", key)
         schema, test_args = cls._get_schema_from_dir(tool_dir)
         tool_class = _get_tool_class(schema.get('handler'))
 
@@ -139,7 +138,7 @@ class Tool(BaseModel):
     def prepare_args(self, args: dict):
         unrecognized_args = set(args.keys()) - set(self.base_model.model_fields.keys())
         if unrecognized_args:
-            raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+            raise ValueError(f"Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}")
 
         prepared_args = {}
         for field, field_info in self.base_model.model_fields.items():
