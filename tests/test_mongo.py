@@ -1,7 +1,8 @@
 from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId
-from mongo import MongoModel, VersionableMongoModel
+
+from eve.mongo import MongoModel, VersionableMongoModel
 from test_base import TestModel, InnerModel
 
 
@@ -143,6 +144,6 @@ def test_versionable_base_model():
 
 
 
-test_mongo_document()
+# test_mongo_document()
 
-test_versionable_base_model()
+# test_versionable_base_model()

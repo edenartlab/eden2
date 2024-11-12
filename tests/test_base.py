@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Union
-from base import VersionableBaseModel, generate_edit_model, apply_edit
-
+from eve.base import VersionableBaseModel, generate_edit_model, apply_edit
 
 
 """
@@ -67,14 +66,14 @@ def test_generated_edit_model():
         edit_base_model_field: Optional[InnerModel] = Field(None, description="Edit TestModel base_model_field (An optional base model field)")
 
 
-    edit_fields = set(TestModelEdit.__fields__.keys())
-    expected_fields = set(TestModelEditExpected.__fields__.keys())
+    edit_fields = set(TestModelEdit.model_fields.keys())
+    expected_fields = set(TestModelEditExpected.model_fields.keys())
     
     assert edit_fields == expected_fields, f"Fields mismatch. TestModelEdit: {edit_fields}, TestModelEditExpected: {expected_fields}"
     
     for field_name in expected_fields:
-        edit_field = TestModelEdit.__fields__[field_name]
-        expected_field = TestModelEditExpected.__fields__[field_name]
+        edit_field = TestModelEdit.model_fields[field_name]
+        expected_field = TestModelEditExpected.model_fields[field_name]
 
         assert edit_field.annotation == expected_field.annotation, \
             f"Field type mismatch for {field_name}.\n\tTestModelEdit: {edit_field.annotation}\n\tTestModelEditExpected: {expected_field.annotation}"
@@ -191,8 +190,3 @@ def test_versionable_base_model():
         string_field="test0",
     )
 
-
-
-test_generated_edit_model()
-test_apply_edit()
-test_versionable_base_model()
