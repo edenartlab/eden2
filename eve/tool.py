@@ -131,7 +131,7 @@ class Tool(BaseModel):
         cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', cost_formula)  # Array length
         cost_formula = re.sub(r'(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)', r'\2 if \1 else \3', cost_formula)  # Ternary operator
         
-        cost_estimate = eval(cost_formula, args)
+        cost_estimate = eval(cost_formula, args.copy())
         assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
         return cost_estimate
 
@@ -178,7 +178,7 @@ class Tool(BaseModel):
         async def wrapper(self, user_id: str, args: Dict, env: str, mock: bool = False):
             # validate args and user manna balance
             args = self.prepare_args(args)
-            cost = self.calculate_cost(args.copy())
+            cost = self.calculate_cost(args)
             user = User.load(user_id, env=env)
             user.verify_manna_balance(cost)            
             

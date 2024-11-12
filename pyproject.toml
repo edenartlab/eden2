@@ -1,0 +1,45 @@
+# pyproject.toml
+[project]
+name = "eve"
+version = "0.1.0"
+description = "Tool-calling creative assistant franework"
+authors = [{ name = "Eden.art", email = "info@eden.art" }]
+dependencies = [
+    "anthropic",
+    "boto3",
+    "bson",
+    "click",
+    "elevenlabs",
+    "fastapi",
+    "gitpython",
+    "google-cloud-aiplatform",
+    "google-oauth2-credentials",
+    "httpx",
+    "instructor",
+    "jsonref",
+    "moviepy",
+    "modal",
+    "numpy",
+    "openai",
+    "Pillow",
+    "pydantic",
+    "pydub",
+    "pyjwt",
+    "pymongo==4.6.1",
+    "python-dotenv",
+    "python-magic",
+    "pyyaml",
+    "requests",
+    "sentry-sdk",
+    "starlette",
+    "tenacity",
+    "tqdm",
+    "websockets"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+eve = "eve.cli:cli"
