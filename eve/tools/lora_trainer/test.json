@@ -1,4 +1,5 @@
 {
     "lora_training_urls": ["https://storage.googleapis.com/public-assets-xander/A_workbox/lora_training_sets/xander.zip"],
-    "name": "xander"
+    "name": "xander",
+    "max_train_steps": 100
 }

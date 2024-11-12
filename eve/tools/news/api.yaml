@@ -5,9 +5,9 @@ output_type: string
 status: prod
 visible: false
 parameters:
-- name: subject
-  label: Subject
-  description: Which topic do you want to know about?
-  type: string
-  choices: [business, entertainment, general, health, science, sports, technology]
-  required: true
+  subject:
+    type: str
+    label: Subject
+    description: Which topic do you want to know about?
+    choices: [business, entertainment, general, health, science, sports, technology]
+    required: true

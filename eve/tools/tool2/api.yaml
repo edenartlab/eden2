@@ -1,0 +1,17 @@
+name: Test name 2
+description: Test description
+cost_estimate: 50
+output_type: image
+status: stage
+visible: false
+parameters:
+  prompt_image:
+    label: Prompt Image
+    description: The image to animate
+    type: image
+    required: true
+  prompt_text:
+    label: Prompt Text
+    description: The prompt to guide the animation
+    type: str
+    required: true

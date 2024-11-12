@@ -1,0 +1,97 @@
+name: Widget
+description: This model represents a person with their details like name, age, hobbies, contacts, and address.
+tip: Widgets are good for some things
+cost_estimate: 50
+output_type: image
+comfyui_output_node_id: 161
+comfyui_intermediate_outputs:
+  controlnet_signal: 323
+parameters:
+  name:
+    type: str
+    label: Name of the widget
+    description: The name of a widget should tell you what it's called
+    example: Wompus
+    required: true
+  type:
+    type: str
+    label: Type of widget
+    description: This should tell you what kind of a widget you've got
+    tip: Thingies are better than gadgets, but doohickies are better than thingies
+    default: doohickey
+    required: true
+    choices: [thingy, gadget, doohickey]
+    choices_labels: [Thingy, Gadget, Doohickey]
+  age:
+    type: int
+    label: Age
+    description: Age of the widget
+    tip: If you don't set this, it will be randomized between minimum and maximum
+    example: 10
+    default: random
+    minimum: -16
+    maximum: 144
+    comfyui:
+      node_id: 162
+      field: height
+      subfield: height
+  price:
+    type: float
+    description: Price of the widget in dollars
+    tip: This should be a fair price
+    default: 1.01
+    minimum: 0.55
+    maximum: 2.34
+  skills:
+    type: array
+    items:
+      type: str
+    description: A list of skills the widget has
+    default: [reading, swimming, cooking]
+  contacts:
+    type: array
+    items:
+      type: object
+      parameters:
+        type:
+          type: str
+          description: The contact method type
+          example: email
+          choices: [email, phone, social_media]
+        value:
+          type: str
+          description: The contact value
+          example: john@example.com
+    description: A list of contact methods
+  address:
+    type: object
+    parameters:
+      street:
+        type: str
+        description: The street address
+        example: 123 Main St
+      city:
+        type: str
+        description: The city name
+        example: Somewhere
+      postal_code:
+        type: int
+        description: Postal code for the address
+        example: 12345
+        minimum: 10000
+        maximum: 99999
+    description: The person's address
+    example: {"street": "123 Main St", "city": "Somewhere", "postal_code": 12345}
+  matrix:
+    type: object
+    parameters:
+      data:
+        type: array
+        items:
+          type: array
+          items:
+            type: int
+        description: A row in the matrix
+    description: A 2D array of integers (matrix)
+    tip: Matrix is a 2D array of integers
+    example: {"data": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}

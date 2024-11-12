@@ -1,12 +1,11 @@
-import sys
-sys.path.append("../../..")
-
 import os
 from PIL import Image
-import eden_utils
+# from ... import eden_utils
 
 
-async def image_crop(args: dict, _: str = None, env: str = None):
+async def handler(args: dict, env: str):
+    from ... import eden_utils
+    
     image_url = args.get("image")
 
     image_filename = image_url.split("/")[-1]
@@ -23,5 +22,7 @@ async def image_crop(args: dict, _: str = None, env: str = None):
         image = image.crop((int(left), int(top), int(right-left), int(bottom-top)))
         image.save(image_edited_filename)
 
-    return [image_edited_filename]
+    return {
+        "output": image_edited_filename
+    }
     

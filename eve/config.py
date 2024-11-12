@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 """
-=======
-from datetime import datetime
->>>>>>> abd66b1fafce84c83ecd41a1f4312cbd1a70982d
 import argparse
 import json
 import random
@@ -14,7 +10,6 @@ env = os.getenv("ENV", "STAGE")
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 
-<<<<<<< HEAD
 api_tools = [
     "txt2img", "flux_dev", "flux_schnell", 
     "img2img", "controlnet", "layer_diffusion", 
@@ -25,16 +20,6 @@ api_tools = [
     "stable_audio", "musicgen",
     "lora_trainer", "flux_trainer", "news", "moodmix",
     "xhibit_vton", "xhibit_remix", "beeple_ai",
-=======
-# this controls order of tools in frontend
-ordered_tools = [
-    "txt2img", "flux_dev", "flux_schnell", 
-    "layer_diffusion", "remix_flux_schnell", "remix", "inpaint", "flux_inpainting", "outpaint", "face_styler", 
-    "upscaler", "background_removal", "background_removal_video", "style_transfer",
-    "animate_3D", "txt2vid", "img2vid", "video_upscaler", "vid2vid_sdxl", "video_FX",
-    "texture_flow", "runway",
-    "stable_audio", "musicgen"
->>>>>>> abd66b1fafce84c83ecd41a1f4312cbd1a70982d
 ]
 
 

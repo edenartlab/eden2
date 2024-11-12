@@ -1,15 +1,14 @@
-import sys
-sys.path.append("../../..")
-
 import os
 import tempfile
 import subprocess
-import eden_utils
+# from ... import eden_utils
 
 
 # bug: if some videos are silent but others have sound, the concatenated video will have no sound
 
-async def video_concat(args: dict, _: str = None, env: str = None):
+async def handler(args: dict, env: str):
+    from ... import eden_utils
+    
     video_urls = args.get("videos")
     fps = args.get("fps", 30)
 
@@ -123,4 +122,6 @@ async def video_concat(args: dict, _: str = None, env: str = None):
     if not os.path.exists(output_file.name) or not os.path.getsize(output_file.name) > 0:
         raise Exception("Final output video is empty. Upload skipped.")
     
-    return [output_file.name]
+    return {
+        "output": output_file.name
+    }

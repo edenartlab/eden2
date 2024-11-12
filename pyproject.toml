@@ -13,7 +13,6 @@ dependencies = [
     "fastapi",
     "gitpython",
     "google-cloud-aiplatform",
-    "google-oauth2-credentials",
     "httpx",
     "instructor",
     "jsonref",

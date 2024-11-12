@@ -1,19 +1,12 @@
-import sys
-sys.path.append("../..")
 import os
 import json
 import requests
-import instructor
 from openai import OpenAI
 
 
-NEWSAPI_API_KEY = os.environ['NEWSAPI_API_KEY']
-print(NEWSAPI_API_KEY)
+async def handler(args: dict, env: str = None):
+    NEWSAPI_API_KEY = os.environ['NEWSAPI_API_KEY']
 
-client = instructor.from_openai(OpenAI())
-
-
-async def news(args: dict, user: str = None, env: str = "STAGE"):
     category = args['subject']
     url = f'https://newsapi.org/v2/top-headlines?country=us&category={category}&apiKey={NEWSAPI_API_KEY}'
 
@@ -34,4 +27,7 @@ async def news(args: dict, user: str = None, env: str = "STAGE"):
 
     print(news_summary)
 
-    return [news_summary]
+    return {
+        "output": news_summary
+    }
+

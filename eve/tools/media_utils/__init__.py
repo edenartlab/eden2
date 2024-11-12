@@ -42,9 +42,11 @@ subtitling
 
 """
 
-from .image_concat.handler import image_concat
-from .image_crop.handler import image_crop
-from .video_concat.handler import video_concat
-from .audio_video_combine.handler import audio_video_combine
 
-__all__ = ["image_concat", "image_crop", "video_concat", "audio_video_combine"]
+
+from .image_concat.handler import handler as image_concat
+from .image_crop.handler import handler as image_crop
+from .video_concat.handler import handler as video_concat
+from .audio_video_combine.handler import handler as audio_video_combine
+
+# __all__ = ["image_concat", "image_crop", "video_concat", "audio_video_combine"]

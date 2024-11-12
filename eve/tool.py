@@ -52,6 +52,7 @@ class Tool(BaseModel):
         """Load the tool class from a directory api.yaml and test.json"""
 
         key = tool_dir.split('/')[-1]
+        print("LOADING TOOL FROM DIR", key)
         schema, test_args = cls._get_schema_from_dir(tool_dir)
         tool_class = _get_tool_class(schema.get('handler'))
 

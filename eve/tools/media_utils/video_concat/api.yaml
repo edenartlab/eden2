@@ -1,22 +1,21 @@
 name: Video concat
 description: Concatenate videos
-output_type: video
-status: prod
-visible: false
 cost_estimate: 0.1
-handler: video_concat
+output_type: video
 status: stage
 visible: false
 parameters:
-- name: videos
-  label: Video URLs
-  description: Videos to concatenate
-  type: video[]
-  required: true
-- name: fps
-  label: FPS
-  description: Frames per second
-  type: int
-  default: 30
-  min: 1
-  max: 60
+  videos:
+    type: array
+    items:
+      type: video
+    label: Video URLs
+    description: Videos to concatenate
+    required: true
+  fps:
+    type: int
+    label: FPS
+    description: Frames per second
+    default: 30
+    min: 1
+    max: 60

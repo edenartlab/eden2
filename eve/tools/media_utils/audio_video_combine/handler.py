@@ -1,12 +1,11 @@
-import sys
-sys.path.append("../../..")
-
 import tempfile
 import subprocess
-import eden_utils
+# from ... import eden_utils
 
 
-async def audio_video_combine(args: dict, _: str = None, env: str = None):
+async def handler(args: dict, env: str):
+    from ... import eden_utils
+    
     video_url = args.get("video")
     audio_url = args.get("audio")
 
@@ -48,5 +47,6 @@ async def audio_video_combine(args: dict, _: str = None, env: str = None):
 
     subprocess.run(cmd)
 
-    return [output_file.name]
-    
+    return {
+        "output": output_file.name
+    }
