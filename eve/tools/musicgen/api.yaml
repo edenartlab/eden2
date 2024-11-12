@@ -4,6 +4,7 @@ thumbnail: app/audio-opt.mp4
 output_type: audio
 status: prod
 cost_estimate: 0.1 * duration
+output_type: audio
 handler: replicate
 output_handler: normal
 model: meta/musicgen
@@ -14,12 +15,12 @@ parameters:
   description: Description of the type of music you want to generate
   type: string
   required: true
-# - name: model_version
-#   label: Audio model
-#   description: Model to generate audio with
-#   type: string
-#   choices: ["stereo-melody-large", "stereo-large", "melody-large", "large"]
-#   default: "stereo-melody-large"
+- name: model_version
+  label: Audio model
+  description: Model to generate audio with
+  type: string
+  choices: ["stereo-melody-large", "stereo-large", "melody-large", "large"]
+  default: "stereo-melody-large"
 - name: duration
   label: Duration
   description: Duration in seconds
@@ -28,43 +29,43 @@ parameters:
   minimum: 1
   maximum: 300
   step: 1
-# - name: input_audio
-#   label: Duration
-#   description: An audio file that will influence the generated music. If `continuation` is `True`, the generated music will be a continuation of the audio file. Otherwise, the generated music will mimic the audio file's melody.
-#   type: audio
-# - name: continuation
-#   label: Continue input_audio
-#   description: If true, the generated music will be a continuation of the input_audio. Otherwise, the generated music will mimic the input_audio's melody.
-#   type: bool
-#   default: false
-#   visible_if: input_audio
-# - name: temperature
-#   label: Temperature
-#   description: Controls the 'conservativeness' of the sampling process. Higher temperature means more diversity.
-#   type: float
-#   default: 1.0
-#   minimum: 0
-#   maximum: 1.0
-#   step: 0.01
-# - name: classifier_free_guidance
-#   label: Classifier free guidance
-#   description: Increases the influence of inputs on the output. Higher values produce lower-varience outputs that adhere more closely to inputs.
-#   type: float
-#   default: 3.0
-#   minimum: 0
-#   maximum: 10
-#   step: 0.1
-# - name: seed
-#   label: Seed
-#   description: Set random seed for reproducibility. If blank, will be set to a random value.
-#   type: int
-#   default: random
-#   minimum: 0
-#   maximum: 2147483647
-# - name: output_format
-#   label: Output format
-#   description: Output audio format
-#   type: string
-#   choices: [mp3, wav]
-#   default: "mp3"
+- name: input_audio
+  label: Duration
+  description: An audio file that will influence the generated music. If `continuation` is `True`, the generated music will be a continuation of the audio file. Otherwise, the generated music will mimic the audio file's melody.
+  type: audio
+- name: continuation
+  label: Continue input_audio
+  description: If true, the generated music will be a continuation of the input_audio. Otherwise, the generated music will mimic the input_audio's melody.
+  type: bool
+  default: false
+  visible_if: input_audio
+- name: temperature
+  label: Temperature
+  description: Controls the 'conservativeness' of the sampling process. Higher temperature means more diversity.
+  type: float
+  default: 1.0
+  minimum: 0
+  maximum: 1.0
+  step: 0.01
+- name: classifier_free_guidance
+  label: Classifier free guidance
+  description: Increases the influence of inputs on the output. Higher values produce lower-varience outputs that adhere more closely to inputs.
+  type: float
+  default: 3.0
+  minimum: 0
+  maximum: 10
+  step: 0.1
+- name: seed
+  label: Seed
+  description: Set random seed for reproducibility. If blank, will be set to a random value.
+  type: int
+  default: random
+  minimum: 0
+  maximum: 2147483647
+- name: output_format
+  label: Output format
+  description: Output audio format
+  type: string
+  choices: [mp3, wav]
+  default: "mp3"
 

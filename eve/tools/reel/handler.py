@@ -216,10 +216,11 @@ async def reel(args: dict, user: str = None, env: str = None):
             
         # generate music
         if music and story.music_prompt:
-            musicgen = tool.load_tool("tools/musicgen")
-            music = await musicgen.async_run({
-                "prompt": story.music_prompt,
-                "duration": int(duration)
+            audiocraft = tool.Tool.from_dir("tools/audiocraft")
+            music = await audiocraft.async_run({
+                "text_input": story.music_prompt,
+                "model_name": "facebook/musicgen-large",
+                "duration_seconds": int(duration)
             })
             print("THE MUSIC IS DONE!")
             print(music)
@@ -247,8 +248,8 @@ async def reel(args: dict, user: str = None, env: str = None):
 
 
         print("MAKE THE VIDEO!")
-        
-        flux_args = {
+        txt2vid = tool.Tool.from_dir("../workflows/workspaces/video/workflows/txt2vid")
+        video = await txt2vid.async_run({
             "prompt": story.image_prompt,
             "width": width,
             "height": height

@@ -3,7 +3,7 @@ description: Generate short reel-sized films with music and narration. Video pow
 cost_estimate: 20 * min_duration
 handler: reel
 # resolutions: [16-9_1280x768, 1-1_1024x1024, 9-16_768x1280]
-base_model: flux-dev
+base_model: flux_dev
 output_type: video
 status: stage
 visible: false

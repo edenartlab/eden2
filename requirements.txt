@@ -15,5 +15,6 @@ python-dotenv
 Pillow
 moviepy
 pydub
+jsonref
 google-cloud-aiplatform
 anthropic

@@ -5,6 +5,8 @@ status: prod
 visible: false
 handler: reel
 output_type: video
+status: stage
+visible: false
 parameters:
 - name: prompt
   label: Prompt

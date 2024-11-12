@@ -1,6 +1,8 @@
 # dotenv
 import dotenv
 dotenv.load_dotenv()
+import os
+print(os.getenv("ELEVEN_API_KEY"))
 
 import os
 import random

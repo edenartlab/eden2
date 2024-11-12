@@ -1,9 +1,8 @@
 import os
 import re
 import random
-import time
-import yaml
 import json
+import time
 import math
 import magic
 import httpx
@@ -15,7 +14,8 @@ import requests
 import tempfile
 import subprocess
 import numpy as np
-from moviepy.editor import VideoFileClip
+from pprint import pformat
+from moviepy.editor import VideoFileClip, ImageClip, AudioClip
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
@@ -24,29 +24,51 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import s3
 
 
+def prepare_result(result, env: str, summarize=False):
+    if isinstance(result, dict):
+        if "filename" in result:
+            filename = result.pop("filename")
+            url = f"{s3.get_root_url(env=env)}/{filename}"
+            if summarize:
+                return url
+            else:
+                result["url"] = url
+        return {k: prepare_result(v, env, summarize) for k, v in result.items()}
+    elif isinstance(result, list):
+        return [prepare_result(item, env, summarize) for item in result]
+    else:
+        return result
+
+
+def upload_result(result, env: str, save_thumbnails=False):
+    if isinstance(result, dict):
+        return {k: upload_result(v, env) for k, v in result.items()}
+    elif isinstance(result, list):
+        return [upload_result(item, env) for item in result]
+    elif isinstance(result, str) and is_file(result):
+        return upload_media(result, env, save_thumbnails=save_thumbnails)
+    else:
+        return result
+
+
 def upload_media(output, env, save_thumbnails=True):
-    result = []
-    for o in output:
-        file_url, sha = s3.upload_file(o, env=env)
-        filename = file_url.split("/")[-1]
+    file_url, sha = s3.upload_file(output, env=env)
+    filename = file_url.split("/")[-1]
 
-        media_attributes, thumbnail = get_media_attributes(o)
+    media_attributes, thumbnail = get_media_attributes(output)
 
-        if save_thumbnails and thumbnail:
-            for width in [384, 768, 1024, 2560]:
-                img = thumbnail.copy()
-                img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
-                img_bytes = PIL_to_bytes(img)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
-                s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
+    if save_thumbnails and thumbnail:
+        for width in [384, 768, 1024, 2560]:
+            img = thumbnail.copy()
+            img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
+            img_bytes = PIL_to_bytes(img)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
 
-        result.append({
-            "filename": filename,
-            # "metadata": None,
-            "mediaAttributes": media_attributes
-        })
-
-    return result
+    return {
+        "filename": filename,
+        "mediaAttributes": media_attributes
+    }
 
 
 def get_media_attributes(file_path):
@@ -502,9 +524,7 @@ def video_textbox(
     margin_left: int = 25,
     margin_right: int = 25,
     line_spacing: float = 1.25,
-):
-    from moviepy.editor import ImageClip, TextClip, AudioClip
-    
+):    
     font = get_font(font_ttf, font_size)
 
     canvas = Image.new("RGB", (width, height))
@@ -534,18 +554,35 @@ def video_textbox(
     return output_file.name
 
 
-def custom_print(string, color):
-    colors = {
-        "red": "\033[91m",
-        "green": "\033[92m",
-        "yellow": "\033[93m",
-        "blue": "\033[94m",
-        "magenta": "\033[95m",
-        "cyan": "\033[96m",
-        "white": "\033[97m"
-    }
-    return f"{colors[color]}{string}\033[0m"
-
-
 def concat_sentences(*sentences):
     return ' '.join([s.strip().rstrip('.') + '.' for s in sentences if s and s.strip()])
+
+
+def is_file(value):
+    return os.path.isfile(value) or value.startswith(('http://', 'https://'))
+
+
+def get_human_readable_error(error_list):
+    errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
+    error_str = "\n\t".join(errors)
+    error_str = f"Invalid args\n\t{error_str}"
+    return error_str
+
+
+def pprint(*args, color=None, indent=4):
+    colors = {
+        'red': '\033[38;2;255;100;100m',
+        'green': '\033[38;2;100;255;100m',
+        'blue': '\033[38;2;100;100;255m',
+        'yellow': '\033[38;2;255;255;100m',
+        'magenta': '\033[38;2;255;100;255m',
+        'cyan': '\033[38;2;100;255;255m',
+    }
+    if not color:
+        color = random.choice(list(colors.keys()))
+    if color not in colors:
+        raise ValueError(f"Invalid color: {color}")
+    for arg in args:
+        string = pformat(arg, indent=indent)
+        colored_output = f"{colors[color]}{string}\033[0m"
+        print(colored_output)

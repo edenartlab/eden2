@@ -2,7 +2,6 @@ name: Runway Gen3a Turbo
 description: Text-guided, realistic image animation with Runway Gen3a
 tip: This tool can be used for creating a realistic animation of an image. Specific camera motion can be obtained by putting such directions in the prompt text.
 cost_estimate: 10 * int(duration)
-handler: runway
 output_type: video
 status: prod
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
