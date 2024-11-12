@@ -1,7 +1,6 @@
 import asyncio
 import modal
 from datetime import datetime
-<<<<<<< HEAD
 from functools import wraps
 
 
@@ -9,37 +8,13 @@ from functools import wraps
 from tool import Tool
 from models import Task, User, task_handler
 from tools import handlers
-=======
-from tools import reel, story, news, chat, runway, write, image_concat, image_crop, video_concat, audio_video_combine
-from models import Task, User
-import eden_utils
-
-handlers = {
-    "reel": reel,
-    "story": story,
-    "news": news,
-    "write": write,
-    "chat": chat,
-    "runway": runway,
-    
-    "image_concat": image_concat,
-    "image_crop": image_crop,
-    "video_concat": video_concat,
-    "audio_video_combine": audio_video_combine,
-}
->>>>>>> abd66b1fafce84c83ecd41a1f4312cbd1a70982d
 
 app = modal.App(
     name="handlers2",
     secrets=[
-<<<<<<< HEAD
         # modal.Secret.from_name("admin-key"),
         # modal.Secret.from_name("clerk-credentials"), # ?
         
-=======
-        modal.Secret.from_name("admin-key"),
-        modal.Secret.from_name("clerk-credentials"), # ?        
->>>>>>> abd66b1fafce84c83ecd41a1f4312cbd1a70982d
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         # modal.Secret.from_name("replicate"),
