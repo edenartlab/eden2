@@ -12,13 +12,15 @@ from agent import Agent
 from thread import Thread, UserMessage, async_prompt, prompt
 from models import Task
 from tool import replicate_update_task
-from config import available_tools, api_tools
+from config import get_all_tools_from_mongo
 from mongo import get_collection
 
 env = os.getenv("ENV", "STAGE")
 if env not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
 app_name = "tools" if env == "PROD" else "tools-dev"
+
+
 
 agents = get_collection("agents", env=env)
 threads = get_collection("threads", env=env)
@@ -40,8 +42,10 @@ def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    try:
+    # try:
+    if 1:
         workflow = request.get("workflow")
+        available_tools = get_all_tools_from_mongo()
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
         tool = available_tools[workflow]
@@ -49,9 +53,9 @@ def task_handler(
         tool.submit(task)
         task.reload()
         return task
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 def cancel(
@@ -67,6 +71,7 @@ def cancel(
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
+    available_tools = get_all_tools_from_mongo()
     tool = available_tools[task.workflow]
     try:
         tool.cancel(task)
@@ -83,8 +88,10 @@ async def replicate_update(request: Request):
     handler_id = body.get("id")
     status = body.get("status")
     error = body.get("error")
+    
 
     task = Task.from_handler_id(handler_id, env=env)
+    available_tools = get_all_tools_from_mongo()
     tool = available_tools[task.workflow]
     output_handler = tool.output_handler
 
@@ -105,7 +112,6 @@ class ChatRequest(BaseModel):
 async def ws_chat(data, user):
     request = ChatRequest(**data)
     agent = Agent.from_id(request.agent_id, env=env)
-    
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
@@ -126,10 +132,7 @@ class DiscordChatRequest(BaseModel):
     channel_id: str
 
 async def discord_ws_chat(data, user):
-    print("discord_ws_chat")
     request = DiscordChatRequest(**data)
-    print("discord_ws_chat 2")
-    print(request)
     discord_agent = discord_agents.find_one({"channel_id": request.channel_id})
     if not discord_agent:
         raise Exception("Discord agent not found for this channel")
@@ -154,8 +157,10 @@ def task_handler(
     request: dict, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    try:
+     
+    if 1:
         workflow = request.get("workflow")
+        available_tools = get_all_tools_from_mongo()
         if workflow not in available_tools:
             raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
         tool = available_tools[workflow]
@@ -163,9 +168,9 @@ def task_handler(
         tool.submit(task)
         task.reload()
         return task
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 def create_handler(task_handler):
@@ -177,14 +182,14 @@ def create_handler(task_handler):
         # try:
         if 1:
             async for data in websocket.iter_json():
-                try:
+                # try:
+                if 1:
                     async for response in task_handler(data, user):
-                        print(":: response", response)
                         await websocket.send_json(response)
                     break
-                except Exception as e:
-                    await websocket.send_json({"error": str(e)})
-                    break
+                # except Exception as e:
+                #     await websocket.send_json({"error": str(e)})
+                #     break
         # except WebSocketDisconnect:
         #     print("WebSocket disconnected by client")
         # except Exception as e:
@@ -194,13 +199,6 @@ def create_handler(task_handler):
         #         print("Closing WebSocket...")
         #         await websocket.close()
     return websocket_handler
-
-
-def tools_list():
-    return [available_tools[t].get_interface(include_params=False) for t in api_tools if t in available_tools]
-
-def tools_summary():
-    return [available_tools[t].get_interface() for t in api_tools if t in available_tools]
 
 
 web_app = FastAPI()
@@ -214,11 +212,6 @@ web_app.post("/thread/create")(get_or_create_thread)
 web_app.post("/create")(task_handler)
 web_app.post("/cancel")(cancel)
 web_app.post("/update")(replicate_update)
-
-web_app.get("/tools")(tools_summary)
-web_app.get("/tools/list")(tools_list)
-for t in available_tools:
-    web_app.get(f"/tool/{t}")(lambda key=t: available_tools[key].get_interface())
 
 
 app = modal.App(

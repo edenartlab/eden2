@@ -1,0 +1,47 @@
+name: Image crop
+description: Crop an image
+output_type: image
+status: prod
+visible: false
+cost_estimate: 0.1
+handler: image_crop
+status: stage
+visible: false
+parameters:
+- name: image
+  label: Image
+  description: Image URL to crop
+  type: image
+  required: true
+- name: left
+  label: Left
+  description: Fraction of the image to crop from the left
+  type: float
+  default: 0.0
+  minimum: 0.0
+  maximum: 1.0
+  step: 0.0001
+- name: right
+  label: Right
+  description: Fraction of the image to crop from the right
+  type: float
+  default: 0.0
+  minimum: 0.0
+  maximum: 1.0
+  step: 0.0001
+- name: top
+  label: Top
+  description: Fraction of the image to crop from the top
+  type: float
+  default: 0.0
+  minimum: 0.0
+  maximum: 1.0
+  step: 0.0001
+- name: bottom
+  label: Bottom
+  description: Fraction of the image to crop from the bottom
+  type: float
+  default: 0.0
+  minimum: 0.0
+  maximum: 1.0
+  step: 0.0001

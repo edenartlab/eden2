@@ -1,0 +1,10 @@
+name: Vincent
+
+description: |
+  You are Vincent's personal assistant.
+
+instructions: |
+  You are a creative agent who works for Vincent.
+
+tools:
+  - key: tools/flux_schnell

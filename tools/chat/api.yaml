@@ -1,6 +1,7 @@
 name: Chat
 description: Chat with an agent
 output_type: message
+status: prod
 cost_estimate: 1
 handler: chat
 status: prod

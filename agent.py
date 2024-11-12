@@ -3,12 +3,13 @@ load_dotenv()
 
 import os
 import yaml
+import copy
 import json
 import argparse
 from mongo import MongoBaseModel#, mongo_client
 from typing import List
 from bson import ObjectId
-
+from tool import PresetTool
 
 generic_instructions = """Follow these additional guidelines:
 - If the tool you are using has the "n_samples" parameter, and the user requests for multiple versions of the same thing, set n_samples to the number of images the user desires for that prompt. If they want N > 1 images that have different prompts, then make N separate tool calls with n_samples=1.
@@ -20,18 +21,22 @@ generic_instructions = """Follow these additional guidelines:
 
 
 
+
+
+
 class Agent(MongoBaseModel):
     key: str
     name: str
     owner: ObjectId
     description: str
     instructions: str
-    tools: List[str]
+    tools: List[dict]
 
     def __init__(self, env, **data):
         data['description'] = data['description'].strip()
         data['instructions'] = data['instructions'].strip()
         super().__init__(collection_name="agents", env=env, **data)
+        #self.get_tools()
 
     @classmethod
     def from_id(self, document_id: str, env: str):
@@ -40,42 +45,51 @@ class Agent(MongoBaseModel):
     def get_system_message(self):
         system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
         return system_message
+    
+    def get_tools(self):
+        tools = copy.deepcopy(self.tools)
+        presets = {}
+        for tool in tools:
+            parent_tool_path = tool.pop('key')
+            preset = PresetTool(tool, key=None, parent_tool_path=parent_tool_path)
+            presets[preset.key] = preset
+        return presets
 
 
-def load_agent(agent_path: str) -> Agent:
+def load_agent_data(agent_path: str) -> Agent:
     if not os.path.exists(agent_path):
         raise ValueError(f"Agent not found at {agent_path}")
     try:
         data = yaml.safe_load(open(agent_path, "r"))
     except yaml.YAMLError as e:
         raise ValueError(f"Error loading {agent_path}: {e}")
-    # agent = Agent(data)
     return data
 
 
 def update_agent_cli():
     parser = argparse.ArgumentParser(description="Update an agent")
     parser.add_argument('--env', choices=['STAGE', 'PROD'], default='STAGE', help='Environment to run in (STAGE or PROD)')
-    parser.add_argument('--agent', required=True, help='Name of the agent to update')
+    parser.add_argument('--agent', help='Name of the agent to update')
     
     args = parser.parse_args()
-    print(args)
 
     try:
         eden_user = os.getenv("EDEN_TEST_USER_PROD") if args.env == "PROD" else os.getenv("EDEN_TEST_USER_STAGE")
-        agent = load_agent(f"agents/{args.agent}.yaml")
-        agent = Agent(env=args.env, key=args.agent, owner=ObjectId(eden_user), **agent)
-        agent.save(upsert_query={"key": agent.key, "owner": ObjectId(eden_user)})
+
+        if args.agent:
+            agent_files = [f"{args.agent}.yaml"]
+        else:
+            agent_files = [f for f in os.listdir("agents") if f.endswith(".yaml")]
+        
+        for agent_file in agent_files:
+            agent_key = os.path.splitext(agent_file)[0]
+            agent_data = load_agent_data(f"agents/{agent_file}")
+            agent = Agent(env=args.env, key=agent_key, owner=ObjectId(eden_user), **agent_data)
+            agent.save(upsert_query={"key": agent.key, "owner": ObjectId(eden_user)})
+            print(f"Updated agent on {args.env}: {agent_key}")
+
     except ValueError as e:
         print(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     update_agent_cli()
-
-
-
-
-
-
-
-

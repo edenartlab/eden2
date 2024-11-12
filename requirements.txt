@@ -17,3 +17,4 @@ moviepy
 pydub
 jsonref
 google-cloud-aiplatform
+anthropic

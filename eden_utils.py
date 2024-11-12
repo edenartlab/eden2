@@ -349,7 +349,7 @@ def create_dialogue_thumbnail(image1_url, image2_url, width, height, ext="WEBP")
 
     return img_byte_arr.getvalue()
 
-
+# deprecated: this is now in tools/media_utils/video_concat/handler.py
 def concatenate_videos(video_files, output_file, fps=30):
     converted_videos = []
     for video in video_files:
@@ -402,6 +402,7 @@ def get_file_handler(suffix, input_data):
     return temp_file.name
 
 
+# deprecated: this is now in tools/media_utils/audio_video_combine/handler.py
 def make_audiovideo_clip(video_input, audio_input):
     video_file = get_file_handler(".mp4", video_input)
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)

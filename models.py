@@ -71,6 +71,7 @@ class Model(MongoModel):
 
 class Task(MongoModel):
     workflow: str
+    parent_tool: Optional[str] = None
     output_type: str
     args: Dict[str, Any]
     user: ObjectId

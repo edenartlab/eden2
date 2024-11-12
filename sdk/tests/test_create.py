@@ -18,7 +18,7 @@ client = EdenClient(stage=True)
 #     "prompt": "drum and bass",
 # })
 
-result = client.create("flux-dev", {
+result = client.create("flux_dev", {
     "prompt": "Alien forest with bioluminescent flora.",
     "lora_strength": 0.3,
     "seed": 19,

@@ -13,7 +13,7 @@ print(NEWSAPI_API_KEY)
 client = instructor.from_openai(OpenAI())
 
 
-async def news(args: dict, user: str = None):
+async def news(args: dict, user: str = None, env: str = "STAGE"):
     category = args['subject']
     url = f'https://newsapi.org/v2/top-headlines?country=us&category={category}&apiKey={NEWSAPI_API_KEY}'
 

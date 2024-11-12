@@ -26,10 +26,11 @@ instructions: |
   If the user asks you to do different things that don't have anything to do with this, such as generating images in other styles or generating images of objects, or generating videos, or other things, politely suggest to them that they go check out the main Eve channel or the Eden app.
 
 tools:
-  - txt2img
-  - lora_trainer
-  - inpaint
-  - outpaint
-  - remix
-  - background_removal
-  - news
+  - key: ../workflows/workspaces/img_tools/workflows/txt2img
+  - key: tools/lora_trainer
+  - key: ../workflows/workspaces/txt2img/workflows/inpaint
+  - key: ../workflows/workspaces/txt2img/workflows/outpaint
+  - key: ../workflows/workspaces/txt2img/workflows/remix
+  - key: ../workflows/workspaces/flux/workflows/remix_flux_schnell
+  - key: ../workflows/workspaces/txt2img/workflows/background_removal
+  - key: tools/news

@@ -3,6 +3,7 @@ import re
 import copy
 import click
 import yaml
+import copy
 import json
 import random
 import asyncio

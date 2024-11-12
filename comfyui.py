@@ -1,3 +1,4 @@
+import os
 import asyncio
 import modal
 from datetime import datetime
@@ -25,13 +26,21 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-api-python-client",
-                 "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
-    # .copy_local_dir("../workflows", remote_path="/workflows")
-    # .copy_local_dir("../private_workflows", remote_path="/private_workflows")
-    # .copy_local_dir("tools", remote_path="/root/tools")
+    .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
+    .env({"TEST_ALL": os.getenv("TEST_ALL")})
+    .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
+    .pip_install(
+        "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
+        "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
+        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
+        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform")
+    .env({"WORKSPACE": workspace_name}) 
+    .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
+    .copy_local_file(f"../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
+    .run_function(install_comfyui)
+    .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+    .copy_local_dir(f"../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
+    .env({"WORKFLOWS": test_workflows})
 )
 
 
