@@ -153,7 +153,7 @@ app = modal.App(
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
-        modal.Secret.from_name("gcp-credentials"),
+        # modal.Secret.from_name("gcp-credentials"),
     ]
 )
 
