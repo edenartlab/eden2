@@ -1,71 +1,87 @@
-import os
 import copy
-from abc import abstractmethod
-from bson import ObjectId
-from datetime import datetime
-from pymongo import MongoClient
-from pydantic import BaseModel, Field, ConfigDict, create_model
-from pydantic_core import core_schema
-from pydantic.json_schema import SkipJsonSchema
-from typing import Annotated, Any, Optional, Type, List, Dict, Union, get_origin, get_args
+from enum import Enum
+from pydantic import BaseModel, Field, create_model
+from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args
 
-from dotenv import load_dotenv
-load_dotenv()
-
-MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
-MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
-MONGO_DB_NAME_ABRAHAM = os.getenv("MONGO_DB_NAME_ABRAHAM")
-
-db_names = {
-    "STAGE": MONGO_DB_NAME_STAGE,
-    "PROD": MONGO_DB_NAME_PROD,
-    "ABRAHAM": MONGO_DB_NAME_ABRAHAM
-}
-
-mongo_client = MongoClient(MONGO_URI)
-
-def get_collection(collection_name: str, env: str):
-    db_name = db_names[env]
-    return mongo_client[db_name][collection_name]
+import eden_utils
 
 
+class VersionableBaseModel(BaseModel):
+    """
+    A versioned wrapper for Pydantic BaseModels that tracks changes over time.
 
-# class PydanticObjectId(ObjectId):
-#     @classmethod
-#     def __get_validators__(cls):
-#         yield cls.validate
+    Attributes:
+        schema: The Pydantic model class
+        initial: Initial state of the model
+        current: Current state of the model
+        edits: List of applied edits
+    """
+    schema: Type[BaseModel]
+    initial: BaseModel
+    current: BaseModel
+    edits: List[BaseModel] = Field(default_factory=list)
 
-#     @classmethod
-#     def validate(cls, v: Any) -> ObjectId:
-#         if isinstance(v, str):
-#             return ObjectId(v)
-#         if isinstance(v, ObjectId):
-#             return v
-#         raise ValueError("Invalid ObjectId")
+    def __init__(self, instance: BaseModel=None, **kwargs):
+        if instance is not None:
+            data = {
+                "schema": type(instance),
+                "initial": instance,
+                "current": instance
+            }
+            super().__init__(**data)
+        else:
+            super().__init__(**kwargs)
 
-#     @classmethod
-#     def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> core_schema.CoreSchema:
-#         return core_schema.json_or_python_schema(
-#             json_schema=core_schema.str_schema(),
-#             python_schema=core_schema.union_schema([
-#                 core_schema.is_instance_schema(ObjectId),
-#                 core_schema.chain_schema([
-#                     core_schema.str_schema(),
-#                     core_schema.no_info_plain_validator_function(cls.validate)
-#                 ])
-#             ]),
-#             serialization=core_schema.plain_serializer_function_ser_schema(str),
-#         )
+    # @classmethod
+    # def load_from(cls, **kwargs):
+    #     return cls(**kwargs)
 
+    @classmethod
+    def model_validate(cls, obj: Any):
+        obj['schema'] = recreate_base_model(obj['schema'])
+        return super().model_validate(obj)
 
-# PyObjectId = Annotated[
-#     PydanticObjectId, 
-#     Field(default_factory=PydanticObjectId, alias="_id")
-# ]
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data['schema'] = {
+            'name': data['schema'].__name__,
+            'schema': data['schema'].model_json_schema()
+        }
+        data['current'] = self.current.model_dump()
+        data['initial'] = self.initial.model_dump()
+        data['edits'] = [edit.model_dump() for edit in self.edits]
+        return data
+    
+    def get_edit_model(self) -> Type[BaseModel]:
+        return generate_edit_model(self.schema)
 
+    def apply_edit(self, edit: BaseModel):
+        self.current = apply_edit(self.current, edit)
+        self.edits.append(edit)    
 
-def generate_edit_model(model: Type[BaseModel]) -> Type[BaseModel]:
+    def reconstruct_version(self, version: int) -> BaseModel:
+        if version < 0 or version > len(self.edits):
+            raise ValueError("Invalid version number")
+        instance = copy.deepcopy(self.initial)
+        for edit in self.edits[:version]:
+            instance = apply_edit(instance, edit)
+        return instance
+    
+
+def generate_edit_model(
+    model: Type[BaseModel]
+) -> Type[BaseModel]:
+    """
+    Generate an edit model for a given Pydantic model.
+
+    Args:
+        model (Type[BaseModel]): The source Pydantic model to generate an edit model from
+
+    Returns:
+        Type[BaseModel]: A new Pydantic model class that represents possible edits
+                        to the source model
+    """
+
     edit_fields: Dict[str, Any] = {}
     model_description = model.__doc__ or ""
     edit_model_description = f"Edit a {model.__name__} ({model_description.strip()})"
@@ -116,16 +132,42 @@ def generate_edit_model(model: Type[BaseModel]) -> Type[BaseModel]:
         **{key: (value[0], Field(default=value[1], description=value[2])) for key, value in edit_fields.items()},
         __base__=BaseModel
     )
+
     edit_model.__doc__ = edit_model_description
 
     return edit_model
 
 
-def apply_edit(instance: BaseModel, edit: BaseModel) -> BaseModel:
+def apply_edit(
+    instance: BaseModel, 
+    edit: BaseModel
+) -> BaseModel:
+    """
+    Apply modifications specified in an edit model to a BaseModel instance.
+
+    This function handles three types of edits:
+    - add_*: Add new items to lists or dictionaries
+    - edit_*: Modify existing values, including nested models
+    - remove_*: Remove items from lists or dictionaries
+
+    Args:
+        instance (BaseModel): The original model instance to be modified
+        edit (BaseModel): An edit model containing the changes to apply
+
+    Returns:
+        BaseModel: A new instance with the edits applied, leaving the original unchanged
+
+    Example:
+        original = MyModel(field=[1, 2, 3])
+        edit = MyModelEdit(add_field={'index': 1, 'value': 4})
+        result = apply_edit(original, edit)  # result.field = [1, 4, 2, 3]
+    """
+
     instance_copy = copy.deepcopy(instance)
     updates = {}
     for field_name, value in edit:
         if value is not None:
+            
             if field_name.startswith('add_'):
                 original_field = field_name.replace('add_', '')
                 if isinstance(value, dict) and 'index' in value:
@@ -141,6 +183,7 @@ def apply_edit(instance: BaseModel, edit: BaseModel) -> BaseModel:
                         setattr(instance_copy, original_field, {})
                     for key, new_value in value.items():
                         getattr(instance_copy, original_field)[key] = new_value
+            
             elif field_name.startswith('edit_'):
                 original_field = field_name.replace('edit_', '')
                 if isinstance(value, dict) and 'index' in value and 'value' in value:
@@ -166,6 +209,7 @@ def apply_edit(instance: BaseModel, edit: BaseModel) -> BaseModel:
                     setattr(instance_copy, original_field, nested_updated)
                 else:
                     updates[original_field] = value
+            
             elif field_name.startswith('remove_'):
                 original_field = field_name.replace('remove_', '')
                 if getattr(instance_copy, original_field) is None:
@@ -178,17 +222,34 @@ def apply_edit(instance: BaseModel, edit: BaseModel) -> BaseModel:
                 original_field = field_name.replace('edit_', '')
                 updates[original_field] = value
 
+    if instance_copy is None:
+        instance_copy = type(edit)()
+    elif isinstance(instance_copy, dict):
+        instance_copy = type(edit).model_validate(instance_copy)
+
     return instance_copy.model_copy(update=updates)
 
 
 def get_python_type(field_info):
+    """
+    Retrieve the Python type from a field info object.
+    """
+
     type_map = {
+        'str': str,
         'string': str,
+        'int': int,
         'integer': int,
-        'number': float,
+        'float': float,
+        'bool': bool,
         'boolean': bool,
         'array': List,
-        'object': Dict
+        'object': Dict,
+        'image': str,
+        'video': str,
+        'audio': str,
+        'lora': str,
+        'zip': str
     }
     field_type = field_info.get('type')
     if field_type == 'array' and 'items' in field_info:
@@ -199,259 +260,105 @@ def get_python_type(field_info):
     return type_map.get(field_type, Any)
 
 
-def recreate_base_model(type_model_data: Dict[str, Any]) -> Type[BaseModel]:
-    model_name = type_model_data['name']
-    model_schema = type_model_data['schema']
+
+# def get_type(type_str: str):
+#     type_mapping = {
+#         'str': str,
+#         'int': int,
+#         'float': float,
+#         'bool': bool,
+#         'array': List,
+#         'object': Dict[str, Any]
+#     }
+#     return type_mapping.get(type_str, Any)
+
+
+
+
+def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
+    """
+    Build a BaseModel from a type model data object.
+    """
+
+    model_name = schema['name']
+    model_schema = schema['schema']
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
-        for field, info in model_schema['properties'].items()
+        for field, info in model_schema['parameters'].items()
     })
     return base_model
 
 
-class MongoModel(BaseModel):
-    # id: PyObjectId
-    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
-    # collection: ClassVar[SkipJsonSchema[Collection]] = None
-    env: SkipJsonSchema[str] = Field(..., exclude=True)
-    createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-    updatedAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-    )
-
-    @classmethod
-    @abstractmethod
-    def get_collection_name(cls) -> str:
-        pass
-
-    # @classmethod
-    # def model_validate(cls, obj: Any):
-    #     if isinstance(obj, dict) and 'type_model' in obj and isinstance(obj['type_model'], dict):
-    #         obj['type_model'] = recreate_base_model(obj['type_model'])
-    #     return super().model_validate(obj)
-
-    def save(self):
-        self.model_validate({**self.model_dump(), **{"env": self.env}})
-        data = self.model_dump(by_alias=True, exclude_none=True)
-        data['_id'] = ObjectId(data['_id'])
-        # collection = get_collection(self.get_collection_name(), self.env)
-        # document = collection.find_one({"_id": data['_id']})
-        # if document:
-        #     collection.update_one({"_id": data['_id']}, {"$set": data})
-        # else:
-        #     collection.insert_one(data)
-    
-    @classmethod
-    def load(cls, document_id: str, env: str):
-        collection = get_collection(cls.get_collection_name(), env)
-        document = collection.find_one({"_id": ObjectId(document_id)})
-        document['env'] = env
-        return cls.model_validate(document)
-
-    def update(self, **kwargs):
-        update_args = {}
-        for key, value in kwargs.items():
-            if hasattr(self, key) and getattr(self, key) != value:
-                setattr(self, key, value)
-                update_args[key] = value
-        if not update_args:
-            return self
-        self.model_validate({**self.model_dump(), **update_args, **{"env": self.env}})
-        current_time = datetime.utcnow().replace(microsecond=0)
-        self.updatedAt = current_time
-        update_args['updatedAt'] = self.updatedAt
-        # get_collection(self.get_collection_name(), self.env).update_one(
-        #     {"_id": ObjectId(self.id)},
-        #     {"$set": update_args}
-        # )
 
 
 
 
 
+def create_enum(name: str, choices: List[str]):
+    return Enum(name, {str(choice): choice for choice in choices})
 
+def parse_schema(schema: dict):
+    fields = {}
+    required_fields = schema.get('required', [])
+    for field, props in schema.get('parameters', {}).items():
+        field_kwargs = {}
+        
+        if 'description' in props:
+            field_kwargs['description'] = props['description']
+            if 'tip' in props:
+                field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
+        if 'example' in props:
+            field_kwargs['example'] = props['example']
+        if 'default' in props:
+            field_kwargs['default'] = props['default']
+        
+        # Store additional parameters
+        additional_props = {}
+        # additional_props = {'required': props.get('required') or field in required_fields}
+        # if 'label' in props:
+        #     additional_props['label'] = props['label']
+        
+        # Handle min and max for int and float
+        if props['type'] in ['int', 'float']:
+            if 'minimum' in props:
+                field_kwargs['ge'] = props['minimum']
+            if 'maximum' in props:
+                field_kwargs['le'] = props['maximum']
+        
+        # Handle enum for strings
+        # if props['type'] == 'str' and 'choices' in props:
+        if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
+            enum_type = create_enum(f"{field.capitalize()}Enum", props['choices'])
+            fields[field] = (enum_type, Field(**field_kwargs, **additional_props))
+            continue
+        
+        # Add special handling for file types
+        if props['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+            additional_props['file_type'] = props['type']
+        if props['type'] == 'array' and 'items' in props:
+            if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+                additional_props['file_type'] = props['items']['type']
 
-
-class Task(MongoModel):
-    workflow: str
-    num: int = Field(ge=1, le=10, default=1)
-    args: Dict[str, Any]
-    user: ObjectId
-
-    @classmethod
-    def get_collection_name(cls) -> str:
-        return "stories"
-
-
-class VersionableMongoModel(MongoModel):
-    type_model: Type[BaseModel]
-    current: BaseModel
-    edits: List[BaseModel] = Field(default_factory=list)
-    collection_name: SkipJsonSchema[str] = Field(None, exclude=True)
-
-    def __init__(self, **data):
-        data["current"] = data["type_model"]()
-        super().__init__(**data)
-
-    @classmethod
-    def model_validate(cls, obj: Any):
-        obj['type_model'] = recreate_base_model(obj['type_model'])
-        return super().model_validate(obj)
-
-    def get_collection_name(self) -> str:
-        return self.collection_name
-
-    @classmethod
-    def load(cls, document_id: str, collection_name: str, env: str):
-        collection = get_collection(collection_name, env)
-        document = collection.find_one({"_id": ObjectId(document_id)})
-        if document is None:
-            raise ValueError(f"Document with id {document_id} not found in collection {collection_name}")
-        document['type_model'] = recreate_base_model(document['type_model'])
-        return cls(env=env, collection_name=collection_name, **document)
-
-    def model_dump(self, **kwargs):
-        data = super().model_dump(**kwargs)
-        if True: #'type_model' in data:
-            data['type_model'] = {
-                'name': data['type_model'].__name__,
-                'schema': data['type_model'].model_json_schema()
-            }
-        if True: #'current' in data:
-            data['current'] = self.current.model_dump()
-        if True: #'edits' in data:
-            data['edits'] = [edit.model_dump() for edit in self.edits]
-        # data['current'] = data['current'].model_dump()
-        return data
-    
-    def get_edit_model(self) -> Type[BaseModel]:
-        return generate_edit_model(self.type_model)
-
-    def apply_edit(self, edit: BaseModel):
-        self.current = apply_edit(self.current, edit)
-        self.edits.append(edit)
-        self.save()
-
-    def reconstruct_version(self, version: int) -> BaseModel:
-        if version < 0 or version > len(self.edits):
-            raise ValueError("Invalid version number")
-        instance = self.type_model()
-        for edit in self.edits[:version]:
-            instance = apply_edit(instance, edit)
-        return instance
-    
-    def save(self):
-        self.model_validate({**self.model_dump(), **{"env": self.env}})
-        doc = self.model_dump(by_alias=True, exclude_none=True)
-        doc['_id'] = ObjectId(doc['_id'])
-        collection = get_collection(self.get_collection_name(), self.env)
-        document = collection.find_one({"_id": doc['_id']})
-        if document:
-            collection.update_one({"_id": doc['_id']}, {"$set": doc})
+        if props['type'] == 'object':
+            nested_model = create_model(field, **parse_schema(props))
+            fields[field] = (nested_model, Field(**field_kwargs, **additional_props))
+        elif props['type'] == 'array':
+            item_type = get_python_type(props['items'])
+            additional_props['is_array'] = True
+            if props['items']['type'] == 'object':
+                item_type = create_model(f"{field}Item", **parse_schema(props['items']))
+            fields[field] = (List[item_type], Field(**field_kwargs, **additional_props))
         else:
-            collection.insert_one(doc)
-            
+            fields[field] = (get_python_type(props), Field(**field_kwargs, **additional_props))
+    
+        if 'alias' in props:
+            additional_props['alias'] = props['required']
 
+        # if not additional_props['required']:
+        if not props.get('required') and not field in required_fields:
+            fields[field] = (Optional[fields[field][0]], fields[field][1])
+            fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
 
-
-
-
-
-
-
-
-
-
-
-# t = Task(env="STAGE", workflow="1202034124", args={"test": "212122"}, user=ObjectId("666666663333366666666666"))
-# t.save()
-# print(t.id)
-
-
-
-# t = Task.load("6709caad8eaf77aa8a8f8a0b", env="STAGE")
-# print(t)
-# t = t.update(blah="dsfs", num=9, workflow="ok 222 the new one 999", args={"hellonew_arg": "3456345345"})
-
-
-# raise Exception("stop")
-
-
-# from base2 import generate_edit_model, apply_edit
-
-
-
-class Agent2(BaseModel):
-    """
-    A character with all its info.
-    """
-    name: Optional[str] = Field(None, description="The character's name")
-    description: Optional[str] = Field(None, description="The character's description")
-    attributes: Optional[List[str]] = Field(None, description="The character's attributes")
-
-
-
-
-# # # Usage example:
-# # print("ok1")
-# agent = VersionableMongoModel(type_model=Agent2, collection_name="agents", env="STAGE")
-# print("ok2")
-# agent.save()
-# print("ok3")
-
-
-
-# AgentEdit = agent.get_edit_model()
-
-# agent.apply_edit(
-#     AgentEdit(
-#         edit_name="Bob",
-#         edit_description="Go Alice!",
-#         add_attributes={"index": 0, "value": "abc"}
-#     )
-# )
-
-
-
-# agent.apply_edit(
-#     AgentEdit(
-#         edit_name="May",
-#         edit_description="no no!",
-#         add_attributes={"index": 0, "value": "123"}
-#     )
-# )
-
-
-# agent.apply_edit(
-#     AgentEdit(
-#         edit_description="no no!",
-#         add_attributes={"index": 2, "value": "def"}
-#     )
-# )
-
-# agent.apply_edit(
-#     AgentEdit(
-#         edit_attributes={"index": 0, "value": "012345"}
-#     )
-# )
-
-
-
-# agent.save()
-
-
-# p(AgentEdit.model_json_schema())
-
-
-
-# a = VersionableMongoModel.load("6709dd6a2a5607571453b9e8", collection_name="agents", env="STAGE")
-# print("ok4")
-# print(a)
-
-
-
+    return fields
 
 

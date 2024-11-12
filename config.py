@@ -1,3 +1,4 @@
+"""
 import argparse
 import json
 import random
@@ -69,3 +70,116 @@ def update_tools():
 
 if __name__ == "__main__":
     update_tools()
+
+"""
+
+from datetime import datetime
+from pprint import pprint
+import asyncio
+import argparse
+import os
+import requests
+
+import eden_utils
+# from tool import get_tools_from_dir, get_tools_from_mongo
+
+parser = argparse.ArgumentParser(description="Save tools to mongo")
+parser.add_argument("--tools", type=str, nargs='+', help="Which tools to save (space-separated)", default=None)
+parser.add_argument("--env", help="Save results to a folder")
+args = parser.parse_args()
+
+async def upload_tool(tool):
+    print("--------------------------------")
+    print(tool)
+        
+async def run_all_tests():
+    tools = get_tools_from_dir("tools")
+    tools.update(get_tools_from_dir("../../workflows"))
+    # tools.update(get_tools("../../private_workflows"))
+    if args.tools:
+        tools = {k: v for k, v in tools.items() if k in args.tools}
+    print(f"Saving tools: {', '.join(tools.keys())}")
+    results = await asyncio.gather(*[upload_tool(tool) for tool in tools.values()])
+    return results
+
+# if __name__ == "__main__":
+#     asyncio.run(run_all_tests())
+
+
+
+from base import parse_schema
+# from tool import get_tools_from_dir, get_tools_from_mongo
+import yaml
+import json
+
+# schema = yaml.safe_load(open("../../workflows/workspaces/flux/workflows/flux_dev/api.yaml", "r").read())
+# pprint(parse_schema(schema))
+
+
+
+
+
+# tools = get_tools("../../workflows")
+
+# flux = tools["flux_dev"]
+
+# # print(flux)
+
+import os
+import yaml
+# flux.save()
+from tool import load_tool_from_dir, load_tool_from_mongo
+
+
+tool_dir = "../../workflows/workspaces/flux/workflows/flux_dev"
+tool_dir = "tools/flux_schnell"
+# tool_dir = "tools/style_transfer"
+
+import tool
+
+tool_dirs = tool._get_tool_dirs()
+print(tool_dirs)
+
+flux = tool.load_tool_from_dir(tool_dir=tool_dirs['flux_dev'])
+print(flux)
+
+tool.save_tool(tool_dir, env="STAGE")
+
+# from tool import Tool
+
+# # flux2 = Tool.from_mongo(env="STAGE", key="flux_dev")
+
+
+# #flux2 = tool.load_tool_from_mongo(key="flux_dev", env="STAGE")
+# flux2 = tool.load_tool_from_mongo(key="style_transfer", env="STAGE")
+
+
+
+# t1 = tool.get_tools_from_dir("tools", env="STAGE")
+# t2 = tool.get_tools_from_mongo("STAGE")
+
+
+
+# tool = load_tool_from_dir("tools/style_transfer", env="STAGE")
+
+# all_tools = get_tools_from_dir("tools", env="STAGE")
+# print(all_tools)
+
+# print(all_tools["style_transfer"])
+
+
+# tool = load_tool(tool_dir)
+
+# api_file = os.path.join(tool_dir, 'api.yaml')
+# with open(api_file, 'r') as f:
+#     schema = yaml.safe_load(f)
+
+# import json
+# print(json.dumps(schema, indent=2))
+
+
+
+
+# from mongo import get_collection
+# collection = get_collection("tools2", env="STAGE")
+# collection.insert_one(schema)

@@ -1,14 +1,13 @@
 import os
+import copy
+from pydantic import BaseModel, Field, ConfigDict, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 from datetime import datetime
 from bson import ObjectId
-from pydantic import BaseModel, Field, ValidationError
-from pydantic.json_schema import SkipJsonSchema
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from dotenv import load_dotenv
-from eden_utils import deep_filter, deep_update
-load_dotenv()
+from abc import abstractmethod
+from typing import Annotated
+from base import generate_edit_model, recreate_base_model, VersionableBaseModel
 
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
@@ -21,244 +20,190 @@ db_names = {
     "ABRAHAM": MONGO_DB_NAME_ABRAHAM
 }
 
-mongo_client = MongoClient(MONGO_URI)
+# todo: this requires internet upon import
+# make it so only when imported it connects
+# mongo_client = MongoClient(MONGO_URI)
 
 def get_collection(collection_name: str, env: str):
     db_name = db_names[env]
+    mongo_client = MongoClient(MONGO_URI)
     return mongo_client[db_name][collection_name]
 
-class MongoBaseModel(BaseModel):
-    id: SkipJsonSchema[ObjectId] = Field(default_factory=ObjectId, alias="_id")
-    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-    updatedAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)    
-    collection: SkipJsonSchema[Collection] = Field(None, exclude=True)
 
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
-        protected_namespaces = ()
+def get_human_readable_error(error_list):
+    errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
+    error_str = "\n\t".join(errors)
+    error_str = f"Invalid args\n\t{error_str}"
+    return error_str
 
-    def __init__(self, collection_name: str, env: str, **data):
-        data["collection"] = get_collection(collection_name, env)
-        super().__init__(**data)
 
-    @staticmethod
-    def from_id(cls, document_id, collection_name, env):
-        document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
-        collection = get_collection(collection_name, env)
-        document = collection.find_one({"_id": document_id})
-        if not document:
-            raise Exception(f"Document {document_id} not found in {env} collection {collection_name}")
-        return cls(**document, collection=collection, env=env)
+class MongoModel(BaseModel):
+    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
+    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    updatedAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
 
-    def to_mongo(self, **kwargs):
-        by_alias = kwargs.pop("by_alias", True)
-        exclude = kwargs.pop("exclude", set())
-        data = self.model_dump(
-            by_alias=by_alias,
-            exclude=exclude,
-            **kwargs,
-        )
-        data["_id"] = self.id
-        data["createdAt"] = self.createdAt
-        data["updatedAt"] = self.updatedAt
-        return data
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @classmethod
+    @abstractmethod
+    def get_collection_name(cls) -> str:
+        pass
+
+    def validate(self, **kwargs):
+        try:
+            super().model_validate({
+                **self.model_dump(), 
+                **{"env": self.env},
+                **kwargs
+            })
+        except ValidationError as e:
+            raise ValueError(get_human_readable_error(e.errors()))
+
+    @classmethod
+    def load(cls, document_id: str, env: str):
+        collection = get_collection(cls.get_collection_name(), env)
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if document is None:
+            raise ValueError(f"Document with id {document_id} not found in collection {cls.get_collection_name()}, env: {env}")
+        document['env'] = env
+        return cls.model_validate(document)
 
     def reload(self): 
-        if self.collection is None:
-            raise Exception("Collection not set")
-
-        document = self.collection.find_one({"_id": self.id})
+        collection = get_collection(self.get_collection_name(), self.env)
+        document = collection.find_one({"_id": self.id})
         if not document:
-            raise Exception("Document not found")
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}, env: {self.env}")
         for key, value in document.items():
             setattr(self, key, value)
         return self
 
     def save(self, upsert_query=None):
-        if self.collection is None:
-            raise Exception("Collection not set")
+        print(" --> save", upsert_query)
+        self.validate()
 
-        self.model_validate(self)
-
-        data = self.to_mongo()
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        collection = get_collection(self.get_collection_name(), self.env)
+        
         document_id = data.get('_id')
-
-        # upsert query overrides ID if it exists
+        print(" --> save 111", document_id)
         if upsert_query:
-            document_id_ = self.collection.find_one(upsert_query, {"_id": 1})
+            print(" --> save 222", upsert_query)
+            document_id_ = collection.find_one(upsert_query, {"_id": 1})
+            print(" --> save 333", document_id_)
+            if document_id_:
+                print(" --> save 444")
+                document_id = document_id_["_id"]
+                print(" --> save 555", document_id)
+        else:
+            print(" --> save 222 none")
+            upsert_query = {"_id": document_id}
+
+        print(" --> save 666", document_id)
+        
+        if document_id:
+            print(" --> save docuyment", document_id)
+            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            print("SET THIS DATA")
+            print(data)
+            
+            collection.update_one(upsert_query, {'$set': data}, upsert=True)
+            print(data.keys())
+        else:
+            print(" --> save new doc", data)
+            collection.insert_one(data)
+
+        print(" --> save done")
+    
+    def update(self, **kwargs):
+        update_args = {}
+        for key, value in kwargs.items():
+            if hasattr(self, key) and getattr(self, key) != value:
+                update_args[key] = value
+        if not update_args:
+            return self
+        self.validate(**update_args)        
+        update_args['updatedAt'] = datetime.utcnow().replace(microsecond=0)        
+        result = get_collection(self.get_collection_name(), self.env).update_one(
+            {"_id": ObjectId(self.id)},
+            {"$set": update_args}
+        )        
+        if result.matched_count == 0:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
+        for key, value in update_args.items():
+            setattr(self, key, copy.deepcopy(value))
+        
+
+class VersionableMongoModel(VersionableBaseModel):
+    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
+    collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
+    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    updatedAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
+
+    def __init__(self, **data):
+        if 'instance' in data:
+            instance = data.pop('instance')
+            collection_name = data.pop('collection_name')
+            env = data.pop('env')
+            super().__init__(
+                schema=type(instance),
+                initial=instance,
+                current=instance,
+                collection_name=collection_name,
+                env=env,
+                **data
+            )
+        else:
+            super().__init__(**data)
+
+    @classmethod
+    def load(cls, document_id: str, collection_name: str, env: str):
+        collection = get_collection(collection_name, env)
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if document is None:
+            raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, env: {env}")
+        
+        schema = recreate_base_model(document['schema'])
+        initial = schema(**document['initial'])
+        current = schema(**document['current'])
+        
+        edits = [generate_edit_model(schema)(**edit) for edit in document['edits']]
+        
+        versionable_data = {
+            "id": document['_id'],
+            "collection_name": collection_name, 
+            "env": env,
+            "createdAt": document['createdAt'],
+            "updatedAt": document['updatedAt'],
+            "schema": schema,
+            "initial": initial,
+            "current": current,
+            "edits": edits
+        }
+        
+        return cls(**versionable_data)
+
+    def save(self, upsert_query=None):
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        collection = get_collection(self.collection_name, self.env)
+
+        document_id = data.get('_id')
+        if upsert_query:
+            document_id_ = collection.find_one(upsert_query, {"_id": 1})
             if document_id_:
                 document_id = document_id_["_id"]
-            # data["_id"] = ObjectId(document_id)
 
         if document_id:
-            data["updatedAt"] = datetime.utcnow()
-            self.collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
+            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
-            return self.collection.insert_one(data)
-
-    def update(self, update_args):
-        if self.collection is None:
-            raise Exception("Collection not set")
-
-        self.model_validate({**self.to_mongo(), **update_args, "env": "STAGE"})
-
-        if not self.collection.find_one({"_id": self.id}):
-            self.save()
-
-        update_args["updatedAt"] = datetime.utcnow()
-
-        return self.collection.update_one({'_id': self.id}, {'$set': update_args})
-
-
-
-
-
-
-
-
-"""
-Everything below this is experimental
-"""
-
-
-
-class VersionedMongoBaseModel(MongoBaseModel):
-    current: dict = Field(default_factory=dict)
-    versions: list[dict] = Field(default_factory=list)
-
-    # def __init__(self, collection_name, env, **data):
-    #     super().__init__(collection_name=collection_name, env=env)
-    #     self.update(data)
-
-    def update_current(self, changes):
-        if self.collection is None:
-            raise Exception("Collection not set")
-
-        changes = deep_filter(self.current, changes)
-        if not changes:
-            return
-
-        # print("===========")
-        # print("self.current", self.current.copy())
-        # print("changes", changes)
-        
-        next = deep_update(self.current.copy(), changes)
-        # print("next", next)
-        # print("===========")
-        
-        self.validate_data(next)
-        self.current = next
-
-        update_operation = {
-            "$set": {
-                "current": self.current,
-                "updatedAt": datetime.utcnow()
-            },
-            "$push": {
-                "versions": {
-                    "data": changes,
-                    "timestamp": datetime.utcnow()
-                }
-            }
-        }
-        # print("update_operation", update_operation)
-        # print(self.id)
-        # print(self.collection)
-        
-        
-        if not self.collection.find_one({"_id": self.id}):
-            self.save()
-
-        self.collection.update_one(
-            {"_id": self.id},
-            update_operation
-        )
-
-    def reconstruct_version(self, target_time):
-        reconstructed = {}
-        for version in self.versions:
-            if version["timestamp"] <= target_time:
-                reconstructed.update(version["data"])
-            else:
-                break        
-        return reconstructed
-
-
-
-class VersionedMongoBaseModel2(MongoBaseModel):
-    current: dict = Field(default_factory=dict)
-    versions: list[dict] = Field(default_factory=list)
-
-    # def __init__(self, collection_name, env, **data):
-    #     super().__init__(collection_name=collection_name, env=env)
-    #     self.update(data)
-
-    def update_current(self, changes):
-        if self.collection is None:
-            raise Exception("Collection not set")
-
-        changes = deep_filter(self.current, changes)
-        if not changes:
-            return
-
-        # print("===========")
-        # print("self.current", self.current.copy())
-        # print("changes", changes)
-        
-        next = deep_update(self.current.copy(), changes)
-        # print("next", next)
-        # print("===========")
-        
-        self.validate_data(next)
-        self.current = next
-
-        update_operation = {
-            "$set": {
-                "current": self.current,
-                "updatedAt": datetime.utcnow()
-            },
-            "$push": {
-                "versions": {
-                    "data": changes,
-                    "timestamp": datetime.utcnow()
-                }
-            }
-        }
-        # print("update_operation", update_operation)
-        # print(self.id)
-        # print(self.collection)
-        
-        
-        if not self.collection.find_one({"_id": self.id}):
-            self.save()
-
-        self.collection.update_one(
-            {"_id": self.id},
-            update_operation
-        )
-
-    def reconstruct_version(self, target_time):
-        reconstructed = {}
-        for version in self.versions:
-            if version["timestamp"] <= target_time:
-                reconstructed.update(version["data"])
-            else:
-                break        
-        return reconstructed
-    
-
-
-"""
-from models import Story
-story = Story.from_id("66de2dfa5286b9dc656291c1", env="STAGE")
-print(story.current)
-story.update({"screenplay": {"scenes": "test"}})
-
-import json
-from tool import load_tool
-t = load_tool("tools/write")
-print(json.dumps(t.openai_tool_schema(), indent=2))
-
-"""
+            collection.insert_one(data)

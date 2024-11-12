@@ -1,834 +1,457 @@
-import re
 import os
+import re
+import copy
+import click
 import yaml
 import json
 import random
 import asyncio
-import modal
-from enum import Enum
-from datetime import datetime
-from typing import Any, Tuple, Dict, List, Optional, Type, Literal
-from pydantic import BaseModel, Field, ValidationError, create_model
-from pydantic.json_schema import SkipJsonSchema
-from instructor.function_calls import openai_schema
-
-from models import Task, Model, User
-from models import Story3 as Story
 import eden_utils
-import s3
-import gcp
+from pprint import pprint
+from pydantic import BaseModel, Field, create_model, ValidationError
+from typing import Optional, List, Dict, Any, Type, Literal
+import datetime
+
+import eden_utils
+from base import parse_schema
+from models import Task, User
+from mongo import MongoModel, get_collection
 
 
-env = os.getenv("ENV", "STAGE")
-
-TYPE_MAPPING = {
-    "bool": bool, "string": str, "int": int, "float": float, 
-    "image": str, "video": str, "audio": str, "zip": str, "lora": str, 
-    "image|video": str,
-    "dict": dict,
-    "message": str,
-}
-
-class ParameterType(str, Enum):
-    BOOL = "bool"
-    INT = "int"
-    FLOAT = "float"
-    STRING = "string"
-    IMAGE = "image"
-    VIDEO = "video"
-    IMAGE_VIDEO = "image|video"
-    AUDIO = "audio"
-    ZIP = "zip"
-    LORA = "lora"
-    BOOL_ARRAY = "bool[]"
-    INT_ARRAY = "int[]"
-    FLOAT_ARRAY = "float[]"
-    STRING_ARRAY = "string[]"
-    IMAGE_ARRAY = "image[]"
-    VIDEO_ARRAY = "video[]"
-    IMAGE_VIDEO_ARRAY = "image|video[]"
-    AUDIO_ARRAY = "audio[]"
-    ZIP_ARRAY = "zip[]"
-    LORA_ARRAY = "lora[]"
-    DICT = "dict"
-    MESSAGE = "message"
-
-FILE_TYPES = [
-    ParameterType.IMAGE, ParameterType.VIDEO, ParameterType.AUDIO
-]
-
-FILE_ARRAY_TYPES = [
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO, ParameterType.AUDIO_ARRAY
-]
-
-ARRAY_TYPES = [
-    ParameterType.BOOL_ARRAY, ParameterType.INT_ARRAY, ParameterType.FLOAT_ARRAY, ParameterType.STRING_ARRAY, 
-    ParameterType.IMAGE_ARRAY, ParameterType.VIDEO_ARRAY, ParameterType.IMAGE_VIDEO_ARRAY, ParameterType.AUDIO_ARRAY, ParameterType.LORA_ARRAY, ParameterType.ZIP_ARRAY
-]
-
-
-class ToolParameter(BaseModel):
-    name: str
-    label: str
-    description: str = Field(None, description="Human-readable description of what parameter does")
-    tip: str = Field(None, description="Additional tips for a user or LLM on how to use this parameter properly")
-    type: ParameterType
-    keys: Optional[List[Dict[str, Any]]] = Field(None, description="Keys for dict type")
-    required: bool = Field(False, description="Indicates if the field is mandatory")
-    visible_if: str = Field(None, description="Condition under which parameter is visible to UI")
-    hide_from_agent: bool = Field(False, description="Hide from agent/assistant")
-    hide_from_ui: bool = Field(False, description="Hide from UI")
-    default: Optional[Any] = Field(None, description="Default value")
-    minimum: Optional[float] = Field(None, description="Minimum value for int or float type")
-    maximum: Optional[float] = Field(None, description="Maximum value for int or float type")
-    step: Optional[float] = Field(None, description="Step size for number ranges")
-    min_length: Optional[int] = Field(None, description="Minimum length for array type")
-    max_length: Optional[int] = Field(None, description="Maximum length for array type")
-    choices: Optional[List[Any]] = Field(None, description="Allowed values")
-    choice_labels: Optional[List[Any]] = Field(None, description="Labels for choices")
-
-
+# class Tool(MongoModel):
 class Tool(BaseModel):
+    """
+    Base class for all tools.
+    """
+
     key: str
     name: str
-    description: str = Field(..., description="Human-readable description of what the tool does")
-    tip: Optional[str] = Field(None, description="Additional tips for a user or LLM on how to get what they want out of this tool")
-    cost_estimate: str = Field(None, description="A formula which estimates the inference cost as a function of the parameters")
-    output_type: ParameterType = Field(None, description="Output type from the tool")
-    resolutions: Optional[List[str]] = Field(None, description="List of allowed resolution labels")
-    gpu: SkipJsonSchema[Optional[str]] = Field("A100", description="Which GPU to use for this tool", exclude=True)
-    test_args: SkipJsonSchema[Optional[dict]] = Field({}, description="Test args", exclude=True)
-    private: SkipJsonSchema[bool] = Field(False, description="Tool is private from API")
-    handler: SkipJsonSchema[str] = Field(False, description="Which type of tool", exclude=True)
-    parameters: List[ToolParameter]
+    description: str
+    tip: Optional[str] = None
+    cost_estimate: str
+    output_type: Literal["bool", "str", "int", "float", "string", "image", "video", "audio", "lora"]
+    resolutions: Optional[List[str]] = None
+    base_model: Optional[str] = "sdxl"
+    gpu: Optional[str] = None    
+    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    allowlist: Optional[str] = None
+    visible: Optional[bool] = True
+    test_args: Dict[str, Any]
+    handler: Literal["local", "modal", "comfyui", "replicate", "gcp"] = "local"
+    # base_model: Type[BaseModel] = Field(None, exclude=True)
+    base_model: Type[BaseModel] = None
 
-    def __init__(self, data, key):
-        super().__init__(**data, key=key)
 
-    def get_base_model(self, **kwargs):
-        base_model = create_tool_base_model(self)
-        return base_model(**kwargs)
-    
-    def summary(self, include_params=True, include_requirements=False):
-        summary = f'"{self.key}" :: {self.name} - '
-        summary += eden_utils.concat_sentences(self.description, self.tip)
-        if include_requirements:
-            required_params = [f"{p.label} ({p.type})" for p in self.parameters if p.required]
-            if required_params:
-                summary += f" Required inputs: {', '.join(required_params)}."
-        if include_params:
-            summary += f'\n\n{self.parameters_summary()}'
-        return summary
+    # do somethig about base_model BaseModel and "sdxl"
 
-    def parameters_summary(self):
-        summary = "Parameters\n---"
-        for param in self.parameters:
-            summary += f"\n{param.name}: {param.label}, "
-            summary += eden_utils.concat_sentences(param.description, param.tip)
-            requirements = ["Type: " + param.type.name]
-            if not param.default:
-                requirements.append("Field required")
-            if param.choices:
-                requirements.append("Allowed choices: " + ", ".join(param.choices))
-            if param.minimum or param.maximum:
-                requirements.append(f"Range: {param.minimum} to {param.maximum}")
-            if param.min_length or param.max_length:
-                requirements.append(f"Allowed length: {param.min_length} to {param.max_length}")
-            requirements_str = "; ".join(requirements)
-            summary += f" ({requirements_str})"
-        return summary
+    parent_tool: Optional[str] = None
+    parameter_presets: Optional[Dict[str, Any]] = None
 
-    def get_interface(self, include_params=True):
-        data = {
-            "key": self.key,
-            "name": self.name,
-            "description": self.description,
-            "outputType": self.output_type,
-            "resolutions": self.resolutions,
-            "costEstimate": self.cost_estimate,
-            "private": self.private
-        } 
-        if hasattr(self, "base_model"):
-            data["baseModel"] = self.base_model
-        if include_params:
-            data["tip"] = self.tip
-            data["parameters"] = [p.model_dump(exclude="comfyui") for p in self.parameters]
-        return data
+    # @classmethod
+    # def get_collection_name(cls) -> str:
+    #     return "tools2"
 
-    def anthropic_tool_schema(self, remove_hidden_fields=False, include_tips=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
-        schema = openai_schema(tool_model).anthropic_schema
-        schema["input_schema"].pop("description")  # duplicated
-        schema = self.expand_schema_for_dicts(schema, provider="anthropic")
-        return schema
+    @classmethod
+    def load_from_dir(cls, tool_dir: str, **kwargs):
+        """Load the tool class from a directory api.yaml and test.json"""
 
-    def openai_tool_schema(self, remove_hidden_fields=False, include_tips=False):
-        tool_model = create_tool_base_model(self, remove_hidden_fields=remove_hidden_fields, include_tips=include_tips)
-        schema = openai_schema(tool_model).openai_schema
-        schema = self.expand_schema_for_dicts(schema, provider="openai")
-        return {
-            "type": "function",
-            "function": schema
-        }
+        key = tool_dir.split('/')[-1]
+        schema, test_args = cls._get_schema_from_dir(tool_dir)
+        tool_class = _get_tool_class(schema.get('handler'))
 
-    def expand_schema_for_dicts(self, schema, provider=Literal["openai", "anthropic"]):
-        for param in self.parameters:
-            if param.type == ParameterType.DICT:
-                sub_schema = {
-                    "type": "object",
-                    "properties": {}
-                }
-                for key in param.keys:
-                    is_list = key['type'].endswith('[]')
-                    field_type = key['type'].rstrip('[]')
-                    is_dict = field_type == "dict"
-                    if is_list:
-                        sub_schema["properties"][key['name']] = {
-                            "type": "array",
-                            "items": {
-                                "type": field_type
-                            },
-                            "minItems": 1,
-                            "title": key['name'],
-                            "description": key['description']
-                        }
-                    else:
-                        sub_schema["properties"][key['name']] = {
-                            "type": key['type'],
-                            "title": key['name'],
-                            "description": key['description']
-                        }
-                if provider == "anthropic" and schema['input_schema']['properties'].get(param.name):
-                    schema['input_schema']['properties'][param.name] = sub_schema
-                elif provider == "openai" and schema['parameters']['properties'].get(param.name):
-                    schema['parameters']['properties'][param.name] = sub_schema
-        return schema
+        return tool_class._create_tool(key, schema, test_args, **kwargs)
 
-    def prepare_args(self, user_args):
-        args = {}
-        for param in self.parameters:
-            key = param.name
-            value = None
-            if param.default is not None:
-                value = param.default
-            if user_args.get(key) is not None:
-                value = user_args[key]
-            if value == "random":
-                value = random.randint(param.minimum, param.maximum)
-            args[key] = value
+    @classmethod
+    def load(cls, key: str, env: str, prefer_local: bool = True, **kwargs):
+        """Load the tool class based on the handler in api.yaml"""
+        
+        tools = get_collection("tools2", env=env)
+        schema = tools.find_one({"key": key})
+        key = schema.pop('key')
+        test_args = schema.pop('test_args')
 
-        unrecognized_args = set(user_args.keys()) - {param.name for param in self.parameters}
-        if unrecognized_args:
-            raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
+        return tool_class._create_tool(key, schema, test_args, **kwargs)    
 
-        try:
-            create_tool_base_model(self)(**args, include_tips=True)  # validate args
-        except ValidationError as e:
-            error_str = get_human_readable_error(e.errors())
-            raise ValueError(error_str)
+    @classmethod
+    def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
+        """Create a new tool instance from a schema"""
 
-        return args
+        fields = parse_schema(schema)
+        base_model = create_model(key, **fields)
+        base_model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
 
-    def get_user_result(self, result):
-        print("666", "get user result")
-        print(type(result))
-        print(result)
-        # if isinstance(result, str) or isinstance(result, list):
-            # return result
-        for r in result:
-            if "filename" in r:
-                filename = r.pop("filename")
-                r["url"] = f"{s3.get_root_url(env=env)}/{filename}"
-            if "model" in r:
-                r["model"] = str(r["model"])
-                r.pop("metadata")  # don't need to return model metadata here
-        return result
-    
-    def handle_run(run_function):
-        async def wrapper(self, args: Dict, *args_, **kwargs):
-            args = self.prepare_args(args)
-            result = await run_function(self, args, *args_, **kwargs)
-            return self.get_user_result(result)
-        return wrapper
+        tool_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
+        tool_data['test_args'] = test_args
+        tool_data['base_model'] = base_model
+        if 'cost_estimate' in tool_data:
+            tool_data['cost_estimate'] = str(tool_data['cost_estimate'])
+
+        return cls(key=key, **tool_data, **kwargs)
+
+    @classmethod
+    def _get_schema_from_dir(cls, tool_dir: str, **kwargs):
+        api_file = os.path.join(tool_dir, 'api.yaml')
+        test_file = os.path.join(tool_dir, 'test.json')
+
+        with open(api_file, 'r') as f:
+            schema = yaml.safe_load(f)
+                
+        with open(test_file, 'r') as f:
+            test_args = json.load(f)
+
+        if schema.get("handler") == "comfyui":
+            schema["workspace"] = tool_dir.split('/')[-3]
+
+        parent_tool = schema.get("parent_tool")
+        
+        if parent_tool:
+            tool_dirs = get_tool_dirs()
+            if schema["parent_tool"] not in tool_dirs:
+                raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")            
+            parent_dir = tool_dirs[schema["parent_tool"]]
+            parent_api_file = os.path.join(parent_dir, 'api.yaml')
+            with open(parent_api_file, 'r') as f:
+                parent_schema = yaml.safe_load(f)
+
+            if parent_schema.get("handler") == "comfyui":
+                parent_schema["workspace"] = parent_dir.split('/')[-3]
+
+            parent_schema["parameter_presets"] = schema.pop("parameters", {})
+            parent_parameters = parent_schema.pop("parameters", {})
+            for k, v in parent_schema["parameter_presets"].items():
+                parent_parameters[k].update(v)
+            
+            parent_schema.update(schema)
+            parent_schema['parameters'] = parent_parameters
+            schema = parent_schema
+        
+        return schema, test_args
 
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', self.cost_estimate) # js to py
+        cost_formula = self.cost_estimate
+        cost_formula = re.sub(r'(\w+)\.length', r'len(\1)', cost_formula)  # Array length
+        cost_formula = re.sub(r'(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)', r'\2 if \1 else \3', cost_formula)  # Ternary operator
+        
         cost_estimate = eval(cost_formula, args)
         assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
         return cost_estimate
 
-    def handle_submit(submit_function):
-        async def wrapper(self, task: Task, *args, **kwargs):
-            user = User.from_id(task.user, env=env)
-            task.args = self.prepare_args(task.args)
-            task.cost = self.calculate_cost(task.args.copy())
-            user.verify_manna_balance(task.cost)
-            task.status = "pending"
-            task.save()
-            handler_id = await submit_function(self, task, *args, **kwargs)
-            task.update({"handler_id": handler_id})
-            user.spend_manna(task.cost)
-            return handler_id
+    def prepare_args(self, args: dict):
+        unrecognized_args = set(args.keys()) - set(self.base_model.model_fields.keys())
+        if unrecognized_args:
+            raise ValueError(f"Unrecognized arguments provided: {', '.join(unrecognized_args)}")
+
+        prepared_args = {}
+        for field, field_info in self.base_model.model_fields.items():
+            if field in args:
+                prepared_args[field] = args[field]
+            elif field_info.default is not None:
+                if field_info.default == "random":
+                    minimum, maximum = field_info.metadata[0].ge, field_info.metadata[1].le
+                    prepared_args[field] = random.randint(minimum, maximum)
+                else:
+                    prepared_args[field] = field_info.default
+            else:
+                prepared_args[field] = None
+        
+        try:
+            self.base_model(**prepared_args)
+        except ValidationError as e:
+            error_str = eden_utils.get_human_readable_error(e.errors())
+            raise ValueError(error_str)
+
+        return prepared_args
+
+    def handle_run(run_function):
+        async def wrapper(self, args: Dict, env: str):
+            try:
+                args = self.prepare_args(args)
+                result = await run_function(self, args, env)
+            except Exception as e:
+                result = {"error": str(e)}
+            return eden_utils.prepare_result(result, env)
         return wrapper
 
+    def handle_start_task(start_task_function):
+        async def wrapper(self, user_id: str, args: Dict, env: str):
+            # validate args and user manna balance
+            args = self.prepare_args(args)
+            cost = self.calculate_cost(args.copy())
+            user = User.load(user_id, env=env)
+            user.verify_manna_balance(cost)            
+            
+            # create task and set to pending
+            task = Task(
+                env=env, 
+                workflow=self.key, 
+                output_type=self.output_type, 
+                args=args, 
+                user=user_id, 
+                cost=cost
+            )
+            task.save()            
+            
+            try:
+                # run task and spend manna
+                handler_id = await start_task_function(self, task)
+                task.update(handler_id=handler_id)
+                user.spend_manna(task.cost)            
+            except Exception as e:
+                task.update(status="failed", error=str(e))
+                raise Exception(f"Task failed: {e}. No manna deducted.")
+            
+            return task
+
+        return wrapper
+    
+    def handle_wait(wait_function):
+        async def wrapper(self, task: Task):
+            if not task.handler_id:
+                task.reload()
+            try:
+                result = await wait_function(self, task)
+            except Exception as e:
+                result = {"status": "failed", "error": str(e)}
+            return eden_utils.prepare_result(result, task.env)
+        return wrapper
+    
     def handle_cancel(cancel_function):
         async def wrapper(self, task: Task):
             await cancel_function(self, task)
             n_samples = task.args.get("n_samples", 1)
-            refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
-            user = User.from_id(task.user, env=env)
+            refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
+            user = User.from_id(task.user, env=task.env)
             user.refund_manna(refund_amount)
-            task.status = "cancelled"
-            task.save()
+            task.update(status="cancelled")
         return wrapper
 
-    async def async_submit_and_run(self, task: Task):
-        await self.async_submit(task)
-        result = await self.async_process(task)
-        return result 
+    @property
+    def async_run(self):
+        raise NotImplementedError("Subclasses must implement async_run")
 
-    def run(self, args: Dict):
-        return asyncio.run(self.async_run(args))
+    @property 
+    def async_start_task(self):
+        raise NotImplementedError("Subclasses must implement async_start_task")
 
-    def submit(self, task: Task):
-        return asyncio.run(self.async_submit(task))
+    @property
+    def async_wait(self):
+        raise NotImplementedError("Subclasses must implement async_wait")
 
-    def submit_and_run(self, task: Task):
-        return asyncio.run(self.async_submit_and_run(task))
-    
+    @property
+    def async_cancel(self):
+        raise NotImplementedError("Subclasses must implement async_cancel")
+
+    def run(self, args: Dict, env: str):
+        return asyncio.run(self.async_run(args, env))
+
+    def start_task(self, task: Task):
+        return asyncio.run(self.async_start_task(task))
+
+    def wait(self, task: Task):
+        return asyncio.run(self.async_wait(task))
+
     def cancel(self, task: Task):
         return asyncio.run(self.async_cancel(task))
-
-
-class MongoTool(Tool):
-    object_type: str
-
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        object_types = {"Story": Story}
-        document_id = args.pop("id")
-        if document_id:
-            document = object_types[self.object_type].from_id(document_id, env=env)
-        else:
-            document = object_types[self.object_type](env=env)
-        args = {k: v for k, v in args.items() if v is not None}
-        document.update_current(args)
-        result = {"document_id": str(document.id)}
-        return result
-
-    @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        args = task.args
-        return "ok"
     
-    async def async_process(self, task: Task):
-        # if not task.handler_id:
-        #     task.reload()
-        # fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        # await fc.get.aio()
-        # task.reload()
-        return "ok"
-        #return self.get_user_result(task.result)
 
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        #fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        #await fc.cancel.aio()
-        pass
+def save_tool_from_dir(tool_dir: str, env: str) -> Tool:
+    """Upload tool from directory to mongo"""
 
-
-class ModalTool(Tool):
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        func = modal.Function.lookup("handlers", "run")
-        result = await func.remote.aio(self.key, args)
-        return result
-
-    @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        func = modal.Function.lookup("handlers", "submit")
-        job = func.spawn(str(task.id), env=env)
-        return job.object_id
+    schema, test_args = Tool._get_schema_from_dir(tool_dir)
+    schema['key'] = tool_dir.split('/')[-1]
+    schema['test_args'] = test_args
     
-    async def async_process(self, task: Task):
-        if not task.handler_id:
-            task.reload()
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.get.aio()
-        task.reload()
-        return self.get_user_result(task.result)
-
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.cancel.aio()
+    tools = get_collection("tools2", env=env)
+    tool = tools.find_one({"key": schema['key']})
+    
+    time = datetime.datetime.utcnow()
+    schema['createdAt'] = tool.get('createdAt', time) if tool else time
+    schema['updatedAt'] = time
+    
+    tools.replace_one({"key": schema['key']}, schema, upsert=True)
 
 
-
-class ComfyUIParameterMap(BaseModel):
-    input: str
-    output: str
-
-class ComfyUIRemap(BaseModel):
-    node_id: int
-    field: str
-    subfield: str
-    value: List[ComfyUIParameterMap]
-
-class ComfyUIInfo(BaseModel):
-    node_id: int
-    field: str
-    subfield: str
-    preprocessing: Optional[str] = None
-    remap: Optional[List[ComfyUIRemap]] = None
-
-class ComfyUIParameter(ToolParameter):
-    comfyui: Optional[ComfyUIInfo] = Field(None)
-
-class ComfyUIIntermediateOutput(BaseModel):
-    name: str
-    node_id: int
-
-class ComfyUITool(Tool):
-    base_model: Optional[str] = Field("sdxl", description="Base model to use for ComfyUI", choices=["sdxl", "flux-dev"])
-    parameters: List[ComfyUIParameter]
-    comfyui_output_node_id: Optional[int] = Field(None, description="ComfyUI node ID of output media")
-    comfyui_intermediate_outputs: Optional[List[ComfyUIIntermediateOutput]] = Field(None, description="Intermediate outputs from ComfyUI")
-    env: str
-
-    def __init__(self, data, key):
-        super().__init__(data, key)
-
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        result = await cls().run.remote.aio(self.key, args)
-        return self.get_user_result(result)
+# def save_tools(tools: List[str] = None, env: str = "STAGE") -> Dict[str, Tool]:
+#     """Get all tools inside a directory and upload to mongo"""
+    
+#     tool_dirs = get_tool_dirs()
+    
+#     for key, tool_dir in tool_dirs.items():
+#         if tools and key not in tools:
+#             continue
+#         save_tool_from_dir(tool_dir, env=env)
         
-    @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        cls = modal.Cls.lookup(f"comfyui-{self.env}", "ComfyUI")
-        job = await cls().run_task.spawn.aio(str(task.id), env=env)
-        return job.object_id
+#     return tools
+
+
+def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools inside a directory"""
     
-    async def async_process(self, task: Task):
-        if not task.handler_id:
-            task.reload()
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.get.aio()
-        task.reload()
-        return self.get_user_result(task.result)
-
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.cancel.aio()
-
-
-class ReplicateParameter(ToolParameter):
-    alias: Optional[str] = None
-
-class ReplicateTool(Tool):
-    model: str
-    version: Optional[str] = Field(None, description="Replicate version to use")
-    output_handler: str = "normal"
-    parameters: List[ReplicateParameter]
-
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        import replicate
-        args = self._format_args_for_replicate(args)
-        if self.version:
-            prediction = self._create_prediction(args, webhook=False)        
-            prediction.wait()
-            if self.output_handler == "eden":
-                output = [prediction.output[-1]["files"][0]]
-            elif self.output_handler == "trainer":
-                output = [prediction.output[-1]["thumbnails"][0]]
-            else:
-                output = prediction.output if isinstance(prediction.output, list) else [prediction.output]
-                output = [url for url in output]
-        else:
-            output = replicate.run(self.model, input=args)
-        result = eden_utils.upload_media(output, env=env)
-        return result
-
-    @Tool.handle_submit
-    async def async_submit(self, task: Task, webhook: bool = True):
-        import replicate
-
-        
-        args = self._format_args_for_replicate(task.args)
-        if self.version:
-            prediction = self._create_prediction(args, webhook=webhook)
-            return prediction.id
-        else:
-            # Replicate doesn't support spawning tasks for models without a version so just run it immediately
-            output = replicate.run(self.model, input=task.args)
-            replicate_update_task(task, "succeeded", None, output, "normal")
-            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up Replicate id
-            return handler_id
-
-    async def async_process(self, task: Task):
-        import replicate
-
-        if not task.handler_id:
-            task.reload()
-
-        if self.version is None:
-            return self.get_user_result(task.result)        
-        else:
-            prediction = await replicate.predictions.async_get(task.handler_id)
-            status = "starting"
-            while True: 
-                if prediction.status != status:
-                    status = prediction.status
-                    result = replicate_update_task(
-                        task,
-                        status, 
-                        prediction.error, 
-                        prediction.output, 
-                        self.output_handler
-                    )
-                    if result["status"] in ["failed", "cancelled", "completed"]:
-                        return self.get_user_result(result["result"])
-                await asyncio.sleep(0.5)
-                prediction.reload()
-
-    async def async_submit_and_run(self, task: Task):
-        await self.async_submit(task, webhook=False)
-        result = await self.async_process(task)
-        return result
-
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        import replicate
-        try:
-            prediction = replicate.predictions.get(task.handler_id)
-            prediction.cancel()
-        except Exception as e:
-            print("Replicate cancel error, probably task is timed out or already finished", e)
-
-    def _format_args_for_replicate(self, args):
-        new_args = args.copy()
-        new_args = {k: v for k, v in new_args.items() if v is not None}
-        for param in self.parameters:
-            if param.type in ARRAY_TYPES:
-                new_args[param.name] = "|".join([str(p) for p in args[param.name]])
-            if param.alias:
-                new_args[param.alias] = new_args.pop(param.name)
-        return new_args
-
-    def _get_webhook_url(self):
-        env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
-        dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
-        webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
-        return webhook_url
-    
-    def _create_prediction(self, args: dict, webhook=True):
-        import replicate
-        user, model = self.model.split('/', 1)
-        webhook_url = self._get_webhook_url() if webhook else None
-        webhook_events_filter = ["start", "completed"] if webhook else None
-
-        if self.version == "deployment":
-            deployment = replicate.deployments.get(f"{user}/{model}")
-            prediction = deployment.predictions.create(
-                input=args,
-                webhook=webhook_url,
-                webhook_events_filter=webhook_events_filter
-            )
-        else:
-            model = replicate.models.get(f"{user}/{model}")
-            version = model.versions.get(self.version)
-            prediction = replicate.predictions.create(
-                version=version,
-                input=args,
-                webhook=webhook_url,
-                webhook_events_filter=webhook_events_filter
-            )
-        return prediction
-
-
-def replicate_update_task(task: Task, status, error, output, output_handler):
-    if status == "failed":
-        task.status = "error"
-        task.error = error
-        task.save()
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
-        user = User.from_id(task.user, env=env)
-        user.refund_manna(refund_amount)
-        return {"status": "failed", "error": error}
-    
-    elif status == "canceled":
-        task.status = "cancelled"
-        task.save()
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result)) / n_samples
-        user = User.from_id(task.user, env=env)
-        user.refund_manna(refund_amount)
-        return {"status": "cancelled"}
-    
-    elif status == "processing":
-        task.performance["waitTime"] = (datetime.utcnow() - task.createdAt).total_seconds()
-        task.status = "running"
-        task.save()
-        return {"status": "running"}
-    
-    elif status == "succeeded":
-        if output_handler == "normal":
-            output = output if isinstance(output, list) else [output]
-            result = eden_utils.upload_media(output, env=env)
-        
-        elif output_handler in ["trainer", "eden"]:
-            result = replicate_process_eden(output)
-
-            if output_handler == "trainer":
-                filename = result[0]["filename"]
-                thumbnail = result[0]["thumbnail"]
-                url = f"{s3.get_root_url(env=env)}/{filename}"
-                model = Model(
-                    name=task.args["name"],
-                    user=task.user,
-                    args=task.args,
-                    task=task.id,
-                    checkpoint=url, 
-                    base_model="sdxl",
-                    thumbnail=thumbnail,
-                    env=env
-                )
-                # model.save()
-                model.save({"task": task.id})
-                result[0]["model"] = model.id
-        
-        run_time = (datetime.utcnow() - task.createdAt).total_seconds()
-        if task.performance.get("waitTime"):
-            run_time -= task.performance["waitTime"]
-        task.performance["runTime"] = run_time
-        
-        task.status = "completed"
-        task.result = result
-        task.save()
-
-        return {
-            "status": "completed", 
-            "result": result
-        }
-
-
-def replicate_process_eden(output):
-    output = output[-1]
-    if not output or "files" not in output:
-        raise Exception("No output found")         
-
-    results = []
-    
-    for file, thumb in zip(output["files"], output["thumbnails"]):
-        file_url, _ = s3.upload_file_from_url(file, env=env)
-        filename = file_url.split("/")[-1]
-        metadata = output.get("attributes")
-        media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
-
-        result = {
-            "filename": filename,
-            "metadata": metadata,
-            "mediaAttributes": media_attributes
-        }
-
-        thumbnail = thumbnail or thumb or None
-        if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
-            result["thumbnail"] = thumbnail_url
-
-        results.append(result)
-
-    return results
-    
-
-def create_tool_base_model(tool: Tool, remove_hidden_fields=False, include_tips=False):
-    fields = {
-        param.name: get_field_type_and_kwargs(param, remove_hidden_fields=remove_hidden_fields, include_tip=include_tips)
-        for param in tool.parameters
-    }
-    ToolBaseModel = create_model(tool.key, **fields)
-    ToolBaseModel.__doc__ = eden_utils.concat_sentences(tool.description, tool.tip)
-    return ToolBaseModel
-
-
-def get_field_type_and_kwargs(
-    param: ToolParameter,
-    remove_hidden_fields: bool = False,
-    include_tip: bool = False
-) -> Tuple[Type, Dict[str, Any]]:
-    field_kwargs = {
-        'description': eden_utils.concat_sentences(param.description, param.tip) \
-            if include_tip else param.description
+    tool_dirs = get_tool_dirs(root_dir)
+    tools = {
+        key: Tool.load_from_dir(tool_dir, include_inactive=include_inactive) 
+        for key, tool_dir in tool_dirs.items()
     }
 
-    is_list = param.type.endswith('[]')
-    field_type = TYPE_MAPPING[param.type.rstrip('[]')]
-    
-    if is_list:
-        field_type = List[field_type]
-        if param.min_length is not None:
-            field_kwargs['min_items'] = param.min_length
-        if param.max_length is not None:
-            field_kwargs['max_items'] = param.max_length
-
-    default = param.default
-    if default == 'random':
-        assert not param.minimum or not param.maximum, \
-            "If default is random, minimum and maximum must be specified"
-        field_kwargs['default_factory'] = lambda min_val=param.minimum, max_val=param.maximum: random.randint(min_val, max_val)
-    elif default is not None:
-        field_kwargs['default_factory'] = lambda: default
-    else:
-        if param.required:
-            field_kwargs['default'] = ...
-        else:
-            field_type = Optional[field_type]
-            field_kwargs['default'] = None
-
-    if param.minimum is not None:
-        field_kwargs['ge'] = param.minimum
-    if param.maximum is not None:
-        field_kwargs['le'] = param.maximum
-    if param.choices is not None:
-        field_kwargs['choices'] = param.choices
-        field_type = Literal[*param.choices]
-
-    if remove_hidden_fields and param.hide_from_agent:
-        field_type = SkipJsonSchema[field_type]
-    
-    return (field_type, Field(**field_kwargs))
-
-
-def load_tool(tool_path: str, name: str = None) -> Tool:
-    api_path = f"{tool_path}/api.yaml"
-    if not os.path.exists(api_path):
-        raise ValueError(f"Tool {name} not found at {api_path}")
-    if name is None:
-        name = os.path.relpath(tool_path, start=os.path.dirname(tool_path))
-    try:
-        data = yaml.safe_load(open(api_path, "r"))
-        data['cost_estimate'] = str(data['cost_estimate'])
-    except yaml.YAMLError as e:
-        raise ValueError(f"Error loading {api_path}: {e}")
-    if data['handler'] == 'comfyui':
-        data["env"] = tool_path.split("/")[-3]
-        tool = ComfyUITool(data, key=name) 
-    elif data['handler'] == 'mongo':
-        tool = MongoTool(data, key=name)
-    elif data['handler'] == 'replicate':
-        tool = ReplicateTool(data, key=name)
-    elif data['handler'] == 'gcp':
-        tool = GCPTool(data, key=name)
-    else:
-        tool = ModalTool(data, key=name)
-    tool.test_args = json.loads(open(f"{tool_path}/test.json", "r").read())
-    return tool
-
-
-def get_tools(tools_folder: str):
-    required_files = {'api.yaml', 'test.json'}
-    tools = {}
-    for root, dirs, files in os.walk(tools_folder):
-        name = os.path.relpath(root, start=tools_folder)
-        if "." in name or not required_files <= set(files):
-            continue
-        tools[name] = load_tool(os.path.join(tools_folder, name), name)
     return tools
 
 
-def get_comfyui_tools(envs_dir: str):
-    return {
-        k: v for env in os.listdir(envs_dir) 
-        for k, v in get_tools(f"{envs_dir}/{env}/workflows").items()
-    }
-
-
-def get_tools_summary(tools: List[Tool], include_params=False, include_requirements=False):    
-    tools_summary = ""
-    for tool in tools.values():
-        tools_summary += f"{tool.summary(include_params=include_params, include_requirements=include_requirements)}\n"
-    return tools_summary
-
-
-def get_human_readable_error(error_list):
-    errors = []
-    for error in error_list:
-        field = error['loc'][0]
-        error_type = error['type']
-        if error_type == 'string_type':
-            errors.append(f"{field} is missing")
-        elif error_type == 'list_type':
-            msg = error['msg']
-            errors.append(f"{field}: {msg}")
-        elif error_type == 'literal_error':
-            expected_values = error['ctx']['expected']
-            errors.append(f"{field} must be one of {expected_values}")
-        elif error_type == 'less_than_equal':
-            max_value = error['ctx']['le']
-            errors.append(f"{field} must be <= {max_value}")
-        elif error_type == 'greater_than_equal':
-            min_value = error['ctx']['ge']
-            errors.append(f"{field} must be >= {min_value}")
-        elif error_type == 'value_error.any_str.min_length':
-            min_length = error['ctx']['limit_value']
-            errors.append(f"{field} must have at least {min_length} characters")
-        elif error_type == 'value_error.any_str.max_length':
-            max_length = error['ctx']['limit_value']
-            errors.append(f"{field} must have at most {max_length} characters")
-        elif error_type == 'enum':
-            choices = ", ".join(error['ctx']['enum_values'])
-            errors.append(f"{field} must be one of [{choices}]")
-        elif error_type == 'type_error.integer':
-            errors.append(f"{field} must be an integer")
-        elif error_type == 'type_error.float':
-            errors.append(f"{field} must be a float")
-        elif error_type == 'type_error.boolean':
-            errors.append(f"{field} must be a boolean")
-        elif error_type == 'type_error.list':
-            errors.append(f"{field} must be a list")
-        elif error_type == 'type_error.none.not_allowed':
-            errors.append(f"{field} cannot be None")
-    error_str = ", ".join(errors)
-    error_str = f"Invalid args: {error_str}"
-    return error_str
-
-
-class GCPTool(Tool):
-    gcr_image_uri: str
-    machine_type: str
-    gpu: str
+def get_tools_from_mongo(env: str, include_inactive: bool = False) -> Dict[str, Tool]:
+    """Get all tools from mongo"""
     
-    # Todo: make work without task ID
-    @Tool.handle_run
-    async def async_run(self, args: Dict):
-        raise NotImplementedError("Not implemented yet, need a Task ID")
+    tools = {}
+    tools_collection = get_collection("tools2", env=env)
+    for tool in tools_collection.find():
+        tool = Tool.load(tool['key'], env=env)
+        if tool.status != "inactive" and not include_inactive:
+            if tool.key in tools:
+                raise ValueError(f"Duplicate tool {tool.key} found.")
+            tools[tool.key] = tool
         
-    @Tool.handle_submit
-    async def async_submit(self, task: Task):
-        handler_id = gcp.submit_job(
-            gcr_image_uri=self.gcr_image_uri,
-            machine_type=self.machine_type,
-            gpu=self.gpu,
-            gpu_count=1,
-            task_id=str(task.id),
-            env=env
-        )
-        return handler_id
-    
-    async def async_process(self, task: Task):
-        if not task.handler_id:
-            task.reload()
-        await gcp.poll_job_status(task.handler_id)
-        task.reload()
-        return self.get_user_result(task.result)
+    return tools
 
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        await gcp.cancel_job(task.handler_id)
+
+def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[str]:
+    """Get all tool directories inside a directory"""
+    
+    tool_dirs = {}
+    root_dirs = [root_dir] if root_dir else ["tools", "../../workflows"]
+    
+    for root_dir in root_dirs:
+        for root, _, files in os.walk(root_dir):
+            if "api.yaml" in files and "test.json" in files:
+                api_file = os.path.join(root, "api.yaml")
+                with open(api_file, 'r') as f:
+                    schema = yaml.safe_load(f)
+                if schema.get("status") == "inactive" and not include_inactive:
+                    continue
+                key = os.path.relpath(root).split("/")[-1]
+                if key in tool_dirs:
+                    raise ValueError(f"Duplicate tool {key} found.")
+                tool_dirs[key] = os.path.relpath(root)
+            
+    return tool_dirs
+
+
+def _get_tool_class(handler: str, prefer_local: bool = True):
+    from comfyui_tool import ComfyUITool
+    from replicate_tool import ReplicateTool
+    from modal_tool import ModalTool
+    from gcp_tool import GCPTool
+    from local_tool import LocalTool
+
+    handler_map = {
+        "comfyui": ComfyUITool,
+        "replicate": ReplicateTool,
+        "modal": ModalTool,
+        "gcp": GCPTool,
+        "local": LocalTool,
+        None: LocalTool if prefer_local else ModalTool
+    }
+    
+    tool_class = handler_map.get(handler, Tool)
+    return tool_class
+    
+
+@click.group()
+def cli():
+    """Tool management CLI"""
+    pass
+
+@cli.command()
+@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
+@click.argument('tools', nargs=-1, required=False)
+def update(env: str, tools: tuple):
+    """Update tools in mongo"""
+    
+    tool_dirs = get_tool_dirs()
+    
+    if tools:
+        tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
+    else:
+        confirm = click.confirm(f"Update all {len(tool_dirs)} tools on {env}?", default=False)
+        if not confirm:
+            return
+
+    for key, tool_dir in tool_dirs.items():
+        try:
+            save_tool_from_dir(tool_dir, env=env)
+            click.echo(click.style(f"Updated {env}:{key}", fg='green'))
+        except Exception as e:
+            click.echo(click.style(f"Failed to update {env}:{key}: {e}", fg='red'))
+
+    click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
+
+
+@cli.command()
+@click.option('--from_dirs', default=True, help='Whether to load tools from folders (default is from mongo)')
+@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
+@click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
+@click.option('--parallel', is_flag=True, default=True, help='Run tests in parallel threads')
+@click.option('--save', is_flag=True, default=True, help='Save test results')
+@click.argument('tools', nargs=-1, required=False)
+def test(
+    tools: tuple,
+    from_dirs: bool, 
+    env: str, 
+    api: bool, 
+    parallel: bool, 
+    save: bool
+):
+    """Run tools with test args"""
+
+    from test_tools2 import save_test_results
+
+    async def async_test_tool(tool, api, env):
+        color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
+        click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
+        click.echo(click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color))
+
+        if api:
+            user_id = os.getenv("EDEN_TEST_USER_STAGE")
+            task = await tool.async_start_task(user_id, tool.test_args, env=env)
+            result = await tool.async_wait(task)
+        else:
+            result = await tool.async_run(tool.test_args, env=env)
+        
+        if "error" in result:
+            click.echo(click.style(f"Failed to test {tool.key}: {result['error']}", fg='red', bold=True))
+        else:
+            click.echo(click.style(f"Result: {json.dumps(result, indent=2)}", fg=color))
+
+        return result
+
+    async def async_run_tests(tools, api, env, parallel):
+        tasks = [async_test_tool(tool, api, env) for tool in tools.values()]
+        if parallel:
+            results = await asyncio.gather(*tasks)
+        else:
+            results = [await task for task in tasks]
+        return results
+
+    if from_dirs:
+        all_tools = get_tools_from_dirs()
+    else:
+        all_tools = get_tools_from_mongo(env=env)
+
+    if tools:
+        tools = {k: v for k, v in all_tools.items() if k in tools}
+    else:
+        tools = all_tools
+        confirm = click.confirm(f"Run tests for all {len(tools)} tools?", default=False)
+        if not confirm:
+            return
+
+    results = asyncio.run(async_run_tests(tools, api, env, parallel))
+    if save:
+        save_test_results(tools, results)
+
+    errors = [result for result in results if "error" in result]
+    click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors: {', '.join(errors)}", fg='blue', bold=True))
+
+
+if __name__ == '__main__':
+    cli()
