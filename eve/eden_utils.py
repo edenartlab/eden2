@@ -14,6 +14,7 @@ import requests
 import tempfile
 import subprocess
 import numpy as np
+from datetime import datetime
 from pprint import pformat
 from moviepy.editor import VideoFileClip, ImageClip, AudioClip
 from tqdm import tqdm
@@ -21,7 +22,7 @@ from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import s3
+from . import s3
 
 
 def prepare_result(result, env: str, summarize=False):
@@ -177,7 +178,7 @@ def mock_image(args):
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
     url, _ = s3.upload_buffer(buffer, env="STAGE")
-    return [url]
+    return url
 
 
 def get_media_duration(media_file):
@@ -349,7 +350,7 @@ def create_dialogue_thumbnail(image1_url, image2_url, width, height, ext="WEBP")
 
     return img_byte_arr.getvalue()
 
-# deprecated: this is now in tools/media_utils/video_concat/handler.py
+
 def concatenate_videos(video_files, output_file, fps=30):
     converted_videos = []
     for video in video_files:
@@ -402,7 +403,6 @@ def get_file_handler(suffix, input_data):
     return temp_file.name
 
 
-# deprecated: this is now in tools/media_utils/audio_video_combine/handler.py
 def make_audiovideo_clip(video_input, audio_input):
     video_file = get_file_handler(".mp4", video_input)
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
@@ -586,3 +586,38 @@ def pprint(*args, color=None, indent=4):
         string = pformat(arg, indent=indent)
         colored_output = f"{colors[color]}{string}\033[0m"
         print(colored_output)
+
+
+def save_test_results(tools, results):
+    if not results:
+        return
+    results_dir = f"tests_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    os.makedirs(results_dir, exist_ok=True)
+    for tool, result in zip(tools.keys(), results):
+        if "error" in result:
+            file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
+            with open(file_path, "w") as f:
+                f.write(result["error"])
+        else:
+            result = result if isinstance(result, list) else [result]
+            for i, res in enumerate(result):
+                output = res.get("output")
+                intermediate_outputs = res.get("intermediate_outputs")
+                if "url" not in output:
+                    continue
+                ext = output.get("url").split(".")[-1]
+                filename = f"{tool}_{i}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
+                file_path = os.path.join(results_dir, filename)
+                response = requests.get(output.get("url"))
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+                for k, v in (intermediate_outputs or {}).items():
+                    if "url" not in v:
+                        continue
+                    ext = v.get("url").split(".")[-1]
+                    filename = f"{tool}_{i}_{k}.{ext}"
+                    file_path = os.path.join(results_dir, filename)
+                    response = requests.get(v.get("url"))
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+    print(f"Test results saved to {results_dir}")

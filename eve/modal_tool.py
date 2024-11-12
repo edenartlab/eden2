@@ -1,10 +1,10 @@
 import modal
 from typing import Dict
 
-from models import Task, task_handler_func
-from tools import handlers
-from tool import Tool
-import eden_utils
+from .models import Task, task_handler_func
+from .tools import handlers
+from .tool import Tool
+from . import eden_utils
 
 
 class ModalTool(Tool):

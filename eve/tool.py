@@ -1,22 +1,17 @@
 import os
 import re
-import copy
-import click
 import yaml
-import copy
 import json
 import random
 import asyncio
-import eden_utils
-from pprint import pprint
-from pydantic import BaseModel, Field, create_model, ValidationError
+from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
-import datetime
+from datetime import datetime
 
-import eden_utils
-from base import parse_schema
-from models import Task, User
-from mongo import MongoModel, get_collection
+from . import eden_utils
+from .base import parse_schema
+from .models import Task, User
+from .mongo import MongoModel, get_collection
 
 
 # class Tool(MongoModel):
@@ -167,17 +162,20 @@ class Tool(BaseModel):
         return prepared_args
 
     def handle_run(run_function):
-        async def wrapper(self, args: Dict, env: str):
+        async def wrapper(self, args: Dict, env: str, mock: bool = False):
             try:
                 args = self.prepare_args(args)
-                result = await run_function(self, args, env)
+                if mock:
+                    result = {"output": eden_utils.mock_image(args)}
+                else:
+                    result = await run_function(self, args, env)
             except Exception as e:
                 result = {"error": str(e)}
             return eden_utils.prepare_result(result, env)
         return wrapper
 
     def handle_start_task(start_task_function):
-        async def wrapper(self, user_id: str, args: Dict, env: str):
+        async def wrapper(self, user_id: str, args: Dict, env: str, mock: bool = False):
             # validate args and user manna balance
             args = self.prepare_args(args)
             cost = self.calculate_cost(args.copy())
@@ -191,15 +189,28 @@ class Tool(BaseModel):
                 output_type=self.output_type, 
                 args=args, 
                 user=user_id, 
-                cost=cost
+                cost=cost,
+                mock=mock
             )
             task.save()            
             
             try:
-                # run task and spend manna
-                handler_id = await start_task_function(self, task)
-                task.update(handler_id=handler_id)
+                if mock:
+                    handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))
+                    output = {"output": eden_utils.mock_image(args)}
+                    result = eden_utils.upload_result(output, env=env)
+                    task.update(
+                        handler_id=handler_id,
+                        status="completed", 
+                        result=result,
+                        performance={"waitTime": (datetime.utcnow() - task.createdAt).total_seconds()}
+                    )
+                else:
+                    handler_id = await start_task_function(self, task)
+                    task.update(handler_id=handler_id)
+
                 user.spend_manna(task.cost)            
+
             except Exception as e:
                 task.update(status="failed", error=str(e))
                 raise Exception(f"Task failed: {e}. No manna deducted.")
@@ -213,7 +224,10 @@ class Tool(BaseModel):
             if not task.handler_id:
                 task.reload()
             try:
-                result = await wait_function(self, task)
+                if task.mock:
+                    result = task.result
+                else:
+                    result = await wait_function(self, task)
             except Exception as e:
                 result = {"status": "failed", "error": str(e)}
             return eden_utils.prepare_result(result, task.env)
@@ -268,7 +282,7 @@ def save_tool_from_dir(tool_dir: str, env: str) -> Tool:
     tools = get_collection("tools2", env=env)
     tool = tools.find_one({"key": schema['key']})
     
-    time = datetime.datetime.utcnow()
+    time = datetime.utcnow()
     schema['createdAt'] = tool.get('createdAt', time) if tool else time
     schema['updatedAt'] = time
     
@@ -318,9 +332,17 @@ def get_tools_from_mongo(env: str, include_inactive: bool = False) -> Dict[str, 
 def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""
     
+    if root_dir:
+        root_dirs = [root_dir]
+    else:
+        eve_root = os.path.dirname(os.path.abspath(__file__))
+        root_dirs = [
+            os.path.join(eve_root, tools_dir) 
+            for tools_dir in ["tools", "../../dev/workflows"]
+        ]
+
     tool_dirs = {}
-    root_dirs = [root_dir] if root_dir else ["tools", "../../workflows"]
-    
+
     for root_dir in root_dirs:
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
@@ -338,11 +360,11 @@ def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[
 
 
 def _get_tool_class(handler: str, prefer_local: bool = True):
-    from comfyui_tool import ComfyUITool
-    from replicate_tool import ReplicateTool
-    from modal_tool import ModalTool
-    from gcp_tool import GCPTool
-    from local_tool import LocalTool
+    from .comfyui_tool import ComfyUITool
+    from .replicate_tool import ReplicateTool
+    from .modal_tool import ModalTool
+    from .gcp_tool import GCPTool
+    from .local_tool import LocalTool
 
     handler_map = {
         "comfyui": ComfyUITool,
@@ -356,103 +378,3 @@ def _get_tool_class(handler: str, prefer_local: bool = True):
     tool_class = handler_map.get(handler, Tool)
     return tool_class
     
-
-@click.group()
-def cli():
-    """Tool management CLI"""
-    pass
-
-@cli.command()
-@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
-@click.argument('tools', nargs=-1, required=False)
-def update(env: str, tools: tuple):
-    """Update tools in mongo"""
-    
-    tool_dirs = get_tool_dirs()
-    
-    if tools:
-        tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
-    else:
-        confirm = click.confirm(f"Update all {len(tool_dirs)} tools on {env}?", default=False)
-        if not confirm:
-            return
-
-    for key, tool_dir in tool_dirs.items():
-        try:
-            save_tool_from_dir(tool_dir, env=env)
-            click.echo(click.style(f"Updated {env}:{key}", fg='green'))
-        except Exception as e:
-            click.echo(click.style(f"Failed to update {env}:{key}: {e}", fg='red'))
-
-    click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
-
-
-@cli.command()
-@click.option('--from_dirs', default=True, help='Whether to load tools from folders (default is from mongo)')
-@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
-@click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
-@click.option('--parallel', is_flag=True, default=True, help='Run tests in parallel threads')
-@click.option('--save', is_flag=True, default=True, help='Save test results')
-@click.argument('tools', nargs=-1, required=False)
-def test(
-    tools: tuple,
-    from_dirs: bool, 
-    env: str, 
-    api: bool, 
-    parallel: bool, 
-    save: bool
-):
-    """Run tools with test args"""
-
-    from test_tools2 import save_test_results
-
-    async def async_test_tool(tool, api, env):
-        color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
-        click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
-        click.echo(click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color))
-
-        if api:
-            user_id = os.getenv("EDEN_TEST_USER_STAGE")
-            task = await tool.async_start_task(user_id, tool.test_args, env=env)
-            result = await tool.async_wait(task)
-        else:
-            result = await tool.async_run(tool.test_args, env=env)
-        
-        if "error" in result:
-            click.echo(click.style(f"Failed to test {tool.key}: {result['error']}", fg='red', bold=True))
-        else:
-            click.echo(click.style(f"Result: {json.dumps(result, indent=2)}", fg=color))
-
-        return result
-
-    async def async_run_tests(tools, api, env, parallel):
-        tasks = [async_test_tool(tool, api, env) for tool in tools.values()]
-        if parallel:
-            results = await asyncio.gather(*tasks)
-        else:
-            results = [await task for task in tasks]
-        return results
-
-    if from_dirs:
-        all_tools = get_tools_from_dirs()
-    else:
-        all_tools = get_tools_from_mongo(env=env)
-
-    if tools:
-        tools = {k: v for k, v in all_tools.items() if k in tools}
-    else:
-        tools = all_tools
-        confirm = click.confirm(f"Run tests for all {len(tools)} tools?", default=False)
-        if not confirm:
-            return
-
-    results = asyncio.run(async_run_tests(tools, api, env, parallel))
-    if save:
-        save_test_results(tools, results)
-
-    errors = [result for result in results if "error" in result]
-    click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors: {', '.join(errors)}", fg='blue', bold=True))
-
-
-if __name__ == '__main__':
-    cli()

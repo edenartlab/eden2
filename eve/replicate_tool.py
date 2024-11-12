@@ -7,10 +7,10 @@ from pydantic import Field
 from typing import Dict, Optional
 from datetime import datetime
 
-import s3
-import eden_utils
-from models import Task, User, Model
-from tool import Tool
+from . import s3
+from . import eden_utils
+from .models import Task, User, Model
+from .tool import Tool
 
 
 class ReplicateTool(Tool):
@@ -159,9 +159,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     
     elif status == "succeeded":
         if output_handler == "normal":
-            # output = output if isinstance(output, list) else [output]
-            print("output :)", output)
-            # result = eden_utils.upload_media(output, env=task.env)
             output = {"output": output}
             result = eden_utils.upload_result(output, env=task.env)
         

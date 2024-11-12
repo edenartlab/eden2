@@ -1,11 +1,11 @@
 import os
 import time
 from typing import Dict
-from tool import Tool
 from google.oauth2 import service_account
 from google.cloud import aiplatform
 
-from models import Task
+from .tool import Tool
+from .models import Task
 
 
 class GCPTool(Tool):

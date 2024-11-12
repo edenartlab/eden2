@@ -3,10 +3,10 @@ import modal
 from typing import Dict
 import asyncio
 
-from models import Task, task_handler_func, task_handler_method
-from tools import handlers
-from tool import Tool
-import eden_utils
+from .models import Task, task_handler_func, task_handler_method
+from .tools import handlers
+from .tool import Tool
+from . import eden_utils
 
 
 class LocalTool(Tool):

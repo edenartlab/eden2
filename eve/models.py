@@ -6,8 +6,8 @@ from pymongo.collection import Collection
 from pydantic.json_schema import SkipJsonSchema
 from pydantic import Field
 
-from mongo import MongoModel, get_collection
-import eden_utils
+from .mongo import MongoModel, get_collection
+from . import eden_utils
 
 
 class Model(MongoModel):
@@ -71,9 +71,9 @@ class Model(MongoModel):
 
 class Task(MongoModel):
     workflow: str
-    parent_tool: Optional[str] = None
     output_type: str
     args: Dict[str, Any]
+    mock: bool = False
     user: ObjectId
     handler_id: Optional[str] = None
     cost: float = None
