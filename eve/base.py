@@ -3,7 +3,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, create_model
 from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args
 
-import eden_utils
+from . import eden_utils
 
 
 class VersionableBaseModel(BaseModel):
@@ -284,7 +284,8 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
     model_schema = schema['schema']
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
-        for field, info in model_schema['parameters'].items()
+        # for field, info in model_schema['parameters'].items()
+        for field, info in model_schema['properties'].items()
     })
     return base_model
 
@@ -302,21 +303,19 @@ def parse_schema(schema: dict):
     required_fields = schema.get('required', [])
     for field, props in schema.get('parameters', {}).items():
         field_kwargs = {}
+        json_schema_extra = {}  # New dict for extra parameters
         
         if 'description' in props:
             field_kwargs['description'] = props['description']
             if 'tip' in props:
                 field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
         if 'example' in props:
-            field_kwargs['example'] = props['example']
+            json_schema_extra['example'] = props['example']  # Moved to json_schema_extra
         if 'default' in props:
             field_kwargs['default'] = props['default']
         
         # Store additional parameters
-        additional_props = {}
-        # additional_props = {'required': props.get('required') or field in required_fields}
-        # if 'label' in props:
-        #     additional_props['label'] = props['label']
+        # additional_props = {}
         
         # Handle min and max for int and float
         if props['type'] in ['int', 'float']:
@@ -326,38 +325,36 @@ def parse_schema(schema: dict):
                 field_kwargs['le'] = props['maximum']
         
         # Handle enum for strings
-        # if props['type'] == 'str' and 'choices' in props:
         if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
             enum_type = create_enum(f"{field.capitalize()}Enum", props['choices'])
-            fields[field] = (enum_type, Field(**field_kwargs, **additional_props))
+            fields[field] = (enum_type, Field(**field_kwargs, json_schema_extra=json_schema_extra))
             continue
         
         # Add special handling for file types
         if props['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
-            additional_props['file_type'] = props['type']
+            json_schema_extra['file_type'] = props['type']  # Moved to json_schema_extra
         if props['type'] == 'array' and 'items' in props:
             if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
-                additional_props['file_type'] = props['items']['type']
+                json_schema_extra['file_type'] = props['items']['type']  # Moved to json_schema_extra
 
         if props['type'] == 'object':
             nested_model = create_model(field, **parse_schema(props))
-            fields[field] = (nested_model, Field(**field_kwargs, **additional_props))
+            fields[field] = (nested_model, Field(**field_kwargs, json_schema_extra=json_schema_extra))
         elif props['type'] == 'array':
             item_type = get_python_type(props['items'])
-            additional_props['is_array'] = True
+            json_schema_extra['is_array'] = True  # Moved to json_schema_extra
             if props['items']['type'] == 'object':
                 item_type = create_model(f"{field}Item", **parse_schema(props['items']))
-            fields[field] = (List[item_type], Field(**field_kwargs, **additional_props))
+            fields[field] = (List[item_type], Field(**field_kwargs, json_schema_extra=json_schema_extra))
         else:
-            fields[field] = (get_python_type(props), Field(**field_kwargs, **additional_props))
+            fields[field] = (get_python_type(props), Field(**field_kwargs, json_schema_extra=json_schema_extra))
     
         if 'alias' in props:
-            additional_props['alias'] = props['required']
+            json_schema_extra['alias'] = props['required']  # Moved to json_schema_extra
 
-        # if not additional_props['required']:
         if not props.get('required') and not field in required_fields:
             fields[field] = (Optional[fields[field][0]], fields[field][1])
-            fields[field][1].default = field_kwargs.get("default", None)#or None #  fields[field][1].default or None
+            fields[field][1].default = field_kwargs.get("default", None)
 
     return fields
 
