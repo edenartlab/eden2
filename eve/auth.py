@@ -1,10 +1,10 @@
 import os
 import jwt
 from bson import ObjectId
-from mongo import mongo_client
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import WebSocket, HTTPException, Depends, status
-from mongo import get_collection
+
+from .mongo import get_collection
 
 CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")

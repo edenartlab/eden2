@@ -29,6 +29,7 @@ dependencies = [
     "python-magic",
     "pyyaml",
     "requests",
+    "runwayml",
     "sentry-sdk",
     "starlette",
     "tenacity",

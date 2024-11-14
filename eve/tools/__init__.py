@@ -1,9 +1,7 @@
 # from dotenv import load_dotenv
 # load_dotenv()
 
-from .tool1.handler import handler as tool1
-from .tool2.handler import handler as tool2
-from .tool3.handler import handler as tool3
+from .example_tool.handler import handler as example_tool
 
 from .media_utils.audio_video_combine.handler import handler as audio_video_combine
 from .media_utils.image_concat.handler import handler as image_concat
@@ -37,9 +35,7 @@ from .elevenlabs.handler import handler as elevenlabs
 # ]
 
 handlers = {
-    "tool1": tool1,
-    "tool2": tool2,
-    "tool3": tool3,
+    "example_tool": example_tool,
 
     "audio_video_combine": audio_video_combine,
     "image_concat": image_concat,

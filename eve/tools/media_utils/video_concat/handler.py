@@ -7,7 +7,7 @@ import subprocess
 # bug: if some videos are silent but others have sound, the concatenated video will have no sound
 
 async def handler(args: dict, env: str):
-    from ... import eden_utils
+    from .... import eden_utils
     
     video_urls = args.get("videos")
     fps = args.get("fps", 30)

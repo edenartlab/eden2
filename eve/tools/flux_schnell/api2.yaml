@@ -4,7 +4,7 @@ tip: |-
   Flux is a text to image model that excels at prompt coherence and text generation. This should always be the default way to generate an image from text!
 cost_estimate: 1 * num_outputs
 output_type: image
-model: black-forest-labs/flux-schnell
+replicate_model: black-forest-labs/flux-schnell
 handler: replicate
 parameters:
   prompt:

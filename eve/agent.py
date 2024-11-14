@@ -6,10 +6,10 @@ import yaml
 import copy
 import json
 import argparse
-from mongo import MongoBaseModel#, mongo_client
+from .mongo import MongoModel#, mongo_client
 from typing import List
 from bson import ObjectId
-from tool import PresetTool
+# from .tool import PresetTool
 
 generic_instructions = """Follow these additional guidelines:
 - If the tool you are using has the "n_samples" parameter, and the user requests for multiple versions of the same thing, set n_samples to the number of images the user desires for that prompt. If they want N > 1 images that have different prompts, then make N separate tool calls with n_samples=1.
@@ -24,7 +24,7 @@ generic_instructions = """Follow these additional guidelines:
 
 
 
-class Agent(MongoBaseModel):
+class Agent(MongoModel):
     key: str
     name: str
     owner: ObjectId

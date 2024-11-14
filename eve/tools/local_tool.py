@@ -3,10 +3,9 @@ import modal
 from typing import Dict
 import asyncio
 
-from .models import Task, task_handler_func, task_handler_method
-from .tools import handlers
-from .tool import Tool
-from . import eden_utils
+from ..task import Task, task_handler_func
+from ..tools import handlers
+from ..tool import Tool
 
 
 class LocalTool(Tool):
@@ -16,9 +15,10 @@ class LocalTool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict, env: str):
-        result = await handlers[self.key](args, env=env)
-        return eden_utils.upload_result(result, env=env)
-
+        result = await handlers[self.parent_tool or self.key](args, env=env)
+        # return eden_utils.upload_result(result, env=env)
+        return result
+    
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         task_id = str(uuid.uuid4())

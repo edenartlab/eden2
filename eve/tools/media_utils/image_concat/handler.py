@@ -3,7 +3,7 @@ from PIL import Image
 
 
 async def handler(args: dict, env: str):
-    from ... import eden_utils
+    from .... import eden_utils
 
     image_urls = args.get("images")
     height = args.get("height")

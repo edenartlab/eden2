@@ -12,11 +12,11 @@ import openai
 import anthropic
 import sentry_sdk
 
-import s3
-from agent import Agent
-from mongo import MongoBaseModel, get_collection
-from eden_utils import custom_print, download_file, image_to_base64
-from models import Task, User
+from . import s3
+from .agent import Agent
+from .mongo import MongoModel, get_collection
+from .eden_utils import pprint, download_file, image_to_base64
+from .models import Task, User
 
 env = os.getenv("ENV", "STAGE")
 sentry_dsn = os.getenv("SENTRY_DSN")
@@ -99,7 +99,7 @@ class UserMessage(ChatMessage):
             string += f"\t {json.dumps(self.metadata)}" 
         if self.attachments:
             string += f"\t {', '.join(self.attachments)}"
-        return custom_print(string, "yellow")
+        return pprint(string, "yellow")
 
 
 class ToolCall(BaseModel):
@@ -208,7 +208,7 @@ class AssistantMessage(ChatMessage):
         string = f"{self.role.capitalize()}:\t{self.content}"
         if self.tool_calls:
             string += f"\t [{', '.join([t.name for t in self.tool_calls])}]"
-        return custom_print(string, "green")
+        return pprint(string, "green")
 
 
 class ToolResultMessage(ChatMessage):
@@ -229,10 +229,10 @@ class ToolResultMessage(ChatMessage):
             f"{t.id}:\t\t{t.name} => {t.error or t.result}"
             for t in self.tool_results
         ])
-        return custom_print(string, "blue")
+        return pprint(string, "blue")
 
 import uuid
-class Thread(MongoBaseModel):
+class Thread(MongoModel):
     name: str
     user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage, ToolResultMessage]] = []

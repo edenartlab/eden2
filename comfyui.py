@@ -1,12 +1,12 @@
 """
-WORKSPACE=audio SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui2.py
-WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui2.py
+WORKSPACE=audio SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui.py
+WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui.py
 """
 
 from urllib.error import URLError
@@ -28,10 +28,10 @@ import pathlib
 import tempfile
 import subprocess
 
-import eden_utils
-from comfyui_tool import ComfyUITool
-from mongo import get_collection
-from models import task_handler_method
+import eve.eden_utils as eden_utils
+from eve.tool import Tool
+from eve.mongo import get_collection
+from eve.task import task_handler_method
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -44,7 +44,7 @@ if not os.getenv("WORKSPACE"):
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyuiNEW-{workspace_name}"
 test_workflows = os.getenv("WORKFLOWS")
-root_workflows_folder = "private_workflows" if os.getenv("PRIVATE") else "workflows"
+root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
 skip_tests = os.getenv("SKIP_TESTS")
 
@@ -130,14 +130,16 @@ image = (
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform")
+        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform", 
+        "runwayml", "elevenlabs")
     .env({"WORKSPACE": workspace_name}) 
-    .copy_local_file(f"../../{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
-    .copy_local_file(f"../../{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
+    .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
+    .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
     .run_function(install_comfyui) #, force_build=True)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
-    .copy_local_dir(f"../../{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
+    .copy_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows, "SKIP_TESTS": skip_tests})
+    .pip_install("sentry-sdk")
 )
 
 gpu = modal.gpu.A100()
@@ -182,7 +184,7 @@ class ComfyUI:
     def _execute(self, workflow_name: str, args: dict, env: str):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
-            tool = ComfyUITool.from_dir(tool_path, env=env)
+            tool = Tool.load_from_dir(tool_path)
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
@@ -209,17 +211,27 @@ class ComfyUI:
             return result
         except Exception as error:
             print("ComfyUI pipeline error: ", error)
-            raise error
+            print("--- the workflow error is ---")
+            print("raise 1")
+            raise
+            print("raise 2")
 
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
+        print("run 1")
         result = self._execute(tool_key, args, env=env)
-        return eden_utils.upload_result(result, env=env)
+        print("run 2")
+        z = eden_utils.upload_result(result, env=env)
+        print("run 3")
+        return z
 
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, env: str):
-        return self._execute(tool_key, args, env=env)
+        print("tak 1")
+        z= self._execute(tool_key, args, env=env)
+        print("tak 2")
+        return z
 
     @modal.enter()
     def enter(self):
@@ -261,7 +273,7 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                tool = ComfyUITool.from_dir(f"/root/workspace/workflows/{workflow}")
+                tool = Tool.load_from_dir(f"/root/workspace/workflows/{workflow}")
                 if tool.status == "inactive":
                     print(f"{workflow} is inactive, skipping test")
                     continue
@@ -522,7 +534,7 @@ class ComfyUI:
                 for subfield in subfields:
                     if str(remap.get('node_id')) not in workflow or str(remap.get('field')) not in workflow[str(remap.get('node_id'))] or subfield not in workflow[str(remap.get('node_id'))][str(remap.get('field'))]:
                         raise Exception(f"Node ID {remap.get('node_id')}, field {remap.get('field')}, subfield {subfield} not found in workflow")
-                param = tool.base_model.model_fields[key]
+                param = tool.model.model_fields[key]
                 has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
                 if not has_choices:
                     raise Exception(f"Remap parameter {key} has no original choices")
@@ -548,7 +560,7 @@ class ComfyUI:
         caption_prefix = None
 
         # download and transport files        
-        for key, param in tool.base_model.model_fields.items():
+        for key, param in tool.model.model_fields.items():
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
@@ -595,7 +607,7 @@ class ComfyUI:
 
                 if base_model == "sdxl":
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = self._transport_lora_sdxl(lora_url)
-                elif base_model == "flux_dev":
+                elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_trigger = lora.get("args", {}).get("name")
                     caption_prefix = lora.get("args", {}).get("caption_prefix")

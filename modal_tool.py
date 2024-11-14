@@ -1,37 +1,9 @@
 import modal
 from typing import Dict
 
-from .models import Task, task_handler_func
-from .tools import handlers
-from .tool import Tool
-from . import eden_utils
-
-
-class ModalTool(Tool):
-    @Tool.handle_run
-    async def async_run(self, args: Dict, env: str):
-        func = modal.Function.lookup("handlers2", "run")
-        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args, env=env)
-        return result
-
-    @Tool.handle_start_task
-    async def async_start_task(self, task: Task):
-        func = modal.Function.lookup("handlers2", "run_task")
-        job = func.spawn(task, parent_tool=self.parent_tool)
-        return job.object_id
-    
-    @Tool.handle_wait
-    async def async_wait(self, task: Task):
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.get.aio()
-        task.reload()
-        return task.result
-    
-    @Tool.handle_cancel
-    async def async_cancel(self, task: Task):
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.cancel.aio()
-
+from eve.task import task_handler_func
+from eve.tools import handlers
+from eve import eden_utils
 
 app = modal.App(
     name="handlers2",
@@ -66,11 +38,3 @@ async def run(tool_key: str, args: dict, env: str):
 @task_handler_func
 async def run_task(tool_key: str, args: dict, env: str):
     return await handlers[tool_key](args, env=env)
-
-
-# if __name__ == "__main__":
-#     async def run_example_local():
-#         return await run(
-#             tool_key="tool2", args={"subject": "entertainment"}, env="STAGE"
-#         )        
-#     print(asyncio.run(run_example_local()))

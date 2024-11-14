@@ -7,14 +7,15 @@ from pydantic import Field
 from typing import Dict, Optional
 from datetime import datetime
 
-from . import s3
-from . import eden_utils
-from .models import Task, User, Model
-from .tool import Tool
+from .. import s3
+from .. import eden_utils
+from ..models import User, Model
+from ..task import Task
+from ..tool import Tool
 
 
 class ReplicateTool(Tool):
-    model: str
+    replicate_model: str
     version: Optional[str] = Field(None, description="Replicate version to use")
     output_handler: str = "normal"
     
@@ -35,7 +36,7 @@ class ReplicateTool(Tool):
                 result = {"output": prediction.output}
         else:
             result = {
-                "output": replicate.run(self.model, input=args)
+                "output": replicate.run(self.replicate_model, input=args)
             }
         result = eden_utils.upload_result(result, env=env)
         return result
@@ -50,9 +51,9 @@ class ReplicateTool(Tool):
         else:
             # Replicate doesn't allow spawning tasks for models without a public version ID.
             # So just get run and finish task immediately
-            output = replicate.run(self.model, input=task.args)
+            output = replicate.run(self.replicate_model, input=task.args)
             replicate_update_task(task, "succeeded", None, output, "normal")
-            handler_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=28))  # make up a fake Replicate id
+            handler_id = eden_utils.random_string(28)  # make up a fake Replicate id
             return handler_id
 
     @Tool.handle_wait
@@ -85,15 +86,10 @@ class ReplicateTool(Tool):
         except Exception as e:
             print("Replicate cancel error, probably task is timed out or already finished", e)
 
-    async def async_run_task_and_wait(self, task: Task):
-        await self.async_start_task(task, webhook=False)
-        result = await self.async_wait(task)
-        return result
-
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
-        for key, param in self.base_model.model_fields.items():
+        for key, param in self.model.model_fields.items():
             metadata = param.json_schema_extra or {}
             is_array = metadata.get('is_array')
             alias = metadata.get('alias')
@@ -104,7 +100,7 @@ class ReplicateTool(Tool):
         return new_args
 
     def _create_prediction(self, args: dict, webhook=True):
-        user, model = self.model.split('/', 1)
+        user, model = self.replicate_model.split('/', 1)
         webhook_url = get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
 

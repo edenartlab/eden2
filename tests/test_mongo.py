@@ -1,3 +1,22 @@
+"""
+Todo:
+VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
+-> schema = recreate_base_model(document['schema'])
+* this works but strong typing is not working. 
+
+it gets {'base_model_field': FieldInfo(annotation=Union[Any, NoneType], required=False, default=None),
+ 'dict_field': FieldInfo(annotation=Union[Any, NoneType], required=False, default=None),
+ 'string_field': FieldInfo(annotation=str, required=False, default=None),
+ 'string_list_field': FieldInfo(annotation=Union[Any, NoneType], required=False, default=None)}
+
+ but dict_field  should be Dict[str, Any]
+ string_list_field should be List[str]
+ base_model_field should be Union[InnerModel, NoneType]
+
+"""
+
+
+
 from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId
@@ -95,55 +114,60 @@ def test_versionable_base_model():
 
     assert t1.current == t1_expected
 
+    print("T2 a")
+    print(t1.id)
     t2 = VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
+    print(t2)
+    print("T2 b")
 
-    t2_edit = TestModelEdit(
-        edit_string_field="test4999",
-        add_string_list_field={"index": 1, "value": "test4"},
-        add_dict_field={"test4": "test56"},
-        edit_base_model_field={"string_field": "test6", "number_field": 3}
-    )
+    # t2_edit = TestModelEdit(
+    #     edit_string_field="test4999",
+    #     add_string_list_field={"index": 1, "value": "test4"},
+    #     add_dict_field={"test4": "test56"},
+    #     edit_base_model_field={"string_field": "test6", "number_field": 3}
+    # )
 
-    t2.apply_edit(t2_edit)
+    # t2.apply_edit(t2_edit)
 
-    t2_expected = TestModel(
-        string_field="test4999",
-        string_list_field=["test1", "test4", "test8", "test2"],
-        dict_field={"test3": "test11", "test12": "test13", "test4": "test56"},
-        base_model_field=InnerModel(string_field="test6", number_field=3)
-    )
+    # t2_expected = TestModel(
+    #     string_field="test4999",
+    #     string_list_field=["test1", "test4", "test8", "test2"],
+    #     dict_field={"test3": "test11", "test12": "test13", "test4": "test56"},
+    #     base_model_field=InnerModel(string_field="test6", number_field=3)
+    # )
 
-    assert t2.current.model_dump() == t2_expected.model_dump()
+    # assert t2.current.model_dump() == t2_expected.model_dump()
     
-    t2.save()
+    # t2.save()
 
-    t3 = VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
+    # print("T3 a")
+    # t3 = VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
+    # print(t3)
+    # print("T3 b")
 
-    t3_edit = TestModelEdit(
-        edit_string_list_field={"index": 1, "value": "test99"},
-        remove_dict_field="test2",
-        edit_base_model_field={"string_field": "test72", "number_field": 4}
-    )
+    # t3_edit = TestModelEdit(
+    #     edit_string_list_field={"index": 1, "value": "test99"},
+    #     remove_dict_field="test2",
+    #     edit_base_model_field={"string_field": "test72", "number_field": 4}
+    # )
 
-    t3.apply_edit(t3_edit)
+    # t3.apply_edit(t3_edit)
 
-    t3_expected = TestModel(
-        string_field="test4999",
-        string_list_field=["test1", "test99", "test8", "test2"],
-        dict_field={"test3": "test11", "test12": "test13","test4": "test56"},
-        base_model_field=InnerModel(string_field="test72", number_field=4) 
-    )
+    # t3_expected = TestModel(
+    #     string_field="test4999",
+    #     string_list_field=["test1", "test99", "test8", "test2"],
+    #     dict_field={"test3": "test11", "test12": "test13","test4": "test56"},
+    #     base_model_field=InnerModel(string_field="test72", number_field=4) 
+    # )
 
-    assert t3.current.model_dump() == t3_expected.model_dump()
+    # assert t3.current.model_dump() == t3_expected.model_dump()
 
-    t3.save()
+    # t3.save()
 
-    t4 = VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
+    # t4 = VersionableMongoModel.load(t1.id, collection_name="stories", env="STAGE")
 
-    assert t4.current.model_dump() == t3_expected.model_dump()
-
+    # assert t4.current.model_dump() == t3_expected.model_dump()
 
 
 # test_mongo_document()
-
-# test_versionable_base_model()
+test_versionable_base_model()

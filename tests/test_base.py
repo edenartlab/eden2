@@ -42,7 +42,7 @@ class TestModel(BaseModel):
     This is a pydantic base model
     """
 
-    string_field: str = Field(..., description="An optional string field")
+    string_field: str = Field(..., description="A string field")
     string_list_field: Optional[List[str]] = Field(None, description="An optional string list field")
     dict_field: Optional[Dict[str, Any]] = Field(None, description="An optional dictionary field")
     base_model_field: Optional[InnerModel] = Field(None, description="An optional base model field")
@@ -56,7 +56,7 @@ def test_generated_edit_model():
     TestModelEdit = generate_edit_model(TestModel)
 
     class TestModelEditExpected(BaseModel):
-        edit_string_field: Optional[str] = Field(None, description="Edit TestModel string_field (An optional string field)")
+        edit_string_field: Optional[str] = Field(None, description="Edit TestModel string_field (A string field)")
         add_string_list_field: Optional[Dict[str, Union[int, str]]] = Field(None, description="Add TestModel string_list_field (An optional string list field)")
         edit_string_list_field: Optional[Dict[str, Union[int, str]]] = Field(None, description="Edit TestModel string_list_field (An optional string list field)")
         remove_string_list_field: Optional[int] = Field(None, description="Remove TestModel string_list_field (An optional string list field)")

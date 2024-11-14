@@ -4,8 +4,8 @@ from typing import Dict
 from google.oauth2 import service_account
 from google.cloud import aiplatform
 
-from .tool import Tool
-from .models import Task
+from ..tool import Tool
+from ..task import Task
 
 
 class GCPTool(Tool):

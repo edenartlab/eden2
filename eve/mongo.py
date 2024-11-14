@@ -6,7 +6,7 @@ from pymongo import MongoClient
 from datetime import datetime
 from bson import ObjectId
 from abc import abstractmethod
-from typing import Annotated
+from typing import Annotated, Optional
 
 from .base import generate_edit_model, recreate_base_model, VersionableBaseModel
 
@@ -126,7 +126,7 @@ class VersionableMongoModel(VersionableBaseModel):
     collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
     env: SkipJsonSchema[str] = Field(..., exclude=True)
     createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-    updatedAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -156,11 +156,19 @@ class VersionableMongoModel(VersionableBaseModel):
         if document is None:
             raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, env: {env}")
         
+        print("---- 1-12-213-4 234 --")
         schema = recreate_base_model(document['schema'])
+        from pprint import pprint
+        print("this is the schema")
+        pprint(schema.model_fields)
+        print("---- 1-12-213-4 234 --")
         initial = schema(**document['initial'])
         current = schema(**document['current'])
         
-        edits = [generate_edit_model(schema)(**edit) for edit in document['edits']]
+        edits = [
+            generate_edit_model(schema)(**edit) 
+            for edit in document['edits']
+        ]
         
         versionable_data = {
             "id": document['_id'],

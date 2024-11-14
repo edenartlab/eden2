@@ -78,8 +78,7 @@ def generate_edit_model(
         model (Type[BaseModel]): The source Pydantic model to generate an edit model from
 
     Returns:
-        Type[BaseModel]: A new Pydantic model class that represents possible edits
-                        to the source model
+        Type[BaseModel]: A new Pydantic model class that represents possible edits to the source model
     """
 
     edit_fields: Dict[str, Any] = {}
@@ -90,8 +89,8 @@ def generate_edit_model(
         origin = get_origin(field)
         args = get_args(field)
 
+        # Optional[actual_type] detected
         if origin is Union and type(None) in args:
-            # Optional[actual_type] found
             actual_type = next(arg for arg in args if arg is not type(None))
             origin = get_origin(actual_type)
             args = get_args(actual_type)
@@ -251,13 +250,35 @@ def get_python_type(field_info):
         'lora': str,
         'zip': str
     }
+    # print("\n\n\n========\nFIELD INFO")
+    # print(field_info)
+    optional = 'anyOf' in field_info and {"type": "null"} in field_info['anyOf']
+
+    # if 'anyOf' in field_info:
+    #     types = field_info['anyOf']
+    #     print("THE TYPES")
+    #     print(types)
+    #     null_type = next((t for t in types if t.get('type') == 'null'), None)
+    #     types = [t for t in types if t != null_type]
+    #     assert len(types) == 1 and null_type is not None
+    #     field_info = types[0]
+    #     is_optional = True
+
+
     field_type = field_info.get('type')
     if field_type == 'array' and 'items' in field_info:
         item_type = get_python_type(field_info['items'])
-        return List[item_type]
-    if field_type == 'object':
-        return Dict[str, Any]
-    return type_map.get(field_type, Any)
+        output_type = List[item_type]
+    elif field_type == 'object':
+        output_type = Dict[str, Any]
+    else:
+        output_type = type_map.get(field_type, Any)
+    # if optional:
+    #     output_type = Optional[output_type]
+    # print("OUTPUT TYPE")
+    # print(output_type)
+    # print("\n\n\n\n")
+    return output_type
 
 
 
@@ -282,11 +303,21 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
 
     model_name = schema['name']
     model_schema = schema['schema']
+    # print("lets create the model.........")
+    # print(model_schema['properties'].keys())
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
         # for field, info in model_schema['parameters'].items()
         for field, info in model_schema['properties'].items()
     })
+
+
+    # print("BASE MODEL")
+    # from pprint import pprint
+    # pprint(base_model.model_fields)
+    # print("\n\n\n\n")
+
+
     return base_model
 
 
@@ -351,6 +382,11 @@ def parse_schema(schema: dict):
     
         if 'alias' in props:
             json_schema_extra['alias'] = props['required']  # Moved to json_schema_extra
+
+        # if 'hide_from_ui' in props:
+        #     json_schema_extra['hide_from_ui'] = props['hide_from_ui']
+        if 'hide_from_agent' in props:
+            json_schema_extra['hide_from_agent'] = props['hide_from_agent']
 
         if not props.get('required') and not field in required_fields:
             fields[field] = (Optional[fields[field][0]], fields[field][1])

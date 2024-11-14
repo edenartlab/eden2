@@ -55,11 +55,14 @@ def update(env: str, tools: tuple):
     click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
 
 
+# does parallel work?
+
+
 @cli.command()
-@click.option('--from_dirs', default=True, help='Whether to load tools from folders (default is from mongo)')
+@click.option('--from_dirs', is_flag=True, default=True, help='Whether to load tools from folders (default is from mongo)')
 @click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
 @click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
-@click.option('--parallel', is_flag=True, default=True, help='Run tests in parallel threads')
+@click.option('--parallel', is_flag=True, help='Run tests in parallel threads')
 @click.option('--save', is_flag=True, default=True, help='Save test results')
 @click.option('--mock', is_flag=True, default=False, help='Mock test results')
 @click.argument('tools', nargs=-1, required=False)
@@ -87,9 +90,9 @@ def test(
             result = await tool.async_run(tool.test_args, env=env, mock=mock)
         
         if "error" in result:
-            click.echo(click.style(f"Failed to test {tool.key}: {result['error']}", fg='red', bold=True))
+            click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
         else:
-            click.echo(click.style(f"Result: {json.dumps(result, indent=2)}", fg=color))
+            click.echo(click.style(f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color))
 
         return result
 
@@ -113,14 +116,22 @@ def test(
         confirm = click.confirm(f"Run tests for all {len(tools)} tools?", default=False)
         if not confirm:
             return
+        
+    if "flux_trainer" in tools:
+        confirm = click.confirm(f"Include flux_trainer test? This will take a long time.", default=False)
+        if not confirm:
+            tools.pop("flux_trainer")
 
-    results = asyncio.run(async_run_tests(tools, api, env, parallel))
+    results = asyncio.run(
+        async_run_tests(tools, api, env, parallel)
+    )
+    
     if save and results:
         save_test_results(tools, results)
 
-
-    errors = [result for result in results if "error" in result]
-    click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors: {', '.join(errors)}", fg='blue', bold=True))
+    errors = [f"{tool}: {result['error']}" for tool, result in zip(tools.keys(), results) if "error" in result]
+    error_list = "\n\t".join(errors)
+    click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n{error_list}", fg='blue', bold=True))
 
 
 if __name__ == '__main__':

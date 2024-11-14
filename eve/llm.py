@@ -1,4 +1,4 @@
-
+"""
 
 Thread
 - time-sorted array of messages
@@ -158,4 +158,46 @@ think:
         intentions: 
         chat: true|false
 
-        
+"""
+
+
+
+
+
+# from anthropic import Anthropic
+import anthropic
+#anthropic_client = Anthropic()
+anthropic_client = anthropic.AsyncAnthropic()
+
+import asyncio
+async def async_anthropic_prompt(messages, system_message, tools={}):
+    
+    messages_json = [item for msg in messages for item in msg.anthropic_schema()]
+    anthropic_tools = [t.anthropic_schema(exclude_hidden=True, include_tips=True) for t in tools.values()]
+
+    print("THE TOOLS ARE", anthropic_tools)
+
+
+    print("THE MESSAGES ARE", messages_json)
+    print("THE SYSTEM MESSAGE IS", system_message)
+
+    
+    response = await anthropic_client.messages.create(
+        model="claude-3-5-sonnet-20240620",
+        max_tokens=8192,
+        tools=anthropic_tools,
+        messages=messages_json,
+        system=system_message,
+    )
+    print("THE RESPONSE IS", response)
+    print("THE RESPONSE CONTENT IS", response.content)
+    text_messages = [r.text for r in response.content if r.type == "text"]
+    content = text_messages[0] or ""
+    # tool_calls = [ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"]
+    tool_calls = [r for r in response.content if r.type == "tool_use"]
+    stop = response.stop_reason == "tool_use"
+    return content, tool_calls, stop
+
+
+def anthropic_prompt(messages, system_message, tools={}):
+    return asyncio.run(async_anthropic_prompt(messages, system_message, tools))

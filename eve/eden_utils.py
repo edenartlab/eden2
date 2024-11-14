@@ -27,6 +27,8 @@ from . import s3
 
 def prepare_result(result, env: str, summarize=False):
     if isinstance(result, dict):
+        if "error" in result:
+            return result
         if "filename" in result:
             filename = result.pop("filename")
             url = f"{s3.get_root_url(env=env)}/{filename}"
@@ -587,6 +589,9 @@ def pprint(*args, color=None, indent=4):
         colored_output = f"{colors[color]}{string}\033[0m"
         print(colored_output)
 
+def random_string(length=28):
+    # modeled after Replicate id
+    return ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=length))
 
 def save_test_results(tools, results):
     if not results:
@@ -603,7 +608,7 @@ def save_test_results(tools, results):
             for i, res in enumerate(result):
                 output = res.get("output")
                 intermediate_outputs = res.get("intermediate_outputs")
-                if "url" not in output:
+                if not output or "url" not in output:
                     continue
                 ext = output.get("url").split(".")[-1]
                 filename = f"{tool}_{i}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
