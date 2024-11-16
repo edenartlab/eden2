@@ -58,6 +58,7 @@ class ReplicateTool(Tool):
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
+        # raise Exception("This is a test error 123 for replicate")
         if self.version is None:
             return task.result
         else:
@@ -175,7 +176,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     base_model="sdxl",
                     env=task.env
                 )
-                model.save(upsert_query={"task": ObjectId(task.id)})  # upsert_query prevents duplicates
+                model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
                 result[0]["model"] = model.id
         
         run_time = (datetime.utcnow() - task.createdAt).total_seconds()

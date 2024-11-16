@@ -7,6 +7,8 @@ import asyncio
 from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime
+from instructor.function_calls import openai_schema
+
 
 from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 import sentry_sdk
@@ -147,45 +149,49 @@ class Tool(BaseModel, ABC):
         
         return schema
     
-    def _get_model_schema(self, exclude_hidden: bool = False, include_tips: bool = False):
-        # TODO: include tips
-        ############################################################
 
-        schema = self.model.model_json_schema()
-        if exclude_hidden:
-            schema['properties'] = {
-                k: v for k, v in schema['properties'].items() if not v.get('hide_from_agent')
-            }
-            schema['required'] = [
-                k for k, v in schema['properties'].items() if k in schema['required'] and not v.get('hide_from_agent')
-            ]
+
+    # def _get_model_schema(self, exclude_hidden: bool = False):
+    #     schema = self.model.model_json_schema()
+
+    #     parameters = {
+    #         k: v for k, v in schema.get('parameters', {}).items()
+    #     }
+
+    #     for k, v in schema.get('properties').items():
+    #         for ref in v.get('allOf', []).values():
+    #             theref = schema['$defs'][ref].split
+    #             print(theref)
+
+
+
+    #     if exclude_hidden:
+    #         schema['properties'] = {
+    #             k: v for k, v in schema['properties'].items() if not v.get('hide_from_agent')
+    #         }
+    #         schema['required'] = [
+    #             k for k, v in schema['properties'].items() if k in schema['required'] and not v.get('hide_from_agent')
+    #         ]
+    #     return schema
+    
+    def anthropic_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
+        schema = openai_schema(self.model).anthropic_schema
+        schema["input_schema"].pop("description")  # duplicated
+        # if exclude_hidden:
+        #     schema["input_schema"]["properties"] = {
+        #         k: v for k, v in schema["input_schema"]["properties"].items() if not v.get('hide_from_agent')
+        #     }
         return schema
 
-    def anthropic_schema(self, exclude_hidden: bool = False, include_tips: bool = False) -> dict[str, Any]:
-        schema = self._get_model_schema(exclude_hidden, include_tips)
-        name = schema.pop('title')
-        description = schema.pop('description')        
-        return {
-            "name": name,
-            "description": description,
-            "input_schema": schema
-        }
-
-    def openai_schema(self, exclude_hidden: bool = False, include_tips: bool = False) -> dict[str, Any]:
-        schema = self._get_model_schema(exclude_hidden, include_tips)
-        parameters = {
-            k: v for k, v in schema.items() if k not in ("title", "description")
-        }
-        parameters["required"] = sorted(
-            k for k, v in parameters["properties"].items() if "default" not in v
-        )
+    def openai_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
+        schema = openai_schema(self.model).openai_schema
+        # if exclude_hidden:
+        #     schema["function"]["parameters"]["properties"] = {
+        #         k: v for k, v in schema["function"]["parameters"]["properties"].items() if not v.get('hide_from_agent')
+        #     }
         return {
             "type": "function",
-            "function": {
-                "name": schema["title"],
-                "description": schema["description"],
-                "parameters": parameters,
-            }
+            "function": schema
         }
 
     def calculate_cost(self, args):
@@ -243,7 +249,8 @@ class Tool(BaseModel, ABC):
             except Exception as e:
                 result = {"status": "failed", "error": str(e)}
                 capture_exception(e)
-            return eden_utils.prepare_result(result, env)
+            # return eden_utils.prepare_result(result, env)
+            return result
         
         return async_wrapper
 
@@ -257,7 +264,7 @@ class Tool(BaseModel, ABC):
                 add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
                 user = User.load(user_id, env=env)
-                user.verify_manna_balance(cost)       
+                user.verify_manna_balance(cost)
                 
             except Exception as e:
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
@@ -314,10 +321,28 @@ class Tool(BaseModel, ABC):
                 if task.mock:
                     result = task.result
                 else:
+                    print("lets wait")
+                    print(task)
                     result = await wait_function(self, task)
             except Exception as e:
                 result = {"status": "failed", "error": str(e)}
-            return eden_utils.prepare_result(result, task.env)
+            print("---- jghjg134 hgh -==== 222")
+            print(result)
+            if isinstance(result, list):
+                print("ikts a list")
+                print(result)
+                if any("error" in r for r in result):
+                    print("ikts a list with error")
+                    return {"status": "failed", "error": result}
+                else:
+                    print("ikts a list without error")
+                    return {"status": "completed", "result": result}
+            elif "error" in result:
+                return {"status": "failed", "error": result}
+            else:
+                result = {"status": "completed", "result": result}
+                # return eden_utils.prepare_result(result, task.env)
+                return result
         
         return async_wrapper
 
@@ -362,9 +387,15 @@ def save_tool_from_dir(tool_dir: str, env: str) -> Tool:
     
     time = datetime.utcnow()
     schema['createdAt'] = tool.get('createdAt', time) if tool else time
-    schema['updatedAt'] = time
     
-    tools.replace_one({"key": schema['key']}, schema, upsert=True)
+    tools.replace_one(
+        {"key": schema['key']}, 
+        {
+            "$set": schema,
+            "$currentDate": {"updatedAt": True}
+        }, 
+        upsert=True
+    )
 
 
 def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
@@ -379,12 +410,13 @@ def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) ->
     return tools
 
 
-def get_tools_from_mongo(env: str, include_inactive: bool = False, prefer_local: bool = True) -> Dict[str, Tool]:
+def get_tools_from_mongo(env: str, tools: List[str] = None, include_inactive: bool = False, prefer_local: bool = True) -> Dict[str, Tool]:
     """Get all tools from mongo"""
     
+    filter = {"key": {"$in": tools}} if tools else {}
     tools = {}
     tools_collection = get_collection("tools2", env=env)
-    for tool in tools_collection.find():
+    for tool in tools_collection.find(filter):
         tool = Tool.load_from_schema(tool, prefer_local)
         if tool.status != "inactive" and not include_inactive:
             if tool.key in tools:

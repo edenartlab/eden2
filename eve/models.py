@@ -54,9 +54,9 @@ class Model(MongoModel):
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"
 
-    def save(self, upsert_query=None):
+    def save(self, upsert_filter=None):
         self._make_slug()
-        super().save(upsert_query)
+        super().save(upsert_filter)
     
     def update(self, **kwargs):
         self._make_slug()

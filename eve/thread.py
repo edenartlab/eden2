@@ -16,7 +16,8 @@ from . import s3
 from .agent import Agent
 from .mongo import MongoModel, get_collection
 from .eden_utils import pprint, download_file, image_to_base64
-from .models import Task, User
+from .models import User
+from .task import Task
 
 env = os.getenv("ENV", "STAGE")
 sentry_dsn = os.getenv("SENTRY_DSN")

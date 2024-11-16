@@ -1,5 +1,4 @@
 import modal
-from typing import Dict
 
 from eve.task import task_handler_func
 from eve.tools import handlers

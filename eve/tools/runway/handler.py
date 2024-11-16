@@ -6,6 +6,7 @@ from runwayml import RunwayML
 
 async def handler(args: dict, env: str):
     client = RunwayML()
+
     task = client.image_to_video.create(
         model='gen3a_turbo',
         prompt_image=args["prompt_image"],

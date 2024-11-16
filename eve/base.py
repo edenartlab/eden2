@@ -1,7 +1,7 @@
 import copy
 from enum import Enum
 from pydantic import BaseModel, Field, create_model
-from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args
+from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args, Literal, Tuple
 
 from . import eden_utils
 
@@ -326,13 +326,16 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
 
 
 
-def create_enum(name: str, choices: List[str]):
-    return Enum(name, {str(choice): choice for choice in choices})
+# def create_enum(name: str, choices: List[str]):
+#     return Enum(name, {str(choice): choice for choice in choices})
 
-def parse_schema(schema: dict):
+def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
     fields = {}
     required_fields = schema.get('required', [])
     for field, props in schema.get('parameters', {}).items():
+        # print("==-======")
+        # print(field)
+        # print(props)
         field_kwargs = {}
         json_schema_extra = {}  # New dict for extra parameters
         
@@ -355,10 +358,10 @@ def parse_schema(schema: dict):
             if 'maximum' in props:
                 field_kwargs['le'] = props['maximum']
         
-        # Handle enum for strings
+        # Handle choices for strings using Literal instead of Enum
         if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
-            enum_type = create_enum(f"{field.capitalize()}Enum", props['choices'])
-            fields[field] = (enum_type, Field(**field_kwargs, json_schema_extra=json_schema_extra))
+            annotation = Literal[tuple(props['choices'])]  # Create a Literal type with the choices
+            fields[field] = (annotation, Field(**field_kwargs, json_schema_extra=json_schema_extra))
             continue
         
         # Add special handling for file types
@@ -391,6 +394,14 @@ def parse_schema(schema: dict):
         if not props.get('required') and not field in required_fields:
             fields[field] = (Optional[fields[field][0]], fields[field][1])
             fields[field][1].default = field_kwargs.get("default", None)
+
+
+        # print("FIELDS")
+        # print(fields[field])
+
+        # print("==-======")
+
+
 
     return fields
 

@@ -213,8 +213,8 @@ class ComfyUI:
             print("ComfyUI pipeline error: ", error)
             print("--- the workflow error is ---")
             print("raise 1")
-            raise
             print("raise 2")
+            raise
 
     @modal.method()
     def run(self, tool_key: str, args: dict, env: str):
@@ -231,6 +231,7 @@ class ComfyUI:
         print("tak 1")
         z= self._execute(tool_key, args, env=env)
         print("tak 2")
+        print("THE TASK RESULT IS", z)
         return z
 
     @modal.enter()

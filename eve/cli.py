@@ -7,7 +7,7 @@ import click
 import asyncio
 
 from .tool import get_tool_dirs, get_tools_from_mongo, get_tools_from_dirs, save_tool_from_dir
-from .eden_utils import save_test_results
+from .eden_utils import save_test_results, prepare_result
 
 
 @click.group()
@@ -92,6 +92,7 @@ def test(
         if "error" in result:
             click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
         else:
+            result = prepare_result(result, env=env)
             click.echo(click.style(f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color))
 
         return result

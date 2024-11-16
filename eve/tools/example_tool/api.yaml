@@ -92,6 +92,7 @@ parameters:
         type: str
         description: The city name
         example: Somewhere
+        required: true
       postal_code:
         type: int
         description: Postal code for the address

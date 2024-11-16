@@ -42,7 +42,7 @@ class MongoModel(BaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
     env: SkipJsonSchema[str] = Field(..., exclude=True)
     createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-    updatedAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    updatedAt: Optional[datetime] = None
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,39 +82,82 @@ class MongoModel(BaseModel):
             setattr(self, key, value)
         return self
 
-    def save(self, upsert_query=None):
+    def save(self, upsert_filter=None):
         self.validate()
 
         data = self.model_dump(by_alias=True, exclude_none=True)
         collection = get_collection(self.get_collection_name(), self.env)
         
         document_id = data.get('_id')
-        if upsert_query:
-            document_id_ = collection.find_one(upsert_query, {"_id": 1})
+        if upsert_filter:
+            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
             if document_id_:
                 document_id = document_id_["_id"]
         else:
-            upsert_query = {"_id": document_id}
+            upsert_filter = {"_id": document_id}
 
         if document_id:
-            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
-            collection.update_one(upsert_query, {'$set': data}, upsert=True)
+            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            data.pop("updatedAt", None)
+            # collection.update_one(upsert_filter, {'$set': data}, upsert=True)
+            collection.update_one(
+                upsert_filter,
+                {
+                    "$set": data,
+                    "$currentDate": {"updatedAt": True}
+                },
+                upsert=True
+            )
         else:
+            # now = datetime.utcnow().replace(microsecond=0)
+            # data["createdAt"] = self.createdAt
+            # data["updatedAt"] = self.createdAt
             collection.insert_one(data)
+
+    def push(self, payload: dict):
+        self.validate()
+        collection = get_collection(self.get_collection_name(), self.env)
+        collection.update_one(
+            {"_id": self.id},
+            {
+                "$push": payload,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
+
+    def set(self, payload: dict, filter: dict = None):
+        self.validate()
+        collection = get_collection(self.get_collection_name(), self.env)
+        collection.update_one(
+            {"_id": self.id, **filter},
+            {
+                "$set": payload,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
     
+    # todo: can this be merged with set? is it redundant?
+    # generalize update methods
     def update(self, **kwargs):
         update_args = {}
         for key, value in kwargs.items():
             if hasattr(self, key) and getattr(self, key) != value:
                 update_args[key] = value
+        
         if not update_args:
             return self
-        self.validate(**update_args)        
-        update_args['updatedAt'] = datetime.utcnow().replace(microsecond=0)        
-        result = get_collection(self.get_collection_name(), self.env).update_one(
+        
+        self.validate(**update_args)
+        
+        collection = get_collection(self.get_collection_name(), self.env)
+        result = collection.update_one(
             {"_id": ObjectId(self.id)},
-            {"$set": update_args}
+            {
+                "$set": update_args,
+                "$currentDate": {"updatedAt": True}
+            }
         )        
+        
         if result.matched_count == 0:
             raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
         for key, value in update_args.items():
@@ -125,8 +168,8 @@ class VersionableMongoModel(VersionableBaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
     collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
     env: SkipJsonSchema[str] = Field(..., exclude=True)
-    createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-    updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    # createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    # updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -174,8 +217,8 @@ class VersionableMongoModel(VersionableBaseModel):
             "id": document['_id'],
             "collection_name": collection_name, 
             "env": env,
-            "createdAt": document['createdAt'],
-            "updatedAt": document['updatedAt'],
+            # "createdAt": document['createdAt'],
+            # "updatedAt": document['updatedAt'],
             "schema": schema,
             "initial": initial,
             "current": current,
@@ -184,18 +227,18 @@ class VersionableMongoModel(VersionableBaseModel):
         
         return cls(**versionable_data)
 
-    def save(self, upsert_query=None):
+    def save(self, upsert_filter=None):
         data = self.model_dump(by_alias=True, exclude_none=True)
         collection = get_collection(self.collection_name, self.env)
 
         document_id = data.get('_id')
-        if upsert_query:
-            document_id_ = collection.find_one(upsert_query, {"_id": 1})
+        if upsert_filter:
+            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
             if document_id_:
                 document_id = document_id_["_id"]
 
         if document_id:
-            data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
             collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             collection.insert_one(data)

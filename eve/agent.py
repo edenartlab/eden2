@@ -85,7 +85,7 @@ def update_agent_cli():
             agent_key = os.path.splitext(agent_file)[0]
             agent_data = load_agent_data(f"agents/{agent_file}")
             agent = Agent(env=args.env, key=agent_key, owner=ObjectId(eden_user), **agent_data)
-            agent.save(upsert_query={"key": agent.key, "owner": ObjectId(eden_user)})
+            agent.save(upsert_filter={"key": agent.key, "owner": ObjectId(eden_user)})
             print(f"Updated agent on {args.env}: {agent_key}")
 
     except ValueError as e:

@@ -23,3 +23,36 @@ result = anthropic_prompt(messages, "You are a helpful assistant.", tools=tools)
 print(result)
 
 
+"""
+ToolCall
+- result
+
+UserMessage
+AssistantMessage
+ - reply_to: UserMessage
+ - tool calls
+
+ 
+anthropic
+- UserMessage
+- AssistantMessage (reply_to: UserMessage)
+  - tool calls ( + result)
+
+before reply, just use dummy message
+
+user
+assistant
+tool
+user
+assistant
+
+user
+user
+
+
+
+
+
+
+
+"""
