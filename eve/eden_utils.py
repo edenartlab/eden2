@@ -44,6 +44,8 @@ def prepare_result(result, db: str, summarize=False):
 
 
 def upload_result(result, db: str, save_thumbnails=False):
+    print("UR", result)
+    # print(" - >", is_file(result), isinstance(result, str))
     if isinstance(result, dict):
         return {k: upload_result(v, db) for k, v in result.items()}
     elif isinstance(result, list):
@@ -607,23 +609,35 @@ def save_test_results(tools, results):
             with open(file_path, "w") as f:
                 f.write(result["error"])
         else:
-            output, intermediate_outputs = result.get("output", {}), result.get("intermediate_outputs", {})
-            print("output!!!", output)
-            if not output or "url" not in output:
-                continue
-            ext = output.get("url").split(".")[-1]
-            filename = f"{tool}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
-            file_path = os.path.join(results_dir, filename)
-            response = requests.get(output.get("url"))
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-        for k, v in intermediate_outputs.items():
-            if "url" not in v:
-                continue
-            ext = v.get("url").split(".")[-1]
-            filename = f"{tool}_{k}.{ext}"
-            file_path = os.path.join(results_dir, filename)
-            response = requests.get(v.get("url"))
-            with open(file_path, "wb") as f:
-                f.write(response.content)
+            outputs, intermediate_outputs = result.get("output", []), result.get("intermediate_outputs", [])
+            outputs = outputs if isinstance(outputs, list) else [outputs]
+            intermediate_outputs = intermediate_outputs if isinstance(intermediate_outputs, list) else [intermediate_outputs]
+            # print("output!!!", output)
+
+            for output in outputs:
+                if isinstance(output, dict) and "url" in output:
+                    ext = output.get("url").split(".")[-1]
+                    filename = f"{tool}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
+                    file_path = os.path.join(results_dir, filename)
+                    response = requests.get(output.get("url"))
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+                else:
+                    file_path = os.path.join(results_dir, f"{tool}.txt")
+                    with open(file_path, "w") as f:
+                        f.write(output)
+            
+            for intermediate_output in intermediate_outputs:
+                if not isinstance(intermediate_output, dict):
+                    continue
+                for k, v in intermediate_output.items():
+                    if "url" not in v:
+                        continue
+                    ext = v.get("url").split(".")[-1]
+                    filename = f"{tool}_{k}.{ext}"
+                    file_path = os.path.join(results_dir, filename)
+                    response = requests.get(v.get("url"))
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+    
     print(f"Test results saved to {results_dir}")

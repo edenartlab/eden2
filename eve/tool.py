@@ -43,7 +43,7 @@ class Tool(BaseModel, ABC):
     description: str
     tip: Optional[str] = None
     
-    output_type: Literal["bool", "str", "int", "float", "string", "image", "video", "audio", "lora"]
+    output_type: Literal["bool", "str", "int", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
     resolutions: Optional[List[str]] = None
     base_model: Literal["sd15", "sdxl", "sd3", "flux-dev", "flux-schnell"] = "sdxl"

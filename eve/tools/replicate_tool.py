@@ -5,7 +5,7 @@ import replicate
 from bson import ObjectId
 from pydantic import Field
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .. import s3
 from .. import eden_utils
@@ -20,7 +20,7 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, env: str):
+    async def async_run(self, args: Dict, db: str):
         args = self._format_args_for_replicate(args)
         if self.version:
             prediction = self._create_prediction(args, webhook=False)        
@@ -38,7 +38,7 @@ class ReplicateTool(Tool):
             result = {
                 "output": replicate.run(self.replicate_model, input=args)
             }
-        result = eden_utils.upload_result(result, env=env)
+        result = eden_utils.upload_result(result, db=db)
         return result
 
     @Tool.handle_start_task
@@ -60,7 +60,7 @@ class ReplicateTool(Tool):
     async def async_wait(self, task: Task):
         # raise Exception("This is a test error 123 for replicate")
         if self.version is None:
-            return task.result
+            return task.model_dump(include={"status", "error", "result"})
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
             status = "starting"
@@ -75,7 +75,7 @@ class ReplicateTool(Tool):
                         self.output_handler
                     )
                     if result["status"] in ["failed", "cancelled", "completed"]:
-                        return result["result"]
+                        return result
                 await asyncio.sleep(0.5)
                 prediction.reload()
 
@@ -136,7 +136,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.update(status="failed", error=error)
         n_samples = task.args.get("n_samples", 1)
         refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_id(task.user, env=task.env)
+        user = User.from_id(task.user, db=task.db)
         user.refund_manna(refund_amount)
         return {"status": "failed", "error": error}
     
@@ -144,12 +144,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.update(status="cancelled")
         n_samples = task.args.get("n_samples", 1)
         refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_id(task.user, env=task.env)
+        user = User.from_id(task.user, db=task.db)
         user.refund_manna(refund_amount)
         return {"status": "cancelled"}
     
     elif status == "processing":
-        task.performance["waitTime"] = (datetime.utcnow() - task.createdAt).total_seconds()
+        task.performance["waitTime"] = (datetime.now(timezone.utc) - task.created_at).total_seconds()
         task.status = "running"
         task.save()
         return {"status": "running"}
@@ -157,15 +157,15 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     elif status == "succeeded":
         if output_handler == "normal":
             output = {"output": output}
-            result = eden_utils.upload_result(output, env=task.env)
+            result = eden_utils.upload_result(output, db=task.db)
         
         elif output_handler in ["trainer", "eden"]: 
-            result = replicate_process_eden(output, env=task.env)
+            result = replicate_process_eden(output, db=task.db)
 
             if output_handler == "trainer":
                 filename = result[0]["filename"]
                 thumbnail = result[0]["thumbnail"]
-                url = f"{s3.get_root_url(env=task.env)}/{filename}"
+                url = f"{s3.get_root_url(db=task.db)}/{filename}"
                 model = Model(
                     name=task.args["name"],
                     user=task.user,
@@ -174,12 +174,11 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     args=task.args,
                     checkpoint=url, 
                     base_model="sdxl",
-                    env=task.env
                 )
                 model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
                 result[0]["model"] = model.id
         
-        run_time = (datetime.utcnow() - task.createdAt).total_seconds()
+        run_time = (datetime.now(timezone.utc) - task.created_at).total_seconds()
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time
@@ -194,7 +193,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         }
 
 
-def replicate_process_eden(output, env):
+def replicate_process_eden(output, db):
     output = output[-1]
     if not output or "files" not in output:
         raise Exception("No output found")         
@@ -202,7 +201,7 @@ def replicate_process_eden(output, env):
     results = []
     
     for file, thumb in zip(output["files"], output["thumbnails"]):
-        file_url, _ = s3.upload_file_from_url(file, env=env)
+        file_url, _ = s3.upload_file_from_url(file, db=db)
         filename = file_url.split("/")[-1]
         metadata = output.get("attributes")
         media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
@@ -215,7 +214,7 @@ def replicate_process_eden(output, env):
 
         thumbnail = thumbnail or thumb or None
         if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', env=env)
+            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', db=db)
             result["thumbnail"] = thumbnail_url
 
         results.append(result)

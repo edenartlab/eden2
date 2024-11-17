@@ -25,7 +25,7 @@ class ModalTool(Tool):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        return task.result
+        return task.model_dump(include={"status", "error", "result"})
     
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):

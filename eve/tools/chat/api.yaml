@@ -3,7 +3,7 @@ description: Chat with an agent
 output_type: string
 status: prod
 cost_estimate: 1
-status: prod
+status: inactive
 visible: false
 parameters:
   content:

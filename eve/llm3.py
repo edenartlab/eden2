@@ -15,12 +15,12 @@ async def main():
         # new_message = UserMessage(content="try the last animate_3d again.")
         # new_message = UserMessage(content="animate it with runway!")
         # new_message = UserMessage(content="make a picture of a fancy dog with flux schnell, then animate it with runway. then with musicgen, make an appropriate soundtrack of the same length as the video. then use the audio video combination tool to put them together into a single video with sound.")
-        new_message = UserMessage(content="make a picture of a fancy pig with flux schenll. and then in your response, please write out the filename and mediaAttributes of the tool result, just to be sure. repeat it.")
+        # new_message = UserMessage(content="make a picture of a fancy pig with flux schenll. and then in your response, please write out the filename and mediaAttributes of the tool result, just to be sure. repeat it.")
         # new_message = UserMessage(content="good now take the last thing and make a musicgen soundtrack the same duration as the movie, and then use the audio video combination tool to put them together into a single video with sound.")
-        # new_message = UserMessage(content="make a picture of a fancy cat. just do it, be creative.")
+        new_message = UserMessage(content="what did you just say? repeat it verbatim.")
         # thread.add_messages(new_message)
-        thread.push("messages", new_message)
-        thread.save()
+        # thread.push("messages", new_message)
+        # thread.save()
     
     # except Exception as e:
     #     print("ERROR", e)
@@ -32,8 +32,8 @@ async def main():
     print("STOP!")
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())
 
 
 

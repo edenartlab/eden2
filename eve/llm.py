@@ -389,16 +389,16 @@ def openai_prompt(messages, system_message, tools={}):
 
 
 # X ? what to do about empty text ("this is a test")
-# multiple user messages / multiple assistant messages
-# order by createdAt
+# anthropic consider names in group chat
 # verify hidden from agent works right, and tips
 # validate args before tool wait
 # sentry thread
 # tidy up handle_wait
 
-# pushing granular updates instead of .save()
+# X ? pushing granular updates instead of .save()
 
-
+# X multiple user messages / multiple assistant messages
+# order by createdAt
 # make sure to use reply_to to peg assistant
 # contain last 10-15 messages
 # if reply to by old message, include context leading up to it
@@ -446,6 +446,19 @@ class Thread(Document):
     user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage]] = []
 
+    def update_tool_call(self, message_id, tool_call_index, updates):
+
+        # this should validate too?
+
+        for key, value in updates.items():
+            message = next(m for m in self.messages if m.id == message_id)
+            setattr(message.tool_calls[tool_call_index], key, value)
+        
+        self.update2({
+            f"messages.$.tool_call.{k}": v for k, v in updates.items()
+        }, filter={"messages.id": message_id})
+
+
 
     # @classmethod
     # def get_collection_name(cls) -> str:
@@ -457,9 +470,9 @@ class Thread(Document):
     #         payload = {"$each": [m.model_dump() for m in new_messages]}
     #         self.push({"messages": payload})
 
-    def update_message(self, message_id, updates):
-        updates = {f"messages.$.{k}": v for k, v in updates.items()}
-        self.update2(updates, filter={"messages.id": message_id})
+    # def update_message(self, message_id, updates):
+    #     updates = {f"messages.$.{k}": v for k, v in updates.items()}
+    #     self.update2(updates, filter={"messages.id": message_id})
 
 
         # thread.update_message(assistant_message.id, {
@@ -475,9 +488,6 @@ class Thread(Document):
 # thread = Thread.load("6737ab65f27a1cc88397a361", db="STAGE")
 
 
-thread = Thread(db="STAGE", name="test102", user=ObjectId(user_id))
-# # thread.add_messages(*messages)
-thread.save()
 
 
 # print(thread.messages)
@@ -534,6 +544,9 @@ thread.save()
 # raise Exception("TEST")
 async def run_thread(thread: Thread):
     print("RUN THREAD")
+    print("this is the current state of the assistant message AT THE BEG")
+    pprint(thread)
+
 
     print("THREAD")
     pprint(thread)
@@ -572,9 +585,10 @@ async def run_thread(thread: Thread):
 
     # thread.add_messages(assistant_message, save=True)
     thread.push("messages", assistant_message)
-    # thread.save()
-
-    for t, tool_call in enumerate(tool_calls):
+    # Get reference to the pushed message
+    assistant_message = thread.messages[-1]
+    
+    for t, tool_call in enumerate(assistant_message.tool_calls):
         # try:
         if 1:
             tool = tools[tool_call.tool]
@@ -583,34 +597,15 @@ async def run_thread(thread: Thread):
             )
             print("the task312  is", task)
 
-            tool_call.task = task.id
-            tool_call.status = "pending"
-            
 
-            # settle this structure
-
-
-            thread.update_message(assistant_message.id, {
-                f"tool_calls.{t}.task": ObjectId(task.id),
-                f"tool_calls.{t}.status": "pending"
+            thread.update_tool_call(assistant_message.id, t, {
+                "task": ObjectId(task.id),
+                "status": "pending"
             })
 
-
-
             result = await tool.async_wait(task)
-            print("the result is 223123", result)
-            for key, value in result.items():
-                print("setting", key, value)
-                setattr(tool_call, key, value)
-            assistant_message.tool_calls[t] = tool_call
-            print("now its?")
-            pprint(assistant_message.tool_calls)
-            
 
-
-            updates = {f"tool_calls.{t}.{k}": v for k, v in result.items()}
-            print("--- 777 udpates", updates)
-            thread.update_message(assistant_message.id, updates)
+            thread.update_tool_call(assistant_message.id, t, result)
 
 
             print("---- 8888 the assistant message")
@@ -621,5 +616,56 @@ async def run_thread(thread: Thread):
 
         # thread.save()
 
+    print("this is the current state of the assistant message AT THE END")
+    pprint(thread)
+
     return stop
+
+
+
+async def test2():
+    print("ok 1")
+    thread = Thread(db="STAGE", name="test102", user=ObjectId(user_id))
+    print("ok 2")
+    messages = [
+        UserMessage(content="hi there!!."),
+        UserMessage(content="do you hear me?"),
+        UserMessage(content="Hello, tell me something now."),
+        AssistantMessage(content="I have a cat."),
+        AssistantMessage(content="Apples are bananers."),
+        UserMessage(content="what did you just say? repeat everything you said verbatim."),
+        UserMessage(content="hello?"),
+        AssistantMessage(content="I said Apples are bananers."),
+        UserMessage(content="no"),
+        UserMessage(content="you said something before that"),
+    ]
+
+    messages = [
+        UserMessage(name="jim", content="i have an apple."),
+        UserMessage(name="kate", content="the capital of france is paris?"),
+        UserMessage(name="morgan", content="what is even going on here?"),
+        UserMessage(name="scott", content="i am you?"),
+        UserMessage(content="what did morgan say?"),
+    ]
+    print("ok 3")
+    # thread.push("messages", messages[0])
+    # thread.push("messages", messages[1])
+    # thread.push("messages", messages[2])
+    print("ok 4")
+    thread.save()
+    print("ok 5")
+    thread.messages = messages
+
+    content, tool_calls, stop = await async_openai_prompt(
+        thread.messages, 
+        "You are a helpful assistant.", 
+        tools=tools
+    )
+
+    print("CONTENT", content)
+
+
+
+if __name__ == "__main__":
+    asyncio.run(test2())
 

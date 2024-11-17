@@ -42,9 +42,9 @@ class ComfyUITool(Tool):
         return tool
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, env: str):
+    async def async_run(self, args: Dict, db: str):
         cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
-        result = await cls().run.remote.aio(self.parent_tool or self.key, args, env)
+        result = await cls().run.remote.aio(self.parent_tool or self.key, args, db)
         return result
 
     @Tool.handle_start_task
@@ -58,8 +58,10 @@ class ComfyUITool(Tool):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        print("THE TASK RESULT IS", task.result)
-        return task.result
+        print("THE TASK RESULT IS IN THE END", task.result)
+        print(task)
+        print(task.model_dump(include={"status", "error", "result"}))
+        return task.model_dump(include={"status", "error", "result"})
         
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
