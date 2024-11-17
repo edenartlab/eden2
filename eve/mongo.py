@@ -138,7 +138,7 @@ class MongoModel(BaseModel):
     
     # todo: can this be merged with set? is it redundant?
     # generalize update methods
-    def update(self, **kwargs):
+    def update2(self, **kwargs):
         update_args = {}
         for key, value in kwargs.items():
             if hasattr(self, key) and getattr(self, key) != value:
@@ -162,7 +162,58 @@ class MongoModel(BaseModel):
             raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
         for key, value in update_args.items():
             setattr(self, key, copy.deepcopy(value))
+            
+
+
+    def update(self, payload: dict = None, filter: dict = None, **kwargs):
+        """
+        Updates both the MongoDB document and instance variables.
         
+        Args:
+            payload (dict): Nested updates using dot notation (e.g., {"messages.$.content": "new"})
+            filter (dict): Additional filter criteria for the update
+            **kwargs: Direct field updates (e.g., name="new_name")
+        """
+        # Combine payload and kwargs into a single update dictionary
+        updates = {}
+        
+        # Handle nested updates from payload (using dot notation)
+        if payload:
+            updates.update(payload)
+        
+        # Handle direct field updates from kwargs
+        for key, value in kwargs.items():
+            if hasattr(self, key) and getattr(self, key) != value:
+                updates[key] = value
+        
+        if not updates:
+            return self
+        
+        # Validate the updates
+        self.validate(**{k.split('.')[-1]: v for k, v in updates.items()})
+        
+        # Perform MongoDB update
+        collection = get_collection(self.get_collection_name(), self.env)
+        result = collection.update_one(
+            {"_id": self.id, **(filter or {})},
+            {
+                "$set": updates,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
+        
+        # Update instance variables for non-nested fields
+        for key, value in updates.items():
+            if '.' not in key:  # Only update non-nested fields
+                setattr(self, key, copy.deepcopy(value))
+        
+        return self
+
+
+
 
 class VersionableMongoModel(VersionableBaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]

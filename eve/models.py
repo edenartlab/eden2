@@ -1,10 +1,11 @@
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 
-from .mongo import MongoModel, get_collection
+# from .mongo import MongoModel, get_collection
+from .mongo2 import Document, Collection, get_collection
 
-
-class Model(MongoModel):
+@Collection("models")
+class Model(Document):
     name: str
     user: ObjectId
     task: ObjectId
@@ -21,12 +22,12 @@ class Model(MongoModel):
     #     # self.users = get_collection("users", env=env)
     #     self._make_slug()
 
-    def __init__(self, env, **data):
+    def __init__(self, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
         if isinstance(data.get('task'), str):
             data['task'] = ObjectId(data['task'])
-        super().__init__(env=env, **data)
+        super().__init__(**data)
 
 
     # @classmethod
@@ -34,9 +35,9 @@ class Model(MongoModel):
     #     # self.users = get_collection("users", env=env)
     #     return super().from_id(self, document_id, "models", env)
 
-    @classmethod
-    def get_collection_name(cls) -> str:
-        return "models"
+    # @classmethod
+    # def get_collection_name(cls) -> str:
+    #     return "models"
 
     def _make_slug(self):
         # if self.collection is None:
@@ -45,11 +46,11 @@ class Model(MongoModel):
             # slug already assigned
             return
         name = self.name.lower().replace(" ", "-")
-        collection = get_collection(self.get_collection_name(), env=self.env)
-        existing_docs = list(collection.find({"name": self.name, "user": self.user}))
+        # collection = get_collection(self.get_collection_name(), env=self.env)
+        existing_docs = list(self.get_collection().find({"name": self.name, "user": self.user}))
         versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
         new_version = max(versions or [0]) + 1
-        users = get_collection("users", env=self.env)
+        users = get_collection("users", db=self.db)
         username = users.find_one({"_id": self.user})["username"]
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"
@@ -63,8 +64,8 @@ class Model(MongoModel):
         super().update(**kwargs)
 
 
-
-class User(MongoModel):
+@Collection("users")
+class User(Document):
     userId: str
     isWeb2: bool
     isAdmin: bool
@@ -84,12 +85,15 @@ class User(MongoModel):
     #     if not self.mannas.find_one({"user": self.id}):
     #         raise Exception("Mannas not found")
     
-    @classmethod
-    def get_collection_name(cls) -> str:
-        return "users"
+    # @classmethod
+    # def get_collection_name(cls) -> str:
+    #     return "users"
     
     def verify_manna_balance(self, amount: float):
-        mannas = get_collection("mannas", env=self.env)
+        print("LETS VERIFY MANNA BALANCE", self.id, self.db)
+        mannas = get_collection("mannas", db=self.db)
+        print("LETS FIND MANNA", self.id, self.db)
+        print(type(self.id))
         manna = mannas.find_one({"user": self.id})
         if not manna:
             raise Exception("Mannas not found")
@@ -101,7 +105,7 @@ class User(MongoModel):
         if amount == 0:
             return
         # manna = self.mannas.find_one({"user": self.id})
-        mannas = get_collection("mannas", env=self.env)
+        mannas = get_collection("mannas", db=self.db)
         manna = mannas.find_one({"user": self.id})
         if not manna:
             raise Exception("Mannas not found")
@@ -125,6 +129,6 @@ class User(MongoModel):
         if amount == 0:
             return
         # todo: make it refund to subscription balance first
-        mannas = get_collection("mannas", env=self.env)
+        mannas = get_collection("mannas", db=self.db)
         mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
 

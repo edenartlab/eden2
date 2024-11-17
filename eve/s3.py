@@ -43,16 +43,16 @@ file_extensions = {
 }
 
 
-def get_root_url(env="STAGE"):
+def get_root_url(db="STAGE"):
     """Returns the root URL for the specified bucket."""
-    bucket_name = s3_buckets[env]
+    bucket_name = s3_buckets[db]
     return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
 
 
-def upload_file_from_url(url, name=None, file_type=None, env="STAGE"):
+def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
-    if f"{s3_buckets[env]}.s3." in url and ".amazonaws.com" in url:
+    if f"{s3_buckets[db]}.s3." in url and ".amazonaws.com" in url:
         print(f"File is already uploaded at {url}")
         filename = url.split("/")[-1]
         return url, filename
@@ -64,22 +64,22 @@ def upload_file_from_url(url, name=None, file_type=None, env="STAGE"):
                 tmp_file.write(chunk)
             tmp_file.flush()
             tmp_file.seek(0)
-            return upload_file(tmp_file.name, name, file_type, env)
+            return upload_file(tmp_file.name, name, file_type, db)
 
 
-def upload_file(file_path, name=None, file_type=None, env="STAGE"):
+def upload_file(file_path, name=None, file_type=None, db="STAGE"):
     """Uploads a file to an S3 bucket and returns the file URL."""
 
     if file_path.startswith('http://') or file_path.startswith('https://'):
-        return upload_file_from_url(file_path, name, file_type, env)
+        return upload_file_from_url(file_path, name, file_type, db)
     
     with open(file_path, 'rb') as file:
         buffer = file.read()
 
-    return upload_buffer(buffer, name, file_type, env)    
+    return upload_buffer(buffer, name, file_type, db)    
 
 
-def upload_buffer(buffer, name=None, file_type=None, env="STAGE"):
+def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
     assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav'], \
@@ -119,7 +119,7 @@ def upload_buffer(buffer, name=None, file_type=None, env="STAGE"):
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     
-    bucket_name = s3_buckets[env]
+    bucket_name = s3_buckets[db]
 
     s3.upload_fileobj(
         file_bytes, 
@@ -135,8 +135,8 @@ def upload_buffer(buffer, name=None, file_type=None, env="STAGE"):
     return file_url, name
 
 
-def upload_audio_segment(audio: AudioSegment, env="STAGE"):
+def upload_audio_segment(audio: AudioSegment, db="STAGE"):
     buffer = io.BytesIO()
     audio.export(buffer, format="mp3")
-    output = upload_buffer(buffer, env=env)
+    output = upload_buffer(buffer, db=db)
     return output

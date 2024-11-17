@@ -93,7 +93,7 @@ import sentry_sdk
 import openai
 import anthropic
 
-from eve.mongo2 import Document
+from eve.mongo import MongoModel
 from eve.eden_utils import pprint, download_file, image_to_base64
 from eve.task import Task
 import json
@@ -107,7 +107,7 @@ openai_client = openai.AsyncOpenAI()
 
 class ChatMessage(BaseModel):
     id: ObjectId = Field(default_factory=ObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True
@@ -179,9 +179,7 @@ class ToolCall(BaseModel):
     args: Dict[str, Any]
     
     task: Optional[ObjectId] = None
-    status: Optional[Literal["pending", "running", "completed", "failed", "cancelled"]] = None
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    result: Optional[Dict[str, Any]] = {"status": "pending"}
     
     model_config = ConfigDict(
         arbitrary_types_allowed=True
@@ -206,7 +204,7 @@ class ToolCall(BaseModel):
         )
     
     # async def run(self):
-    #     task = await self.tool.async_start_task(user_id, self.input, db="STAGE")
+    #     task = await self.tool.async_start_task(user_id, self.input, env="STAGE")
     #     self.result = await self.tool.async_wait(task)
 
     def validate(self, tools):
@@ -296,7 +294,7 @@ class AssistantMessage(ChatMessage):
 
 
 
-# thread = Thread.load("6736a16b6da49686528217bd", db="STAGE")
+# thread = Thread.load("6736a16b6da49686528217bd", env="STAGE")
 # messages_json = [item for msg in thread.messages for item in msg.anthropic_schema()]
 
 
@@ -422,10 +420,10 @@ def openai_prompt(messages, system_message, tools={}):
 
 
 from eve.tool import get_tools_from_mongo
-# tools = get_tools_from_mongo(tools=["txt2img", "animate_3D"], db="STAGE")
-# tools = get_tools_from_mongo(tools=["news", "example_tool", "flux_schnell", "animate_3D", "runway"], db="STAGE")
-# tools = get_tools_from_mongo(tools=["example_tool"],db="STAGE")
-tools = get_tools_from_mongo(db="STAGE")
+# tools = get_tools_from_mongo(tools=["txt2img", "animate_3D"],env="STAGE")
+# tools = get_tools_from_mongo(tools=["news", "example_tool", "flux_schnell", "animate_3D", "runway"],env="STAGE")
+# tools = get_tools_from_mongo(tools=["example_tool"],env="STAGE")
+tools = get_tools_from_mongo(env="STAGE")
 
 
 
@@ -438,51 +436,43 @@ tools = get_tools_from_mongo(db="STAGE")
 user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
 
-from eve.mongo2 import Document, Collection
 
-@Collection("threads2")
-class Thread(Document):
+
+
+class Thread(MongoModel):
     name: str
     user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage]] = []
 
 
-    # @classmethod
-    # def get_collection_name(cls) -> str:
-    #     return "threads2"
+    @classmethod
+    def get_collection_name(cls) -> str:
+        return "threads2"
 
-    # def add_messages(self, *new_messages, save=False):
-    #     self.messages.extend(new_messages)
-    #     if save:
-    #         payload = {"$each": [m.model_dump() for m in new_messages]}
-    #         self.push({"messages": payload})
+    def add_messages(self, *new_messages, save=False):
+        self.messages.extend(new_messages)
+        if save:
+            payload = {"$each": [m.model_dump() for m in new_messages]}
+            self.push({"messages": payload})
 
     def update_message(self, message_id, updates):
         updates = {f"messages.$.{k}": v for k, v in updates.items()}
-        self.update2(updates, filter={"messages.id": message_id})
-
-
-        # thread.update_message(assistant_message.id, {
-        #     f"tool_calls.{t}.task": ObjectId(task.id),
-        #     f"tool_calls.{t}.status": "pending"
-        # })
-
-        
+        self.set(updates, filter={"messages.id": message_id})
         # f"messages.5.tool_calls.{t}.task": ObjectId(task.id),
         # f"messages.5.tool_calls.{t}.result": {"status": "pending"}
 
 
-# thread = Thread.load("6737ab65f27a1cc88397a361", db="STAGE")
+thread = Thread.load("6737ab65f27a1cc88397a361", env="STAGE")
 
 
-thread = Thread(db="STAGE", name="test102", user=ObjectId(user_id))
+# thread = Thread(env="STAGE", name="test101", user=ObjectId(user_id))
 # # thread.add_messages(*messages)
-thread.save()
+# thread.save()
 
 
 # print(thread.messages)
 
-# thread = Thread(db="STAGE", name="test575", user=ObjectId(user_id))
+# thread = Thread(env="STAGE", name="test575", user=ObjectId(user_id))
 # # thread.add_messages(*messages)
 # thread.save()
 
@@ -535,14 +525,6 @@ thread.save()
 async def run_thread(thread: Thread):
     print("RUN THREAD")
 
-    print("THREAD")
-    pprint(thread)
-    print("----")
-
-
-    print("---765456 THIS IS THE FINAL ANTHROPIC CALL")
-    pprint(thread.messages)
-
     # raise Exception("TEST")
 
     # try:
@@ -570,8 +552,7 @@ async def run_thread(thread: Thread):
     #     tool_calls = []
     #     stop = True
 
-    # thread.add_messages(assistant_message, save=True)
-    thread.push("messages", assistant_message)
+    thread.add_messages(assistant_message, save=True)
     # thread.save()
 
     for t, tool_call in enumerate(tool_calls):
@@ -579,13 +560,12 @@ async def run_thread(thread: Thread):
         if 1:
             tool = tools[tool_call.tool]
             task = await tool.async_start_task(
-                user_id, tool_call.args, db="STAGE"
+                user_id, tool_call.args, env="STAGE"
             )
             print("the task312  is", task)
 
-            tool_call.task = task.id
-            tool_call.status = "pending"
-            
+            # tool_call.task = task.id
+            # tool_call.result = {"status": "pending"}
 
             # settle this structure
 
@@ -599,22 +579,13 @@ async def run_thread(thread: Thread):
 
             result = await tool.async_wait(task)
             print("the result is 223123", result)
-            for key, value in result.items():
-                print("setting", key, value)
-                setattr(tool_call, key, value)
-            assistant_message.tool_calls[t] = tool_call
-            print("now its?")
-            pprint(assistant_message.tool_calls)
-            
+            # tool_call.result.update(result)
 
 
             updates = {f"tool_calls.{t}.{k}": v for k, v in result.items()}
             print("--- 777 udpates", updates)
             thread.update_message(assistant_message.id, updates)
 
-
-            print("---- 8888 the assistant message")
-            pprint(assistant_message.tool_calls)
 
         # except Exception as e:
         #     tool_call.result = {"error": str(e)}

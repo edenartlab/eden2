@@ -6,7 +6,7 @@ import random
 import asyncio
 from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
 
@@ -20,8 +20,8 @@ from . import eden_utils
 from .base import parse_schema
 from .models import User
 from .task import Task
-from .mongo import MongoModel, get_collection
-
+# from .mongo import MongoModel, get_collection
+from .mongo2 import Document, get_collection
 # from .tools.comfyui_tool import ComfyUITool
 # from .tools.replicate_tool import ReplicateTool
 # from .tools.modal_tool import ModalTool
@@ -61,14 +61,14 @@ class Tool(BaseModel, ABC):
 
 
     @classmethod
-    def load(cls, key: str, env: str, prefer_local: bool = True, **kwargs):
+    def load(cls, key: str, db: str, prefer_local: bool = True, **kwargs):
         """Load the tool class based on the handler in api.yaml"""
         
-        tools = get_collection("tools2", env=env)
+        tools = get_collection("tools2", db=db)
         schema = tools.find_one({"key": key})
         
         if not schema:
-            raise ValueError(f"Tool with key {key} not found on env: {env}")
+            raise ValueError(f"Tool with key {key} not found on db: {db}")
 
         return cls.load_from_schema(schema, prefer_local, **kwargs)
 
@@ -234,16 +234,16 @@ class Tool(BaseModel, ABC):
     def handle_run(run_function):
         """Wrapper for calling a tool directly and waiting for the result"""
         
-        async def async_wrapper(self, args: Dict, env: str, mock: bool = False):
+        async def async_wrapper(self, args: Dict, db: str, mock: bool = False):
             try:
                 args = self.prepare_args(args)
                 add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": eden_utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args, env)
+                    result = await run_function(self, args, db)
                 add_breadcrumb(category="handle_run", data=result)
-                result = eden_utils.upload_result(result, env)
+                result = eden_utils.upload_result(result, db)
                 add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
             except Exception as e:
@@ -257,21 +257,25 @@ class Tool(BaseModel, ABC):
     def handle_start_task(start_task_function):
         """Wrapper for starting a task process and returning a task"""
 
-        async def async_wrapper(self, user_id: str, args: Dict, env: str, mock: bool = False):
+        async def async_wrapper(self, user_id: str, args: Dict, db: str, mock: bool = False):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
                 add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                user = User.load(user_id, env=env)
+                print("LETS LOAD USER", user_id, db)
+                user = User.load(user_id, db=db)
+                print("found a user", user)
+                print("11")
                 user.verify_manna_balance(cost)
+                print("22")
+                print("verified manna balance")
                 
             except Exception as e:
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
 
             # create task and set to pending
             task = Task(
-                env=env, 
                 workflow=self.key, 
                 parent_tool=self.parent_tool,
                 output_type=self.output_type, 
@@ -280,7 +284,9 @@ class Tool(BaseModel, ABC):
                 cost=cost,
                 mock=mock
             )
-            task.save()
+            task.save(db=db)
+
+            print("saved a task", task)
 
             add_breadcrumb(category="handle_start_task", data=task.model_dump())
 
@@ -289,12 +295,12 @@ class Tool(BaseModel, ABC):
                 if mock:
                     handler_id = eden_utils.random_string()
                     output = {"output": eden_utils.mock_image(args)}
-                    result = eden_utils.upload_result(output, env=env)
+                    result = eden_utils.upload_result(output, db=db)
                     task.update(
                         handler_id=handler_id,
                         status="completed", 
                         result=result,
-                        performance={"waitTime": (datetime.utcnow() - task.createdAt).total_seconds()}
+                        performance={"waitTime": (datetime.now(timezone.utc) - task.createdAt).total_seconds()}
                     )
                 else:
                     handler_id = await start_task_function(self, task)
@@ -324,25 +330,30 @@ class Tool(BaseModel, ABC):
                     print("lets wait")
                     print(task)
                     result = await wait_function(self, task)
+                    print("This is the result now")
+                    print(result)
+                    print("this is the actual result", result)
             except Exception as e:
+                print("an exception")
                 result = {"status": "failed", "error": str(e)}
-            print("---- jghjg134 hgh -==== 222")
-            print(result)
-            if isinstance(result, list):
-                print("ikts a list")
-                print(result)
-                if any("error" in r for r in result):
-                    print("ikts a list with error")
-                    return {"status": "failed", "error": result}
-                else:
-                    print("ikts a list without error")
-                    return {"status": "completed", "result": result}
-            elif "error" in result:
-                return {"status": "failed", "error": result}
-            else:
-                result = {"status": "completed", "result": result}
-                # return eden_utils.prepare_result(result, task.env)
-                return result
+            # print("---- jghjg134 hgh -==== 222")
+            # print(result)
+            # if isinstance(result, list):
+            #     print("ikts a list")
+            #     print(result)
+            #     if any("error" in r for r in result):
+            #         print("ikts a list with error")
+            #         return {"status": "failed", "error": result}
+            #     else:
+            #         print("ikts a list without error")
+            #         return {"status": "completed", "result": result}
+            # elif "error" in result:
+            #     return {"status": "failed", "error": result}
+            # else:
+            #     result = {"status": "completed", "result": result}
+            #     # return eden_utils.prepare_result(result, task.env)
+            #     return result
+            return result
         
         return async_wrapper
 
@@ -353,7 +364,7 @@ class Tool(BaseModel, ABC):
             await cancel_function(self, task)
             n_samples = task.args.get("n_samples", 1)
             refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-            user = User.from_id(task.user, env=task.env)
+            user = User.from_id(task.user, db=task.db)
             user.refund_manna(refund_amount)
             task.update(status="cancelled")
         
@@ -376,26 +387,27 @@ class Tool(BaseModel, ABC):
         pass
 
 
-def save_tool_from_dir(tool_dir: str, env: str) -> Tool:
+def save_tool_from_dir(tool_dir: str, db: str) -> Tool:
     """Upload tool from directory to mongo"""
 
     schema = Tool._get_schema_from_dir(tool_dir)
     schema['key'] = tool_dir.split('/')[-1]
     
-    tools = get_collection("tools2", env=env)
+    tools = get_collection("tools2", db=db)
     tool = tools.find_one({"key": schema['key']})
     
-    time = datetime.utcnow()
-    schema['createdAt'] = tool.get('createdAt', time) if tool else time
+    time = datetime.now(timezone.utc)
+    schema['created_at'] = tool.get('created_at', time) if tool else time
+    schema['updated_at'] = time
     
+    print("this is the schema", schema)
+    print("--111---")
     tools.replace_one(
         {"key": schema['key']}, 
-        {
-            "$set": schema,
-            "$currentDate": {"updatedAt": True}
-        }, 
+        schema,
         upsert=True
     )
+    print("--222---")
 
 
 def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
@@ -410,12 +422,12 @@ def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) ->
     return tools
 
 
-def get_tools_from_mongo(env: str, tools: List[str] = None, include_inactive: bool = False, prefer_local: bool = True) -> Dict[str, Tool]:
+def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: bool = False, prefer_local: bool = True) -> Dict[str, Tool]:
     """Get all tools from mongo"""
     
     filter = {"key": {"$in": tools}} if tools else {}
     tools = {}
-    tools_collection = get_collection("tools2", env=env)
+    tools_collection = get_collection("tools2", db=db)
     for tool in tools_collection.find(filter):
         tool = Tool.load_from_schema(tool, prefer_local)
         if tool.status != "inactive" and not include_inactive:

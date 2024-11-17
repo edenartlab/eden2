@@ -24,7 +24,7 @@ anthropic_client = anthropic.AsyncAnthropic()
 
 class ChatMessage(BaseModel):
     id: int = Field(default_factory=lambda: random.randint(0, 1000))
-    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, exclude=True)
 
 
 class UserMessage(ChatMessage):

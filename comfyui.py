@@ -30,7 +30,7 @@ import subprocess
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
-from eve.mongo import get_collection
+from eve.mongo2 import get_collection
 from eve.task import task_handler_method
 
 GPUs = {
@@ -181,13 +181,13 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict, env: str):
+    def _execute(self, workflow_name: str, args: dict, db: str):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.load_from_dir(tool_path)
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
-            workflow = self._inject_args_into_workflow(workflow, tool, args, env=env)
+            workflow = self._inject_args_into_workflow(workflow, tool, args, db=db)
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
@@ -217,19 +217,19 @@ class ComfyUI:
             raise
 
     @modal.method()
-    def run(self, tool_key: str, args: dict, env: str):
+    def run(self, tool_key: str, args: dict, db: str):
         print("run 1")
-        result = self._execute(tool_key, args, env=env)
+        result = self._execute(tool_key, args, db=db)
         print("run 2")
-        z = eden_utils.upload_result(result, env=env)
+        z = eden_utils.upload_result(result, db=db)
         print("run 3")
         return z
 
     @modal.method()
     @task_handler_method
-    async def run_task(self, tool_key: str, args: dict, env: str):
+    async def run_task(self, tool_key: str, args: dict, db: str):
         print("tak 1")
-        z= self._execute(tool_key, args, env=env)
+        z= self._execute(tool_key, args, db=db)
         print("tak 2")
         print("THE TASK RESULT IS", z)
         return z
@@ -283,8 +283,8 @@ class ComfyUI:
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                result = self._execute(workflow, test_args, env="STAGE")
-                result = eden_utils.upload_result(result, env="STAGE", save_thumbnails=False)
+                result = self._execute(workflow, test_args, db="STAGE")
+                result = eden_utils.upload_result(result, db="STAGE", save_thumbnails=False)
                 t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -545,7 +545,7 @@ class ComfyUI:
                 if not all(choice in remap['map'].keys() for choice in choices):
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
-    def _inject_args_into_workflow(self, workflow, tool, args, env="STAGE"):
+    def _inject_args_into_workflow(self, workflow, tool, args, db="STAGE"):
 
         # Helper function to validate and normalize URLs
         def validate_url(url):
@@ -588,7 +588,7 @@ class ComfyUI:
                     print("REMOVE LORA")
                     continue
                 
-                models = get_collection("models", env=env)
+                models = get_collection("models", db=db)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 base_model = lora.get("base_model")
                 print("LORA", lora)

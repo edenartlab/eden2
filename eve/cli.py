@@ -19,21 +19,21 @@ def cli():
 
 
 @cli.command()
-@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
+@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
 @click.argument('agent', required=True)
-def chat(env: str, agent: str):
+def chat(db: str, agent: str):
     """Update tools in mongo"""
     
-    click.echo(click.style(f"Chatting with {agent} on {env}", fg='blue', bold=True))
+    click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
 
 
 
 
 
 @cli.command()
-@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
+@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
 @click.argument('tools', nargs=-1, required=False)
-def update(env: str, tools: tuple):
+def update(db: str, tools: tuple):
     """Update tools in mongo"""
     
     tool_dirs = get_tool_dirs()
@@ -41,16 +41,16 @@ def update(env: str, tools: tuple):
     if tools:
         tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
     else:
-        confirm = click.confirm(f"Update all {len(tool_dirs)} tools on {env}?", default=False)
+        confirm = click.confirm(f"Update all {len(tool_dirs)} tools on {db}?", default=False)
         if not confirm:
             return
 
     for key, tool_dir in tool_dirs.items():
         try:
-            save_tool_from_dir(tool_dir, env=env)
-            click.echo(click.style(f"Updated {env}:{key}", fg='green'))
+            save_tool_from_dir(tool_dir, db=db)
+            click.echo(click.style(f"Updated {db}:{key}", fg='green'))
         except Exception as e:
-            click.echo(click.style(f"Failed to update {env}:{key}: {e}", fg='red'))
+            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg='red'))
 
     click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
 
@@ -60,7 +60,7 @@ def update(env: str, tools: tuple):
 
 @cli.command()
 @click.option('--from_dirs', is_flag=True, default=True, help='Whether to load tools from folders (default is from mongo)')
-@click.option('--env', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
+@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
 @click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
 @click.option('--parallel', is_flag=True, help='Run tests in parallel threads')
 @click.option('--save', is_flag=True, default=True, help='Save test results')
@@ -69,7 +69,7 @@ def update(env: str, tools: tuple):
 def test(
     tools: tuple,
     from_dirs: bool, 
-    env: str, 
+    db: str, 
     api: bool, 
     parallel: bool, 
     save: bool,
@@ -77,28 +77,28 @@ def test(
 ):
     """Run tools with test args"""
 
-    async def async_test_tool(tool, api, env):
+    async def async_test_tool(tool, api, db):
         color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color))
 
         if api:
             user_id = os.getenv("EDEN_TEST_USER_STAGE")
-            task = await tool.async_start_task(user_id, tool.test_args, env=env, mock=mock)
+            task = await tool.async_start_task(user_id, tool.test_args, db=db, mock=mock)
             result = await tool.async_wait(task)
         else:
-            result = await tool.async_run(tool.test_args, env=env, mock=mock)
+            result = await tool.async_run(tool.test_args, db=db, mock=mock)
         
         if "error" in result:
             click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
         else:
-            result = prepare_result(result, env=env)
+            result = prepare_result(result, db=db)
             click.echo(click.style(f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color))
 
         return result
 
-    async def async_run_tests(tools, api, env, parallel):
-        tasks = [async_test_tool(tool, api, env) for tool in tools.values()]
+    async def async_run_tests(tools, api, db, parallel):
+        tasks = [async_test_tool(tool, api, db) for tool in tools.values()]
         if parallel:
             results = await asyncio.gather(*tasks)
         else:
@@ -108,7 +108,7 @@ def test(
     if from_dirs:
         all_tools = get_tools_from_dirs()
     else:
-        all_tools = get_tools_from_mongo(env=env)
+        all_tools = get_tools_from_mongo(db=db)
 
     if tools:
         tools = {k: v for k, v in all_tools.items() if k in tools}
@@ -124,7 +124,7 @@ def test(
             tools.pop("flux_trainer")
 
     results = asyncio.run(
-        async_run_tests(tools, api, env, parallel)
+        async_run_tests(tools, api, db, parallel)
     )
     
     if save and results:

@@ -25,37 +25,37 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def prepare_result(result, env: str, summarize=False):
+def prepare_result(result, db: str, summarize=False):
     if isinstance(result, dict):
         if "error" in result:
             return result
         if "filename" in result:
             filename = result.pop("filename")
-            url = f"{s3.get_root_url(env=env)}/{filename}"
+            url = f"{s3.get_root_url(db=db)}/{filename}"
             if summarize:
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, env, summarize) for k, v in result.items()}
+        return {k: prepare_result(v, db, summarize) for k, v in result.items()}
     elif isinstance(result, list):
-        return [prepare_result(item, env, summarize) for item in result]
+        return [prepare_result(item, db, summarize) for item in result]
     else:
         return result
 
 
-def upload_result(result, env: str, save_thumbnails=False):
+def upload_result(result, db: str, save_thumbnails=False):
     if isinstance(result, dict):
-        return {k: upload_result(v, env) for k, v in result.items()}
+        return {k: upload_result(v, db) for k, v in result.items()}
     elif isinstance(result, list):
-        return [upload_result(item, env) for item in result]
+        return [upload_result(item, db) for item in result]
     elif isinstance(result, str) and is_file(result):
-        return upload_media(result, env, save_thumbnails=save_thumbnails)
+        return upload_media(result, db, save_thumbnails=save_thumbnails)
     else:
         return result
 
 
-def upload_media(output, env, save_thumbnails=True):
-    file_url, sha = s3.upload_file(output, env=env)
+def upload_media(output, db, save_thumbnails=True):
+    file_url, sha = s3.upload_file(output, db=db)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
@@ -65,8 +65,8 @@ def upload_media(output, env, save_thumbnails=True):
             img = thumbnail.copy()
             img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
             img_bytes = PIL_to_bytes(img)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', env=env)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', env=env)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', db=db)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', db=db)
 
     return {
         "filename": filename,
@@ -179,7 +179,7 @@ def mock_image(args):
     draw.text((5, 5), wrapped_text, fill="black", font=font)    
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
-    url, _ = s3.upload_buffer(buffer, env="STAGE")
+    url, _ = s3.upload_buffer(buffer, db="STAGE")
     return url
 
 
@@ -598,31 +598,32 @@ def save_test_results(tools, results):
         return
     results_dir = f"tests_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     os.makedirs(results_dir, exist_ok=True)
+    print("this is the results", results)
     for tool, result in zip(tools.keys(), results):
+        print("------")
+        print(result)
         if "error" in result:
             file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
             with open(file_path, "w") as f:
                 f.write(result["error"])
         else:
-            result = result if isinstance(result, list) else [result]
-            for i, res in enumerate(result):
-                output = res.get("output")
-                intermediate_outputs = res.get("intermediate_outputs")
-                if not output or "url" not in output:
-                    continue
-                ext = output.get("url").split(".")[-1]
-                filename = f"{tool}_{i}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
-                file_path = os.path.join(results_dir, filename)
-                response = requests.get(output.get("url"))
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-                for k, v in (intermediate_outputs or {}).items():
-                    if "url" not in v:
-                        continue
-                    ext = v.get("url").split(".")[-1]
-                    filename = f"{tool}_{i}_{k}.{ext}"
-                    file_path = os.path.join(results_dir, filename)
-                    response = requests.get(v.get("url"))
-                    with open(file_path, "wb") as f:
-                        f.write(response.content)
+            output, intermediate_outputs = result.get("output", {}), result.get("intermediate_outputs", {})
+            print("output!!!", output)
+            if not output or "url" not in output:
+                continue
+            ext = output.get("url").split(".")[-1]
+            filename = f"{tool}.{ext}" if len(result) > 1 else f"{tool}.{ext}"
+            file_path = os.path.join(results_dir, filename)
+            response = requests.get(output.get("url"))
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+        for k, v in intermediate_outputs.items():
+            if "url" not in v:
+                continue
+            ext = v.get("url").split(".")[-1]
+            filename = f"{tool}_{k}.{ext}"
+            file_path = os.path.join(results_dir, filename)
+            response = requests.get(v.get("url"))
+            with open(file_path, "wb") as f:
+                f.write(response.content)
     print(f"Test results saved to {results_dir}")

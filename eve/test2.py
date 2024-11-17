@@ -11,10 +11,8 @@ async def async_main():
 
 async def async_main_task():
     user_id = os.getenv("EDEN_TEST_USER_STAGE")
-    tt = tool.test_args
-    tt.update({"n_samples": 2})
-    print(tt)
-    task = await tool.async_start_task(user_id, tt, env="STAGE")
+    task = await tool.async_start_task(user_id, tool.test_args, db="STAGE")
+    print(task)
     result = await tool.async_wait(task)
     print("THJE TASKS")
     print(result)
@@ -22,5 +20,5 @@ async def async_main_task():
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(async_main())
+    # asyncio.run(async_main())
     asyncio.run(async_main_task())
