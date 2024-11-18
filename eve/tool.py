@@ -263,13 +263,8 @@ class Tool(BaseModel, ABC):
                 args = self.prepare_args(args)
                 add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                print("LETS LOAD USER", user_id, db)
                 user = User.load(user_id, db=db)
-                print("found a user", user)
-                print("11")
                 user.verify_manna_balance(cost)
-                print("22")
-                print("verified manna balance")
                 
             except Exception as e:
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
@@ -285,8 +280,6 @@ class Tool(BaseModel, ABC):
                 mock=mock
             )
             task.save(db=db)
-
-            print("saved a task", task)
 
             add_breadcrumb(category="handle_start_task", data=task.model_dump())
 
@@ -327,32 +320,9 @@ class Tool(BaseModel, ABC):
                 if task.mock:
                     result = task.result
                 else:
-                    print("lets wait")
-                    print(task)
                     result = await wait_function(self, task)
-                    print("This is the result now")
-                    print(result)
-                    print("this is the actual result", result)
             except Exception as e:
-                print("an exception")
                 result = {"status": "failed", "error": str(e)}
-            # print("---- jghjg134 hgh -==== 222")
-            # print(result)
-            # if isinstance(result, list):
-            #     print("ikts a list")
-            #     print(result)
-            #     if any("error" in r for r in result):
-            #         print("ikts a list with error")
-            #         return {"status": "failed", "error": result}
-            #     else:
-            #         print("ikts a list without error")
-            #         return {"status": "completed", "result": result}
-            # elif "error" in result:
-            #     return {"status": "failed", "error": result}
-            # else:
-            #     result = {"status": "completed", "result": result}
-            #     # return eden_utils.prepare_result(result, task.env)
-            #     return result
             return result
         
         return async_wrapper
@@ -400,14 +370,11 @@ def save_tool_from_dir(tool_dir: str, db: str) -> Tool:
     schema['created_at'] = tool.get('created_at', time) if tool else time
     schema['updated_at'] = time
     
-    print("this is the schema", schema)
-    print("--111---")
     tools.replace_one(
         {"key": schema['key']}, 
         schema,
         upsert=True
     )
-    print("--222---")
 
 
 def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
@@ -429,6 +396,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools = {}
     tools_collection = get_collection("tools2", db=db)
     for tool in tools_collection.find(filter):
+        print("loading tool", tool.get("key"))
         tool = Tool.load_from_schema(tool, prefer_local)
         if tool.status != "inactive" and not include_inactive:
             if tool.key in tools:

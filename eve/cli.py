@@ -24,7 +24,7 @@ def update(db: str, tools: tuple):
 
     db = db.upper()
     
-    tool_dirs = get_tool_dirs()
+    tool_dirs = get_tool_dirs(include_inactive=True)
     
     if tools:
         tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}

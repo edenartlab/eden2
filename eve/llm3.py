@@ -1,3 +1,83 @@
+"""
+user_message = UserMessage(
+    role='user',
+    user=ObjectId, (discord_user, twitter_user, etc)  ( -> this is name)
+    attachments=Dict()
+)
+User (Clerk, Web3Auth):
+    userId
+
+Agent(MongoModel)
+    auth_user:
+    is_user: true|false
+    has manna
+    has profile
+    has rate limits
+    description: 
+    instructions: 
+
+
+
+    
+
+
+Concepts(MongoVersionableModel)
+    base_model:
+    edits:
+    original
+    current
+
+
+ChatMessage(MongoModel)
+    role: Literal["user", "assistant", "system", "tool"]
+    agent: AgentVersion
+
+class UserMessage(ChatMessage):
+    role: Literal["user"] = "user"
+    (name is derived from super.agent) 
+    content: str
+    concepts: Optional[Dict[str, ConceptVersion]] = None
+    attachments: Optional[List[str]] = None
+
+
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    input: Dict[str, Any]
+
+
+class ToolResult(BaseModel):
+    id: str
+    name: str
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+class AssistantMessage(ChatMessage):
+    role: Literal["assistant"] = "assistant"
+    (name is derived from super.agent) 
+    content: Optional[str] = ""
+    thought: Optional[str] = ""
+    tool_calls: Optional[List[ToolCall]] = Field(None, description="Tool calls")
+    finish_reason?
+
+Thread:
+    auth_user:
+    slug: 
+    messages: List[ChatMessage]
+
+think:
+    receives a new user message
+    observes, makes plan, makes intentions
+    intentions:
+        intentions: 
+        chat: true|false
+
+"""
+
+
+
+
+
 import asyncio
 from eve.llm import *
 
@@ -29,6 +109,9 @@ async def main():
     stop = False
     while not stop:
         stop = await run_thread(thread)
+    
+    
+    
     print("STOP!")
 
 
