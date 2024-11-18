@@ -1,5 +1,10 @@
+"""
+This whole file is basically deprecated.
+"""
+
 import os
 import modal
+import asyncio
 import json
 from bson import ObjectId
 from typing import Optional
@@ -7,78 +12,72 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-import auth
-from agent import Agent
-from thread import Thread, UserMessage, async_prompt, prompt
-from models import Task
-from tool import replicate_update_task
-from config import get_all_tools_from_mongo
-from mongo import get_collection
+#import auth
+#from agent import Agent
+#from thread import Thread, UserMessage, async_prompt, prompt
+# from models import Task
 
-env = os.getenv("ENV", "STAGE")
-if env not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {env}. Must be PROD or STAGE")
-app_name = "tools" if env == "PROD" else "tools-dev"
+from eve.tool import Tool
+from eve.task import Task
+from eve.llm import Thread
 
 
-
-agents = get_collection("agents", env=env)
-threads = get_collection("threads", env=env)
-discord_agents = get_collection("discord_agents", env=env)
+db = os.getenv("DB", "STAGE")
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+app_name = "tools" if db == "PROD" else "tools-dev"
 
 
 async def get_or_create_thread(
     request: dict, 
-    user: dict = Depends(auth.authenticate)
+    # user: dict = Depends(auth.authenticate)
 ):
     thread_name = request.get("name")
     if not thread_name:
         raise HTTPException(status_code=400, detail="Thread name is required")
-    thread = Thread.from_name(thread_name, user_id=user["_id"], env=env, create_if_missing=True)
+    thread = Thread.from_name(thread_name, user_id=user["_id"], db=db, create_if_missing=True)
     return {"thread_id": str(thread.id)}
+
+
 
 
 def task_handler(
     request: dict, 
-    _: dict = Depends(auth.authenticate_admin)
+    # _: dict = Depends(auth.authenticate_admin)
 ):
-    # try:
-    if 1:
-        workflow = request.get("workflow")
-        available_tools = get_all_tools_from_mongo()
-        if workflow not in available_tools:
-            raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
-        tool = available_tools[workflow]
-        task = Task(env=env, output_type=tool.output_type, **request)
-        tool.submit(task)
-        task.reload()
+    workflow = request.get("workflow")
+    user = request.get("user")
+    args = request.get("args")
+
+    async def submit_task():
+        tool = Tool.load(workflow, db=db)
+        task = await tool.async_start_task(user, args, db="STAGE")
         return task
-    # except Exception as e:
-    #     print(e)
-    #     raise HTTPException(status_code=400, detail=str(e))
+    
+    return asyncio.run(submit_task())
 
 
 def cancel(
     request: dict, 
-    _: dict = Depends(auth.authenticate_admin)
+    # _: dict = Depends(auth.authenticate_admin)
 ):
     try:
         task_id = request.get("taskId")
-        task = Task.from_id(task_id, env=env)        
+        task = Task.load(task_id, db=db)        
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     
-    available_tools = get_all_tools_from_mongo()
-    tool = available_tools[task.workflow]
-    try:
-        tool.cancel(task)
-        return {"status": task.status}
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
+    # available_tools = get_all_tools_from_mongo()
+    # tool = available_tools[task.workflow]
+    # try:
+    #     tool.cancel(task)
+    #     return {"status": task.status}
+    # except Exception as e:
+    #     print(e)
+    #     raise HTTPException(status_code=500, detail=str(e))
     
 
 async def replicate_update(request: Request):
@@ -105,20 +104,20 @@ async def replicate_update(request: Request):
 
 
 class ChatRequest(BaseModel):
-    message: UserMessage
+    # message: UserMessage
     thread_id: Optional[str]
     agent_id: str
 
 async def ws_chat(data, user):
     request = ChatRequest(**data)
-    agent = Agent.from_id(request.agent_id, env=env)
+    agent = Agent.from_id(request.agent_id, db=db)
     if request.thread_id:
         thread = threads.find_one({"_id": ObjectId(request.thread_id)})
         if not thread:
             raise Exception("Thread not found")
-        thread = Thread.from_id(request.thread_id, env=env)
+        thread = Thread.from_id(request.thread_id, db=db)
     else:
-        thread = Thread(env=env)
+        thread = Thread(db=db)
 
     async for response in async_prompt(thread, agent, request.message):
         yield {
@@ -127,7 +126,7 @@ async def ws_chat(data, user):
 
 
 class DiscordChatRequest(BaseModel):
-    message: UserMessage
+    # message: UserMessage
     thread_id: Optional[str]
     channel_id: str
 
@@ -153,30 +152,11 @@ def get_discord_channels(
     return channel_ids
     
 
-def task_handler(
-    request: dict, 
-    _: dict = Depends(auth.authenticate_admin)
-):
-     
-    if 1:
-        workflow = request.get("workflow")
-        available_tools = get_all_tools_from_mongo()
-        if workflow not in available_tools:
-            raise HTTPException(status_code=400, detail=f"Invalid workflow: {workflow}")
-        tool = available_tools[workflow]
-        task = Task(env=env, output_type=tool.output_type, **request)
-        tool.submit(task)
-        task.reload()
-        return task
-    # except Exception as e:
-    #     print(e)
-    #     raise HTTPException(status_code=400, detail=str(e))
-
 
 def create_handler(task_handler):
     async def websocket_handler(
         websocket: WebSocket, 
-        user: dict = Depends(auth.authenticate_ws)
+        # user: dict = Depends(auth.authenticate_ws)
     ):
         await websocket.accept()
         # try:
@@ -217,29 +197,30 @@ web_app.post("/update")(replicate_update)
 app = modal.App(
     name=app_name,
     secrets=[
-        modal.Secret.from_name("admin-key"),
-        modal.Secret.from_name("clerk-credentials"),
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("gcp-credentials"),
+        modal.Secret.from_name("replicate"),
         modal.Secret.from_name("openai"),
         modal.Secret.from_name("anthropic"),
-        modal.Secret.from_name("replicate"),
+        modal.Secret.from_name("elevenlabs"),
+        modal.Secret.from_name("hedra"),
+        modal.Secret.from_name("newsapi"),
         modal.Secret.from_name("runway"),
         modal.Secret.from_name("sentry"),
-    ],   
+    ], 
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"ENV": env, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
-    .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
-    .pip_install("pyjwt", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "fastapi==0.103.1", "requests", "pyyaml", "python-dotenv", "moviepy", "google-cloud-aiplatform",
-                 "python-socketio", "replicate", "boto3", "python-magic", "Pillow", "pydub", "sentry_sdk")
-    .copy_local_dir("../workflows", remote_path="/workflows")
-    .copy_local_dir("../private_workflows", remote_path="/private_workflows")
-    .copy_local_dir("tools", remote_path="/root/tools")
+    .env({"ENV": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
+    .apt_install("libmagic1", "ffmpeg", "wget")
+    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
+                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-cloud-aiplatform",
+                 "boto3", "replicate", "python-magic", "python-dotenv", "moviepy",
+                 "fastapi>=0.100.0", "pydantic>=2.0.0")
+    # .copy_local_dir("../workflows", remote_path="/workflows")
+    # .copy_local_dir("../private_workflows", remote_path="/private_workflows")
+    # .copy_local_dir("tools", remote_path="/root/tools")
 )
 
 @app.function(
