@@ -1,22 +1,3 @@
-"""
-
-sentry error reporting
-api
-
-llm + thread assembly
-agent/agents cli similar to tools
-cli chat
-
-stash auth
-
-
-
-
-"""
-
-
-
-
 from dotenv import load_dotenv
 from pathlib import Path
 import os

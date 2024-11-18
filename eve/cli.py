@@ -6,7 +6,7 @@ import json
 import click
 import asyncio
 
-from .tool import get_tool_dirs, get_tools_from_mongo, get_tools_from_dirs, save_tool_from_dir
+from .tool import Tool, get_tool_dirs, get_tools_from_mongo, get_tools_from_dirs, save_tool_from_dir
 from .eden_utils import save_test_results, prepare_result
 
 
@@ -16,25 +16,13 @@ def cli():
     pass
 
 
-
-
 @cli.command()
-@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
-@click.argument('agent', required=True)
-def chat(db: str, agent: str):
-    """Update tools in mongo"""
-    
-    click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
-
-
-
-
-
-@cli.command()
-@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to save against')
+@click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
 @click.argument('tools', nargs=-1, required=False)
 def update(db: str, tools: tuple):
-    """Update tools in mongo"""
+    """Upload tools to mongo"""
+
+    db = db.upper()
     
     tool_dirs = get_tool_dirs()
     
@@ -55,12 +43,43 @@ def update(db: str, tools: tuple):
     click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg='blue', bold=True))
 
 
-# does parallel work?
+@cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to load tools from if from mongo')
+@click.argument('tool', required=False)
+@click.pass_context
+def create(ctx, tool: str, db: str):
+    """Create with a tool. Args are passed as --key=value"""
+
+    db = db.upper()
+
+    async def async_create(tool, run_args, db):
+        result = await tool.async_run(run_args, db=db)
+        
+        color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
+        if "error" in result:
+            click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
+        else:
+            result = prepare_result(result, db=db)
+            click.echo(click.style(f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color))
+
+        return result
+
+    tool = Tool.load(tool, db=db)
+    
+    # Get args
+    args = dict()
+    for i in range(0, len(ctx.args), 2):
+        key = ctx.args[i].lstrip('-')
+        value = ctx.args[i + 1] if i + 1 < len(ctx.args) else None
+        args[key] = value
+    
+    result = asyncio.run(async_create(tool, args, db))
+    print(result)
 
 
 @cli.command()
 @click.option('--from_dirs', is_flag=True, default=True, help='Whether to load tools from folders (default is from mongo)')
-@click.option('--db', type=click.Choice(['STAGE', 'PROD']), default='STAGE', help='DB to load tools from if from mongo')
+@click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to load tools from if from mongo')
 @click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
 @click.option('--parallel', is_flag=True, help='Run tests in parallel threads')
 @click.option('--save', is_flag=True, default=True, help='Save test results')
@@ -75,7 +94,9 @@ def test(
     save: bool,
     mock: bool
 ):
-    """Run tools with test args"""
+    """Test multiple tools with their test args"""
+
+    db = db.upper()
 
     async def async_test_tool(tool, api, db):
         color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
@@ -133,6 +154,18 @@ def test(
     errors = [f"{tool}: {result['error']}" for tool, result in zip(tools.keys(), results) if "error" in result]
     error_list = "\n\t".join(errors)
     click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n{error_list}", fg='blue', bold=True))
+
+
+@cli.command()
+@click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
+@click.argument('agent', required=True, default="eve")
+def chat(db: str, agent: str):
+    """Chat with an agent"""
+
+    db = db.upper()
+    
+    click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
+    click.echo(click.style(f"Note: this is not available yet.", fg='red', bold=True))
 
 
 if __name__ == '__main__':

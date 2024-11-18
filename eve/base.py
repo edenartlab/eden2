@@ -32,10 +32,6 @@ class VersionableBaseModel(BaseModel):
         else:
             super().__init__(**kwargs)
 
-    # @classmethod
-    # def load_from(cls, **kwargs):
-    #     return cls(**kwargs)
-
     @classmethod
     def model_validate(cls, obj: Any):
         obj['schema'] = recreate_base_model(obj['schema'])
@@ -250,13 +246,11 @@ def get_python_type(field_info):
         'lora': str,
         'zip': str
     }
-    # print("\n\n\n========\nFIELD INFO")
     # print(field_info)
     optional = 'anyOf' in field_info and {"type": "null"} in field_info['anyOf']
 
     # if 'anyOf' in field_info:
     #     types = field_info['anyOf']
-    #     print("THE TYPES")
     #     print(types)
     #     null_type = next((t for t in types if t.get('type') == 'null'), None)
     #     types = [t for t in types if t != null_type]
@@ -273,26 +267,7 @@ def get_python_type(field_info):
         output_type = Dict[str, Any]
     else:
         output_type = type_map.get(field_type, Any)
-    # if optional:
-    #     output_type = Optional[output_type]
-    # print("OUTPUT TYPE")
-    # print(output_type)
-    # print("\n\n\n\n")
     return output_type
-
-
-
-# def get_type(type_str: str):
-#     type_mapping = {
-#         'str': str,
-#         'int': int,
-#         'float': float,
-#         'bool': bool,
-#         'array': List,
-#         'object': Dict[str, Any]
-#     }
-#     return type_mapping.get(type_str, Any)
-
 
 
 
@@ -303,8 +278,6 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
 
     model_name = schema['name']
     model_schema = schema['schema']
-    # print("lets create the model.........")
-    # print(model_schema['properties'].keys())
     base_model = create_model(model_name, **{
         field: (get_python_type(info), ... if info.get('required', False) else None)
         # for field, info in model_schema['parameters'].items()
@@ -312,17 +285,7 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
     })
 
 
-    # print("BASE MODEL")
-    # from pprint import pprint
-    # pprint(base_model.model_fields)
-    # print("\n\n\n\n")
-
-
     return base_model
-
-
-
-
 
 
 
@@ -333,7 +296,7 @@ def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
     fields = {}
     required_fields = schema.get('required', [])
     for field, props in schema.get('parameters', {}).items():
-        # print("==-======")
+        # print("========")
         # print(field)
         # print(props)
         field_kwargs = {}
@@ -394,14 +357,6 @@ def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
         if not props.get('required') and not field in required_fields:
             fields[field] = (Optional[fields[field][0]], fields[field][1])
             fields[field][1].default = field_kwargs.get("default", None)
-
-
-        # print("FIELDS")
-        # print(fields[field])
-
-        # print("==-======")
-
-
 
     return fields
 

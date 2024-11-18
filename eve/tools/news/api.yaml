@@ -1,7 +1,7 @@
 name: Get the news
 description: Get the news
 cost_estimate: 1
-output_type: string
+output_type: str
 status: prod
 visible: false
 parameters:

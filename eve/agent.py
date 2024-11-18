@@ -21,9 +21,6 @@ generic_instructions = """Follow these additional guidelines:
 
 
 
-
-
-
 class Agent(MongoModel):
     key: str
     name: str
