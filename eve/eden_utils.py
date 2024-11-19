@@ -65,19 +65,18 @@ def upload_media(output, db, save_thumbnails=True):
     if save_thumbnails and thumbnail:
         for width in [384, 768, 1024, 2560]:
             img = thumbnail.copy()
-            img.thumbnail((width, 2560), Image.Resampling.LANCZOS) if width < thumbnail.width else thumbnail
+            img.thumbnail(
+                (width, 2560), Image.Resampling.LANCZOS
+            ) if width < thumbnail.width else thumbnail
             img_bytes = PIL_to_bytes(img)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.webp', db=db)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type='.jpg', db=db)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp", db=db)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg", db=db)
 
-    return {
-        "filename": filename,
-        "mediaAttributes": media_attributes
-    }
+    return {"filename": filename, "mediaAttributes": media_attributes}
 
 
 def get_media_attributes(file_path):
-    is_url = file_path.startswith('http://') or file_path.startswith('https://')
+    is_url = file_path.startswith("http://") or file_path.startswith("https://")
     if is_url:
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         file_path = download_file(file_path, temp_file.name, overwrite=True)
@@ -88,32 +87,30 @@ def get_media_attributes(file_path):
         "mimeType": mime_type,
     }
 
-    if 'image' in mime_type:
+    if "image" in mime_type:
         image = Image.open(file_path)
         thumbnail = image.copy()
         width, height = thumbnail.size
-        media_attributes.update({
-            "width": width,
-            "height": height,
-            "aspectRatio": width / height
-        })
+        media_attributes.update(
+            {"width": width, "height": height, "aspectRatio": width / height}
+        )
 
-    elif 'video' in mime_type:
+    elif "video" in mime_type:
         video = VideoFileClip(file_path)
-        thumbnail = Image.fromarray(video.get_frame(0).astype('uint8'), 'RGB')
+        thumbnail = Image.fromarray(video.get_frame(0).astype("uint8"), "RGB")
         width, height = thumbnail.size
-        media_attributes.update({
-            "width": width,
-            "height": height,
-            "aspectRatio": width / height,
-            "duration": video.duration
-        })
+        media_attributes.update(
+            {
+                "width": width,
+                "height": height,
+                "aspectRatio": width / height,
+                "duration": video.duration,
+            }
+        )
         video.close()
 
-    elif 'audio' in mime_type:
-        media_attributes.update({
-            "duration": get_media_duration(file_path)
-        })
+    elif "audio" in mime_type:
+        media_attributes.update({"duration": get_media_duration(file_path)})
 
     if is_url:
         os.remove(file_path)
@@ -134,7 +131,9 @@ def download_file(url, local_filepath, overwrite=False):
             if response.status_code == 404:
                 raise FileNotFoundError(f"No file found at {url}")
             if response.status_code != 200:
-                raise Exception(f"Failed to download from {url}. Status code: {response.status_code}")
+                raise Exception(
+                    f"Failed to download from {url}. Status code: {response.status_code}"
+                )
 
             total = int(response.headers["Content-Length"])
             with open(local_filepath, "wb") as f, tqdm(
@@ -152,7 +151,7 @@ def download_file(url, local_filepath, overwrite=False):
         raise Exception(f"HTTP error occurred while downloading {url}: {e}")
     except Exception as e:
         raise Exception(f"An error occurred while downloading {url}: {e}")
-    
+
 
 def exponential_backoff(
     func,
@@ -168,17 +167,19 @@ def exponential_backoff(
             if attempt == max_attempts:
                 raise e
             jitter = random.uniform(-max_jitter, max_jitter)
-            print(f"Attempt {attempt} failed because: {e}. Retrying in {delay} seconds...") 
+            print(
+                f"Attempt {attempt} failed because: {e}. Retrying in {delay} seconds..."
+            )
             time.sleep(delay + jitter)
             delay = delay * 2
-            
+
 
 def mock_image(args):
     image = Image.new("RGB", (300, 300), color="white")
     draw = ImageDraw.Draw(image)
     font = ImageFont.load_default()
     wrapped_text = textwrap.fill(str(args), width=50)
-    draw.text((5, 5), wrapped_text, fill="black", font=font)    
+    draw.text((5, 5), wrapped_text, fill="black", font=font)
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
     url, _ = s3.upload_buffer(buffer, db="STAGE")
@@ -187,8 +188,13 @@ def mock_image(args):
 
 def get_media_duration(media_file):
     cmd = [
-        "ffprobe", "-v", "error", "-show_entries",
-        "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         media_file,
     ]
     duration = subprocess.check_output(cmd).decode().strip()
@@ -204,10 +210,7 @@ def get_font(font_name, font_size):
 def text_to_lines(text):
     pattern = r"^\d+[\.:]\s*\"?"
     lines = [line for line in text.split("\n") if line]
-    lines = [
-        re.sub(pattern, "", line, flags=re.MULTILINE) 
-        for line in lines
-    ]
+    lines = [re.sub(pattern, "", line, flags=re.MULTILINE) for line in lines]
     return lines
 
 
@@ -218,37 +221,37 @@ def download_image_to_PIL(url):
 
 
 def PIL_to_bytes(image, ext="JPEG", quality=95):
-    if image.mode == 'RGBA' and ext.upper() not in ['PNG', 'WEBP']:
-        image = image.convert('RGB')
+    if image.mode == "RGBA" and ext.upper() not in ["PNG", "WEBP"]:
+        image = image.convert("RGB")
     img_byte_arr = BytesIO()
     image.save(img_byte_arr, format=ext, quality=quality)
     return img_byte_arr.getvalue()
 
 
 def image_to_base64(file_path, max_size, quality=95, truncate=False):
-    mime_type = magic.from_file(file_path, mime=True)    
-    if 'video' in mime_type:
+    mime_type = magic.from_file(file_path, mime=True)
+    if "video" in mime_type:
         # Extract the first frame image as thumbnail
         video = VideoFileClip(file_path)
-        img = Image.fromarray(video.get_frame(0).astype('uint8'), 'RGB')
+        img = Image.fromarray(video.get_frame(0).astype("uint8"), "RGB")
         video.close()
     else:
-        img = Image.open(file_path).convert('RGB')    
+        img = Image.open(file_path).convert("RGB")
     if isinstance(max_size, (int, float)):
         w, h = img.size
-        ratio = min(1.0, ((max_size ** 2) / (w * h)) ** 0.5)
+        ratio = min(1.0, ((max_size**2) / (w * h)) ** 0.5)
         max_size = int(w * ratio), int(h * ratio)
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
     img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")
     if truncate:
-        data = data[:64]+"..."    
+        data = data[:64] + "..."
     return data
 
 
 def deep_filter(current, changes):
     if not isinstance(current, dict) or not isinstance(changes, dict):
-        return changes if changes != current else None    
+        return changes if changes != current else None
     result = {}
     for key, value in changes.items():
         if key in current:
@@ -361,11 +364,25 @@ def concatenate_videos(video_files, output_file, fps=30):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp:
             output_video = temp.name
             convert_command = [
-                "ffmpeg", "-y", "-loglevel", "panic",
-                "-i", video, "-r", str(fps), 
-                "-c:v", "libx264", "-crf", "19", "-preset", "fast",
-                "-c:a", "aac", "-b:a", "128k",
-                output_video
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "panic",
+                "-i",
+                video,
+                "-r",
+                str(fps),
+                "-c:v",
+                "libx264",
+                "-crf",
+                "19",
+                "-preset",
+                "fast",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                output_video,
             ]
             subprocess.run(convert_command)
             converted_videos.append(output_video)
@@ -378,17 +395,33 @@ def concatenate_videos(video_files, output_file, fps=30):
         concat_command.extend(["-i", video])
     concat_command.extend(
         [
-            "-y", "-loglevel", "panic",
-            "-filter_complex", filter_complex, "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-crf", "23", "-preset", "fast",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
+            "-y",
+            "-loglevel",
+            "panic",
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "23",
+            "-preset",
+            "fast",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
             output_file,
         ],
     )
     subprocess.run(concat_command)
     for video in converted_videos:
-       os.remove(video)
+        os.remove(video)
 
 
 def get_file_handler(suffix, input_data):
@@ -418,18 +451,39 @@ def make_audiovideo_clip(video_input, audio_input):
         # loop the video to match the audio duration
         looped_video = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "panic", "-stream_loop", "-1", 
-            "-i", video_file,
-            "-c", "copy", "-t", str(audio_duration),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "panic",
+            "-stream_loop",
+            "-1",
+            "-i",
+            video_file,
+            "-c",
+            "copy",
+            "-t",
+            str(audio_duration),
             looped_video.name,
         ]
         subprocess.run(cmd)
 
         # merge the audio and the looped video
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "panic",
-            "-i", looped_video.name, "-i", audio_file,
-            "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", "-shortest",
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "panic",
+            "-i",
+            looped_video.name,
+            "-i",
+            audio_file,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-strict",
+            "experimental",
+            "-shortest",
             output_file.name,
         ]
 
@@ -437,10 +491,22 @@ def make_audiovideo_clip(video_input, audio_input):
         # if no audio, create a silent audio track with same duration as video
         video_duration = get_media_duration(video_file)
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "panic",
-            "-i", video_file,
-            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100:duration={video_duration}",
-            "-c:v", "copy", "-c:a", "aac", "-strict", "experimental",
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "panic",
+            "-i",
+            video_file,
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=channel_layout=stereo:sample_rate=44100:duration={video_duration}",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-strict",
+            "experimental",
             output_file.name,
         ]
 
@@ -454,10 +520,22 @@ def add_audio_to_audiovideo(video_input, audio_input, output_path):
     audio_file = get_file_handler(".mp3", audio_input)
 
     cmd = [
-        "ffmpeg", "-y", 
-        "-i", video_file, "-i", audio_file,
-        "-filter_complex", "[1:a]volume=1.0[a1];[0:a][a1]amerge=inputs=2[a]",
-        "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-ac", "2",
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_file,
+        "-i",
+        audio_file,
+        "-filter_complex",
+        "[1:a]volume=1.0[a1];[0:a][a1]amerge=inputs=2[a]",
+        "-map",
+        "0:v",
+        "-map",
+        "[a]",
+        "-c:v",
+        "copy",
+        "-ac",
+        "2",
         output_path,
     ]
     subprocess.run(cmd, check=True)
@@ -472,10 +550,20 @@ def stitch_image_video(image_file: str, video_file: str, image_left: bool = Fals
         filter_complex = '"[0:v][1:v]scale2ref[vid][img];[vid]setpts=PTS-STARTPTS[vidp];[img]setpts=PTS-STARTPTS[imgp];[vidp][imgp]hstack"'
 
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "panic",
-        "-i", video_file, "-i", image_file,
-        "-filter_complex", filter_complex,
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "panic",
+        "-i",
+        video_file,
+        "-i",
+        image_file,
+        "-filter_complex",
+        filter_complex,
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
         output_file.name,
     ]
     subprocess.run(cmd)
@@ -528,7 +616,7 @@ def video_textbox(
     margin_left: int = 25,
     margin_right: int = 25,
     line_spacing: float = 1.25,
-):    
+):
     font = get_font(font_ttf, font_size)
 
     canvas = Image.new("RGB", (width, height))
@@ -559,11 +647,11 @@ def video_textbox(
 
 
 def concat_sentences(*sentences):
-    return ' '.join([s.strip().rstrip('.') + '.' for s in sentences if s and s.strip()])
+    return " ".join([s.strip().rstrip(".") + "." for s in sentences if s and s.strip()])
 
 
 def is_file(value):
-    return os.path.isfile(value) or value.startswith(('http://', 'https://'))
+    return os.path.isfile(value) or value.startswith(("http://", "https://"))
 
 
 def get_human_readable_error(error_list):
@@ -575,12 +663,12 @@ def get_human_readable_error(error_list):
 
 def pprint(*args, color=None, indent=4):
     colors = {
-        'red': '\033[38;2;255;100;100m',
-        'green': '\033[38;2;100;255;100m',
-        'blue': '\033[38;2;100;100;255m',
-        'yellow': '\033[38;2;255;255;100m',
-        'magenta': '\033[38;2;255;100;255m',
-        'cyan': '\033[38;2;100;255;255m',
+        "red": "\033[38;2;255;100;100m",
+        "green": "\033[38;2;100;255;100m",
+        "blue": "\033[38;2;100;100;255m",
+        "yellow": "\033[38;2;255;255;100m",
+        "magenta": "\033[38;2;255;100;255m",
+        "cyan": "\033[38;2;100;255;255m",
     }
     if not color:
         color = random.choice(list(colors.keys()))
@@ -591,14 +679,18 @@ def pprint(*args, color=None, indent=4):
         colored_output = f"{colors[color]}{string}\033[0m"
         print(colored_output)
 
+
 def random_string(length=28):
     # modeled after Replicate id
-    return ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=length))
+    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=length))
+
 
 def save_test_results(tools, results):
     if not results:
         return
-    results_dir = f"tests_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    results_dir = os.path.join(
+        "tests", "out", f"results_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    )
     os.makedirs(results_dir, exist_ok=True)
     print("this is the results", results)
     for tool, result in zip(tools.keys(), results):
@@ -609,10 +701,16 @@ def save_test_results(tools, results):
             with open(file_path, "w") as f:
                 f.write(result["error"])
         else:
-            outputs, intermediate_outputs = result.get("output", []), result.get("intermediate_outputs", [])
+            outputs, intermediate_outputs = (
+                result.get("output", []),
+                result.get("intermediate_outputs", []),
+            )
             outputs = outputs if isinstance(outputs, list) else [outputs]
-            intermediate_outputs = intermediate_outputs if isinstance(intermediate_outputs, list) else [intermediate_outputs]
-            # print("output!!!", output)
+            intermediate_outputs = (
+                intermediate_outputs
+                if isinstance(intermediate_outputs, list)
+                else [intermediate_outputs]
+            )
 
             for output in outputs:
                 if isinstance(output, dict) and "url" in output:
@@ -626,7 +724,7 @@ def save_test_results(tools, results):
                     file_path = os.path.join(results_dir, f"{tool}.txt")
                     with open(file_path, "w") as f:
                         f.write(output)
-            
+
             for intermediate_output in intermediate_outputs:
                 if not isinstance(intermediate_output, dict):
                     continue
@@ -639,5 +737,5 @@ def save_test_results(tools, results):
                     response = requests.get(v.get("url"))
                     with open(file_path, "wb") as f:
                         f.write(response.content)
-    
+
     print(f"Test results saved to {results_dir}")
