@@ -58,9 +58,6 @@ class ComfyUITool(Tool):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
-        print("THE TASK RESULT IS IN THE END", task.result)
-        print(task)
-        print(task.model_dump(include={"status", "error", "result"}))
         return task.model_dump(include={"status", "error", "result"})
         
     @Tool.handle_cancel

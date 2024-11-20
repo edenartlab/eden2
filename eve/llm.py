@@ -203,12 +203,13 @@ class Thread(Document):
         for key, value in updates.items():
             message = next(m for m in self.messages if m.id == message_id)
             setattr(message.tool_calls[tool_call_index], key, value)
-        self.update2({
+        self.set_against_filter({
             f"messages.$.tool_call.{k}": v for k, v in updates.items()
         }, filter={"messages.id": message_id})
 
 
-
+# messages -> messages with urls prepared
+# messages with urls prepared -> substituted urls
 
 
 
@@ -300,6 +301,8 @@ def anthropic_prompt2(messages, system_message, response_model):
 
 
 # raise Exception("TEST")
+
+
 async def prompt_thread(
     user_id: str, 
     user_message: UserMessage, 
@@ -344,10 +347,11 @@ async def chat():
     tools = get_tools_from_mongo(db="STAGE")
     thread = Thread(db="STAGE", name="test_cli2", user=ObjectId(user_id))
     thread.save()
-    
-    user_message = UserMessage(content="hello there! who am i?")
-    
-    await send_message_to_thread(user_id, user_message, thread, tools)
+    print("ok 1")
+    # user_message = UserMessage(content="hello there! who am i?")
+    user_message = UserMessage(content="can you make a picture of a fancy dog? and then animate the result with runway?")
+    print("ok 2")
+    await prompt_thread(user_id, user_message, thread, tools)
 
 
 

@@ -15,6 +15,9 @@ from .runway.handler import handler as runway
 from .hedra.handler import handler as hedra
 from .elevenlabs.handler import handler as elevenlabs
 
+from .elevenlabs.handler import select_random_voice
+
+
 
 
 # __all__ = [

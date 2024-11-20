@@ -90,10 +90,7 @@ class User(Document):
     #     return "users"
     
     def verify_manna_balance(self, amount: float):
-        print("LETS VERIFY MANNA BALANCE", self.id, self.db)
         mannas = get_collection("mannas", db=self.db)
-        print("LETS FIND MANNA", self.id, self.db)
-        print(type(self.id))
         manna = mannas.find_one({"user": self.id})
         if not manna:
             raise Exception("Mannas not found")

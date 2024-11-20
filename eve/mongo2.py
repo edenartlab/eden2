@@ -30,7 +30,6 @@ db_names = {
 def get_collection(collection_name: str, db: str):
     mongo_client = MongoClient(MONGO_URI)
     db_name = db_names[db]
-    print("returning the collection", db, db_name, collection_name)
     return mongo_client[db_name][collection_name]
 
 def Collection(name):
@@ -98,27 +97,44 @@ class Document(BaseModel):
         """
         return self.model_validate(self.model_dump())
     
-    def update(self, db=None, **kwargs):
+    def update(self, **kwargs):
         """
         Perform granular updates on specific fields.
         """
-        db = db or self.db or "STAGE"
         updated_data = self.model_copy(update=kwargs)
         updated_data.validate_fields()
-        kwargs["updated_at"] = datetime.now(timezone.utc)
-        collection = self.get_collection(db)
-        update_result = collection.update_one({"_id": self.id}, {"$set": kwargs})
+        collection = self.get_collection(self.db)
+        update_result = collection.update_one(
+            {"_id": self.id}, 
+            {
+                "$set": kwargs,
+                "$currentDate": {"updated_at": True}
+            }
+        )
         if update_result.modified_count > 0:
             for key, value in kwargs.items():
                 setattr(self, key, value)
-        self.db = db
 
-    def push(self, field_name: str, value: Union[Any, List[Any]], db=None):
+    def set_against_filter(self, updates: Dict = None, filter: Optional[Dict] = None):
+        """
+        Perform granular updates on specific fields, given an optional filter.
+        """
+        collection = self.get_collection(self.db)
+        update_result = collection.update_one(
+            {"_id": self.id, **filter},
+            {
+                "$set": updates,
+                "$currentDate": {"updated_at": True}
+            }
+        )
+        if update_result.modified_count > 0:
+            self.updated_at = datetime.now(timezone.utc)
+
+    def push(self, field_name: str, value: Union[Any, List[Any]]):
         """
         Push one or more values to an array field in the document, with validation.
         If the value is a Pydantic model, it will be converted to a dictionary before saving.
         """
-        db = db or self.db or "STAGE"
         values_to_push = value if isinstance(value, list) else [value]
 
         # Convert Pydantic models to dictionaries if needed
@@ -134,7 +150,7 @@ class Document(BaseModel):
             raise ValidationError(f"Field '{field_name}' is not a valid list field.")
 
         # Perform the push operation if validation passes
-        collection = self.get_collection(db)
+        collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id},
             {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updated_at": True}}
@@ -143,36 +159,11 @@ class Document(BaseModel):
             if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
                 setattr(self, field_name, getattr(self, field_name) + values_original)
                 self.updated_at = datetime.now(timezone.utc)
-        self.db = db
 
-
-    def update2(self, updates: Dict = None, filter: Optional[Dict] = None, db=None):
-        """
-        Perform granular updates on specific fields, given an optional filter.
-        """
-        db = db or self.db or "STAGE"
-
-        # Perform the update operation in MongoDB
-        collection = self.get_collection(db)
-        update_result = collection.update_one(
-            {"_id": self.id, **filter},
-            {
-                "$set": updates,
-                "$currentDate": {"updated_at": True}
-            }
-        )
-        # if update_result.modified_count > 0:
-        #     for key, value in updates.items():
-        #         setattr(self, key, value)
-        #     self.updated_at = datetime.now(timezone.utc)
-        self.db = db
-
-
-    def update_nested_field(self, field_name: str, index: int, sub_field: str, value, db=None):
+    def update_nested_field(self, field_name: str, index: int, sub_field: str, value):
         """
         Update a specific field within an array of dictionaries, both in MongoDB and in the local instance.
         """
-        db = db or self.db or "STAGE"
         # Create a copy of the current instance and update the nested field for validation
         updated_data = self.model_copy()
         if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
@@ -186,7 +177,7 @@ class Document(BaseModel):
             raise ValidationError(f"Field '{field_name}' is not a valid list field.")
 
         # Perform the update operation in MongoDB
-        collection = self.get_collection(db)
+        collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id},
             {"$set": {
@@ -201,25 +192,21 @@ class Document(BaseModel):
                 if len(field_list) > index and isinstance(field_list[index], dict):
                     field_list[index][sub_field] = value
                     self.updated_at = datetime.now(timezone.utc)
-        self.db = db
 
-    def reload(self, db=None):
+    def reload(self):
         """
         Reload the current document from the database to ensure the instance is up-to-date.
         """
-        db = db or self.db or "STAGE"
-        updated_instance = self.load(self.id, db)
+        updated_instance = self.load(self.id, self.db)
         if updated_instance:
             for key, value in updated_instance.dict().items():
                 setattr(self, key, value)
-        self.db = db
 
-    def delete(self, db=None):
+    def delete(self):
         """
         Delete the document from the database.
         """
-        db = db or self.db or "STAGE"
-        collection = self.get_collection(db)
+        collection = self.get_collection(self.db)
         collection.delete_one({"_id": self.id})
 
 

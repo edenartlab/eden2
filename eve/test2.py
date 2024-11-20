@@ -12,10 +12,11 @@ async def async_main():
 async def async_main_task():
     user_id = os.getenv("EDEN_TEST_USER_STAGE")
     task = await tool.async_start_task(user_id, tool.test_args, db="STAGE")
-    print(task)
     result = await tool.async_wait(task)
     print("THJE TASKS")
     print(result)
+
+
 
 
 if __name__ == "__main__":
