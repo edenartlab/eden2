@@ -1,7 +1,7 @@
 name: Chat
 description: Chat with an agent
 output_type: str
-status: prod
+# status: prod
 cost_estimate: 1
 status: inactive
 visible: false
