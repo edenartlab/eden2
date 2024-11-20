@@ -48,12 +48,18 @@ certifi==2024.8.30
     # via modal
     # via requests
     # via sentry-sdk
+cffi==1.17.1
+    # via cryptography
 charset-normalizer==3.4.0
     # via requests
+clerk-backend-api==1.3.1
+    # via eve
 click==8.1.7
     # via eve
     # via modal
     # via typer
+cryptography==43.0.3
+    # via clerk-backend-api
 decorator==4.4.2
     # via moviepy
 distro==1.9.0
@@ -67,6 +73,8 @@ docstring-parser==0.16
     # via instructor
 elevenlabs==1.12.1
     # via eve
+eval-type-backport==0.2.0
+    # via clerk-backend-api
 fastapi==0.115.5
     # via eve
     # via modal
@@ -132,6 +140,7 @@ httpcore==1.0.7
     # via httpx
 httpx==0.27.2
     # via anthropic
+    # via clerk-backend-api
     # via elevenlabs
     # via eve
     # via openai
@@ -159,6 +168,8 @@ jiter==0.6.1
 jmespath==1.0.1
     # via boto3
     # via botocore
+jsonpath-python==1.0.6
+    # via clerk-backend-api
 jsonref==1.1.0
     # via eve
 markdown-it-py==3.0.0
@@ -175,6 +186,8 @@ multidict==6.1.0
     # via aiohttp
     # via grpclib
     # via yarl
+mypy-extensions==1.0.0
+    # via typing-inspect
 numpy==2.1.3
     # via eve
     # via imageio
@@ -213,8 +226,11 @@ pyasn1==0.6.1
     # via rsa
 pyasn1-modules==0.4.1
     # via google-auth
+pycparser==2.22
+    # via cffi
 pydantic==2.9.2
     # via anthropic
+    # via clerk-backend-api
     # via elevenlabs
     # via eve
     # via fastapi
@@ -232,12 +248,14 @@ pydub==0.25.1
 pygments==2.18.0
     # via rich
 pyjwt==2.10.0
+    # via clerk-backend-api
     # via eve
 pymongo==4.6.1
     # via eve
-python-dateutil==2.9.0.post0
+python-dateutil==2.8.2
     # via botocore
     # via bson
+    # via clerk-backend-api
     # via google-cloud-bigquery
 python-dotenv==1.0.1
     # via eve
@@ -321,6 +339,9 @@ typing-extensions==4.12.2
     # via runwayml
     # via synchronicity
     # via typer
+    # via typing-inspect
+typing-inspect==0.9.0
+    # via clerk-backend-api
 urllib3==2.2.3
     # via botocore
     # via requests

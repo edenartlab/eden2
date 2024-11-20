@@ -5,14 +5,23 @@ import json
 from bson import ObjectId
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    Depends,
+    HTTPException,
+    Request,
+)
 from starlette.websockets import WebSocketDisconnect, WebSocketState
+from fastapi.middleware.cors import CORSMiddleware
 
-#import auth
-#from agent import Agent
-#from thread import Thread, UserMessage, async_prompt, prompt
+# import auth
+# from agent import Agent
+# from thread import Thread, UserMessage, async_prompt, prompt
 # from models import Task
 
+from eve import auth
 from eve.tool import Tool
 from eve.task import Task
 from eve.llm import Thread
@@ -24,9 +33,8 @@ if db not in ["PROD", "STAGE"]:
 app_name = "tools" if db == "PROD" else "tools-dev"
 
 
-
 def task_handler(
-    request: dict, 
+    request: dict,
     # _: dict = Depends(auth.authenticate_admin)  # bring auth back later
 ):
     workflow = request.get("workflow")
@@ -37,14 +45,38 @@ def task_handler(
         tool = Tool.load(workflow, db=db)
         task = await tool.async_start_task(user, args, db="STAGE")
         return task
-    
+
     return asyncio.run(submit_task())
 
+
+def task_handler_authenticated(
+    request: dict,
+    auth: dict = Depends(auth.authenticate),  # bring auth back later
+):
+    workflow = request.get("workflow")
+    user = auth.userId
+    args = request.get("args")
+
+    async def submit_task():
+        tool = Tool.load(workflow, db=db)
+        task = await tool.async_start_task(user, args, db="STAGE")
+        return task
+
+    return asyncio.run(submit_task())
 
 
 web_app = FastAPI()
 
+web_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 web_app.post("/create")(task_handler)
+web_app.post("/create-authenticated")(task_handler_authenticated)
 
 
 app = modal.App(
@@ -60,25 +92,46 @@ app = modal.App(
         modal.Secret.from_name("newsapi"),
         modal.Secret.from_name("runway"),
         modal.Secret.from_name("sentry"),
-    ], 
+    ],
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"ENV": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-cloud-aiplatform",
-                 "boto3", "replicate", "python-magic", "python-dotenv", "moviepy",
-                 "fastapi>=0.100.0", "pydantic>=2.0.0")
+    .pip_install(
+        "pyyaml",
+        "elevenlabs",
+        "openai",
+        "httpx",
+        "cryptography",
+        "pymongo",
+        "instructor[anthropic]",
+        "anthropic",
+        "instructor",
+        "Pillow",
+        "pydub",
+        "sentry_sdk",
+        "pymongo",
+        "runwayml",
+        "google-cloud-aiplatform",
+        "boto3",
+        "replicate",
+        "python-magic",
+        "python-dotenv",
+        "moviepy",
+        "fastapi>=0.100.0",
+        "pydantic>=2.0.0",
+    )
 )
 
+
 @app.function(
-    image=image, 
+    image=image,
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    timeout=3600
+    timeout=3600,
 )
 @modal.asgi_app()
 def fastapi_app():

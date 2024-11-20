@@ -48,15 +48,25 @@ certifi==2024.8.30
     # via modal
     # via requests
     # via sentry-sdk
+cffi==1.17.1
+    # via cryptography
+cfgv==3.4.0
+    # via pre-commit
 charset-normalizer==3.4.0
     # via requests
+clerk-backend-api==1.3.1
+    # via eve
 click==8.1.7
     # via eve
     # via modal
     # via typer
     # via uvicorn
+cryptography==43.0.3
+    # via clerk-backend-api
 decorator==4.4.2
     # via moviepy
+distlib==0.3.9
+    # via virtualenv
 distro==1.9.0
     # via anthropic
     # via openai
@@ -68,9 +78,13 @@ docstring-parser==0.16
     # via instructor
 elevenlabs==1.12.1
     # via eve
+eval-type-backport==0.2.0
+    # via clerk-backend-api
 fastapi==0.115.5
     # via eve
     # via modal
+filelock==3.16.1
+    # via virtualenv
 frozenlist==1.5.0
     # via aiohttp
     # via aiosignal
@@ -134,6 +148,7 @@ httpcore==1.0.7
     # via httpx
 httpx==0.27.2
     # via anthropic
+    # via clerk-backend-api
     # via elevenlabs
     # via eve
     # via openai
@@ -141,6 +156,8 @@ httpx==0.27.2
     # via runwayml
 hyperframe==6.0.1
     # via h2
+identify==2.6.2
+    # via pre-commit
 idna==3.10
     # via anyio
     # via httpx
@@ -161,6 +178,8 @@ jiter==0.6.1
 jmespath==1.0.1
     # via boto3
     # via botocore
+jsonpath-python==1.0.6
+    # via clerk-backend-api
 jsonref==1.1.0
     # via eve
 markdown-it-py==3.0.0
@@ -177,10 +196,15 @@ multidict==6.1.0
     # via aiohttp
     # via grpclib
     # via yarl
+mypy-extensions==1.0.0
+    # via typing-inspect
+nodeenv==1.9.1
+    # via pre-commit
 numpy==2.1.3
     # via eve
     # via imageio
     # via moviepy
+    # via pylance
     # via shapely
 openai==1.54.4
     # via eve
@@ -192,6 +216,9 @@ packaging==24.2
 pillow==11.0.0
     # via eve
     # via imageio
+platformdirs==4.3.6
+    # via virtualenv
+pre-commit==4.0.1
 proglog==0.1.10
     # via moviepy
 propcache==0.2.0
@@ -210,13 +237,18 @@ protobuf==5.28.3
     # via grpcio-status
     # via modal
     # via proto-plus
+pyarrow==18.0.0
+    # via pylance
 pyasn1==0.6.1
     # via pyasn1-modules
     # via rsa
 pyasn1-modules==0.4.1
     # via google-auth
+pycparser==2.22
+    # via cffi
 pydantic==2.9.2
     # via anthropic
+    # via clerk-backend-api
     # via elevenlabs
     # via eve
     # via fastapi
@@ -234,12 +266,15 @@ pydub==0.25.1
 pygments==2.18.0
     # via rich
 pyjwt==2.10.0
+    # via clerk-backend-api
     # via eve
+pylance==0.19.2
 pymongo==4.6.1
     # via eve
-python-dateutil==2.9.0.post0
+python-dateutil==2.8.2
     # via botocore
     # via bson
+    # via clerk-backend-api
     # via google-cloud-bigquery
 python-dotenv==1.0.1
     # via eve
@@ -247,6 +282,7 @@ python-magic==0.4.27
     # via eve
 pyyaml==6.0.2
     # via eve
+    # via pre-commit
 replicate==0.22.0
     # via eve
 requests==2.32.3
@@ -263,6 +299,7 @@ rich==13.9.4
     # via typer
 rsa==4.9
     # via google-auth
+ruff==0.7.4
 runwayml==2.1.0
     # via eve
 s3transfer==0.10.3
@@ -323,11 +360,16 @@ typing-extensions==4.12.2
     # via runwayml
     # via synchronicity
     # via typer
+    # via typing-inspect
+typing-inspect==0.9.0
+    # via clerk-backend-api
 urllib3==2.2.3
     # via botocore
     # via requests
     # via sentry-sdk
 uvicorn==0.32.0
+virtualenv==20.27.1
+    # via pre-commit
 watchfiles==0.24.0
     # via modal
 websockets==14.1
