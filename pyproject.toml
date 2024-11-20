@@ -42,5 +42,10 @@ dependencies = [
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.rye]
+dev-dependencies = [
+    "uvicorn>=0.32.0",
+]
+
 [project.scripts]
 eve = "eve.cli:cli"
