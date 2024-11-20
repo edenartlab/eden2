@@ -29,11 +29,11 @@ image = (
 )
 
 @app.function(image=image, timeout=3600)
-async def run(tool_key: str, args: dict, env: str):
-    result = await handlers[tool_key](args, env=env)
-    return eden_utils.upload_result(result, env=env)
+async def run(tool_key: str, args: dict, db: str):
+    result = await handlers[tool_key](args, db=db)
+    return eden_utils.upload_result(result, db=db)
 
 @app.function(image=image, timeout=3600)
 @task_handler_func
-async def run_task(tool_key: str, args: dict, env: str):
-    return await handlers[tool_key](args, env=env)
+async def run_task(tool_key: str, args: dict, db: str):
+    return await handlers[tool_key](args, db=db)

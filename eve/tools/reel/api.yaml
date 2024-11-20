@@ -2,6 +2,7 @@ name: Reel
 description: Generate a short reel-sized film
 cost_estimate: 20
 output_type: video
+base_model: flux-dev
 status: stage
 visible: false
 parameters:
@@ -10,15 +11,19 @@ parameters:
     label: Prompt
     description: Describe what your reel is about
     required: true
-  use_narrator:
+  use_voiceover:
     type: bool
-    label: Narrator
-    description: Include a narrator in the reel
+    label: Voiceover
+    description: Include a voiceover in the reel
     default: true
-  narration:
+  voice:
     type: str
-    label: Narration
-    description: Override narration. If left blank, narration is auto-generated.
+    label: Voice ID
+    description: Override voice. If left blank, voice is auto-generated.
+  voiceover:
+    type: str
+    label: Voiceover text
+    description: Override voiceover. If left blank, voiceover text is auto-generated.
   use_music:
     type: bool
     label: Music
@@ -41,3 +46,37 @@ parameters:
     description: The aspect ratio of the reel
     default: portrait
     choices: [landscape, portrait]
+  use_lora:
+    type: bool
+    label: Use LoRA
+    description: Apply LoRA finetune model style to image generation
+    tip: |-
+      Models created with Eden LoRA trainer can add people, styles and conceptual embeddings into the diffusion model, giving it an idea of new information provided by the user.
+    default: false
+    comfyui:
+      node_id: 144
+      field: inputs
+      subfield: value
+  lora:
+    type: lora
+    label: LoRA
+    description: Use a LoRA finetune on top of the base model.
+    visible_if: use_lora=true
+    comfyui:
+      node_id: 80
+      field: inputs
+      subfield: lora_name
+  lora_strength:
+    type: float
+    label: LoRA Strength
+    description: Strength of the LoRA
+    tip: |-
+      If outputs resemble the LoRA but have low prompt adherence or all look the same, turn down the LoRA strength.
+    default: 0.6
+    minimum: 0.0
+    maximum: 1.5
+    visible_if: use_lora=true
+    comfyui:
+      node_id: 141
+      field: inputs
+      subfield: value

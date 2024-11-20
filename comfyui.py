@@ -191,17 +191,10 @@ class ComfyUI:
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
-            # intermediate_outputs = {
-            #     key: outputs[str(node_id)]
-            #     for key, node_id in tool.comfyui_intermediate_outputs.items()
-            # } if tool.comfyui_intermediate_outputs else {}
             if not output:
                 raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node_id}") 
             print("---- the final output is ----")
-            result = {
-                "output": output,
-                # "intermediate_outputs": intermediate_outputs
-            }
+            result = {"output": output}
             if tool.comfyui_intermediate_outputs:
                 result["intermediate_outputs"] = {
                     key: outputs[str(node_id)]
@@ -211,29 +204,18 @@ class ComfyUI:
             return result
         except Exception as error:
             print("ComfyUI pipeline error: ", error)
-            print("--- the workflow error is ---")
-            print("raise 1")
-            print("raise 2")
             raise
 
     @modal.method()
     def run(self, tool_key: str, args: dict, db: str):
-        print("run 1")
         result = self._execute(tool_key, args, db=db)
-        print("run 2")
-        z = eden_utils.upload_result(result, db=db)
-        print("run 3")
-        return z
+        return eden_utils.upload_result(result, db=db)
 
     @modal.method()
     @task_handler_method
     async def run_task(self, tool_key: str, args: dict, db: str):
-        print("tak 1")
-        z= self._execute(tool_key, args, db=db)
-        print("tak 2")
-        print("THE TASK RESULT IS", z)
-        return z
-
+        return self._execute(tool_key, args, db=db)
+        
     @modal.enter()
     def enter(self):
         self._start()

@@ -11,8 +11,14 @@ from ... import eden_utils
 eleven = ElevenLabs()
 
 
-async def handler(args: dict, env: str):
+async def handler(args: dict, db: str):
     print("args", args)
+    args["stability"] = args.get("stability", 0.5)
+    args["similarity_boost"] = args.get("similarity_boost", 0.75)
+    args["style"] = args.get("style", 0.0)
+    args["use_speaker_boost"] = args.get("use_speaker_boost", True)
+    args["max_attempts"] = args.get("max_attempts", 3)
+    args["initial_delay"] = args.get("initial_delay", 1)
     
     def generate_with_params():
         return eleven.generate(
@@ -82,7 +88,7 @@ def select_random_voice(
         Predict the most likely gender of this person."""
         
         gender = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-2024-08-06",
             response_model=Literal["male", "female"],
             max_retries=2,
             messages=[
@@ -125,7 +131,7 @@ def select_random_voice(
     Select the voice that best matches the description of the character."""
 
     selected_voice = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o-2024-08-06",
         response_model=Literal[*voice_ids.keys()],
         max_retries=2,
         messages=[
@@ -139,5 +145,7 @@ def select_random_voice(
             },
         ],
     )
+
+    print("selected_voice", selected_voice)
 
     return voice_ids[selected_voice]

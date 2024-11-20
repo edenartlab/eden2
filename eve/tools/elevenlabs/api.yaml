@@ -47,7 +47,7 @@ parameters:
     type: int
     label: Max Attempts
     description: The maximum number of attempts to generate the speech
-    default: 6
+    default: 3
   initial_delay:
     type: int
     label: Initial Delay
