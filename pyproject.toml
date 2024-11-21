@@ -2,7 +2,7 @@
 [project]
 name = "eve"
 version = "0.1.0"
-description = "Tool-calling creative assistant franework"
+description = "Tool-calling creative assistant framework"
 authors = [{ name = "Eden.art", email = "info@eden.art" }]
 dependencies = [
     "anthropic>=0.39.0",
@@ -53,3 +53,4 @@ dev-dependencies = [
 
 [project.scripts]
 eve = "eve.cli:cli"
+dev = "uvicorn eve.api:web_app --reload --port 8000"
