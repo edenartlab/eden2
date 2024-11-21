@@ -15,6 +15,8 @@ from fastapi import (
 )
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from fastapi.middleware.cors import CORSMiddleware
+from openai import AsyncOpenAI
+from fastapi.responses import StreamingResponse
 
 # import auth
 # from agent import Agent
@@ -31,6 +33,33 @@ db = os.getenv("DB", "STAGE")
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools" if db == "PROD" else "tools-dev"
+
+client = AsyncOpenAI()
+
+
+async def chat_stream(request: Request):
+    # Parse the incoming JSON
+    data = await request.json()
+
+    async def generate():
+        stream = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": data["content"]}],
+            stream=True,
+        )
+
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield f"{chunk.choices[0].delta.content}\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def task_handler(
@@ -77,6 +106,7 @@ web_app.add_middleware(
 
 web_app.post("/create")(task_handler)
 web_app.post("/create-authenticated")(task_handler_authenticated)
+web_app.post("/chat/stream")(chat_stream)
 
 
 app = modal.App(
