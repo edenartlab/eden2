@@ -129,30 +129,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"ENV": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install(
-        "pyyaml",
-        "elevenlabs",
-        "openai",
-        "httpx",
-        "cryptography",
-        "pymongo",
-        "instructor[anthropic]",
-        "anthropic",
-        "instructor",
-        "Pillow",
-        "pydub",
-        "sentry_sdk",
-        "pymongo",
-        "runwayml",
-        "google-cloud-aiplatform",
-        "boto3",
-        "replicate",
-        "python-magic",
-        "python-dotenv",
-        "moviepy",
-        "fastapi>=0.100.0",
-        "pydantic>=2.0.0",
-    )
+    .pip_install_from_pyproject("../pyproject.toml")
 )
 
 
