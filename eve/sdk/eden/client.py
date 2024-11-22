@@ -5,26 +5,39 @@ import json
 import httpx
 from aiofiles import open as aio_open
 from pydantic import SecretStr
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class EdenApiUrls:
+    api_url: str
+    tools_api_url: str
 
 
 class EdenClient:
-    def __init__(self, stage=False):
-        if stage:
-            self.api_url = "staging.api.eden.art"
-            self.tools_api_url = "edenartlab--tools-dev-fastapi-app-dev.modal.run" 
+    def __init__(self, stage=False, api_urls: Optional[EdenApiUrls] = None):
+        if api_urls:
+            self.api_url = api_urls.api_url
+            self.tools_api_url = api_urls.tools_api_url
+        elif stage:
+            self.api_url = "https://staging.api.eden.art"
+            self.tools_api_url = (
+                "https://edenartlab--tools-dev-fastapi-app-dev.modal.run"
+            )
         else:
-            self.api_url = "api.eden.art"
-            self.tools_api_url = "edenartlab--tools-fastapi-app.modal.run"
+            self.api_url = "https://api.eden.art"
+            self.tools_api_url = "https://edenartlab--tools-fastapi-app.modal.run"
         self.api_key = get_api_key()
 
-    def create(self, workflow, args):        
+    def create(self, workflow, args):
         return asyncio.run(self.async_create(workflow, args))
-    
+
     async def async_create(self, workflow, args):
-        uri = f"https://{self.api_url}/v2/tasks/create"
+        uri = f"{self.api_url}/v2/tasks/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"workflow": workflow, "args": args}
-        
+
         # try:
         if 1:
             async with httpx.AsyncClient(timeout=60) as client:
@@ -45,9 +58,9 @@ class EdenClient:
         #     raise Exception(f"An error occurred: {str(e)}")
 
     async def _subscribe(self, task_id):
-        url = f"https://{self.api_url}/v2/tasks/events?taskId={task_id}"
+        url = f"{self.api_url}/v2/tasks/events?taskId={task_id}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        
+
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 async with client.stream("GET", url, headers=headers) as response:
@@ -57,15 +70,17 @@ class EdenClient:
                             continue
                         if line.startswith("event:"):
                             event_data = line[6:].strip()
-                        elif line.startswith("data:") and event_data == 'task-update':
+                        elif line.startswith("data:") and event_data == "task-update":
                             yield json.loads(line[6:])
         except httpx.HTTPStatusError as e:
-            raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
+            raise Exception(
+                f"HTTP error occurred: {e.response.status_code} - {e.response.text}"
+            )
         except Exception as e:
             raise Exception(f"An error occurred: {str(e)}")
-        
+
     def get_or_create_thread(self, thread_name):
-        uri = f"https://{self.tools_api_url}/thread/create"
+        uri = f"{self.tools_api_url}/thread/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         payload = {"name": thread_name}
         # try:
@@ -80,33 +95,30 @@ class EdenClient:
         #     raise Exception(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
         # except Exception as e:
         #     raise Exception(f"An error occurred: {str(e)}")
-        
+
     def chat(self, message, thread_id, agent_id):
         async def consume_chat():
-            return [message async for message in self.async_chat(message, thread_id, agent_id)]
+            return [
+                message
+                async for message in self.async_chat(message, thread_id, agent_id)
+            ]
+
         return asyncio.run(consume_chat())
 
     async def async_chat(self, message, thread_id, agent_id):
-        payload = {
-            "message": message,
-            "thread_id": thread_id,
-            "agent_id": agent_id
-        }
+        payload = {"message": message, "thread_id": thread_id, "agent_id": agent_id}
         async for response in self.async_run_ws("/ws/chat", payload):
             yield response
 
     # should come up with a better way to do this
     async def async_discord_chat(self, message, thread_id, channel_id):
-        payload = {
-            "message": message,
-            "thread_id": thread_id,
-            "channel_id": channel_id
-        }
+        payload = {"message": message, "thread_id": thread_id, "channel_id": channel_id}
         async for response in self.async_run_ws("/ws/chat/discord", payload):
             yield response
 
     def get_discord_channels(self):
-        uri = f"https://{self.tools_api_url}/chat/discord/channels"
+        uri = f"{self.tools_api_url}/chat/discord/channels"
+        print("uri", uri)
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         with httpx.Client(timeout=60) as client:
             response = client.post(uri, headers=headers, json={})
@@ -114,7 +126,7 @@ class EdenClient:
             return response.json()
 
     async def async_run(self, endpoint, payload):
-        uri = f"https://{self.tools_api_url}{endpoint}"
+        uri = f"{self.tools_api_url}{endpoint}"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(uri, headers=headers, json=payload)
@@ -126,7 +138,7 @@ class EdenClient:
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
         # try:
         if 1:
-            async with websockets.connect(uri, extra_headers=headers) as websocket:                
+            async with websockets.connect(uri, extra_headers=headers) as websocket:
                 await websocket.send(json.dumps(payload))
                 async for message in websocket:
                     message_data = json.loads(message)
@@ -146,7 +158,7 @@ class EdenClient:
             files = {"media": ("media", media)}
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(
-                    f"https://{self.api_url}/media/upload",
+                    f"{self.api_url}/media/upload",
                     headers=headers,
                     files=files,
                 )
@@ -163,4 +175,6 @@ def get_api_key() -> SecretStr:
             api_key = file.read().strip()
         return SecretStr(api_key)
     except FileNotFoundError:
-        raise Exception("\033[91mNo EDEN_API_KEY found. Please set it in your environment or run `eden login` to save it in your home directory.\033[0m")
+        raise Exception(
+            "\033[91mNo EDEN_API_KEY found. Please set it in your environment or run `eden login` to save it in your home directory.\033[0m"
+        )
