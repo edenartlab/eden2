@@ -1,0 +1,11 @@
+name: Meme generator
+description: Make memes
+output_type: image
+cost_estimate: 10
+status: stage
+parameters:
+  prompt:
+    type: str
+    label: Give a prompt
+    description: Prompt me
+    required: true

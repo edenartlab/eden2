@@ -13,6 +13,7 @@ from .reel.handler import handler as reel
 from .runway.handler import handler as runway
 # from .story.handler import handler as story
 from .hedra.handler import handler as hedra
+from .memegen.handler import handler as memegen
 
 from .elevenlabs.handler import handler as elevenlabs
 from .elevenlabs.handler import select_random_voice
@@ -51,6 +52,7 @@ handlers = {
     # "story": story,
     "hedra": hedra,
     "elevenlabs": elevenlabs,
+    "memegen": memegen
 }
 
 
