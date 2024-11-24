@@ -78,7 +78,7 @@ def create(ctx, tool: str, db: str):
 
 
 @cli.command()
-@click.option('--from_dirs', is_flag=True, default=True, help='Whether to load tools from folders (default is from mongo)')
+@click.option('--yaml', is_flag=True, default=False, help='Whether to load tools from yaml folders (default is from mongo)')
 @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to load tools from if from mongo')
 @click.option('--api', is_flag=True, help='Run tasks against API (If not set, will run tools directly)')
 @click.option('--parallel', is_flag=True, help='Run tests in parallel threads')
@@ -87,7 +87,7 @@ def create(ctx, tool: str, db: str):
 @click.argument('tools', nargs=-1, required=False)
 def test(
     tools: tuple,
-    from_dirs: bool, 
+    yaml: bool, 
     db: str, 
     api: bool, 
     parallel: bool, 
@@ -126,7 +126,7 @@ def test(
             results = [await task for task in tasks]
         return results
 
-    if from_dirs:
+    if yaml:
         all_tools = get_tools_from_dirs()
     else:
         all_tools = get_tools_from_mongo(db=db)

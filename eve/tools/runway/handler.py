@@ -4,13 +4,13 @@ from runwayml import RunwayML
 
 
 
-async def handler(args: dict, env: str):
+async def handler(args: dict, db: str):
     client = RunwayML()
 
     task = client.image_to_video.create(
         model='gen3a_turbo',
         prompt_image=args["prompt_image"],
-        prompt_text=args["prompt_text"]
+        prompt_text=args["prompt_text"][:512]
     )
     task_id = task.id
     print(task_id)

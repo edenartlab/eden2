@@ -236,11 +236,12 @@ def image_to_base64(file_path, max_size, quality=95, truncate=False):
         img = Image.fromarray(video.get_frame(0).astype("uint8"), "RGB")
         video.close()
     else:
-        img = Image.open(file_path).convert("RGB")
+        img = Image.open(file_path)
     if isinstance(max_size, (int, float)):
         w, h = img.size
         ratio = min(1.0, ((max_size**2) / (w * h)) ** 0.5)
         max_size = int(w * ratio), int(h * ratio)
+    img = img.convert("RGB")
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
     img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")

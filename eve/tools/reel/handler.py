@@ -3,6 +3,9 @@
 
 import math
 import asyncio
+import tempfile
+import random
+from pprint import pprint
 from io import BytesIO
 from pydub import AudioSegment
 from pydub.utils import ratio_to_db
@@ -140,7 +143,7 @@ def write_reel23(
 class Reel(BaseModel):
     """A reel is a short film of 30-60 seconds in length. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format."""
 
-    voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user.")
+    voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user. Make sure this is at least 30 words, or 2-3 sentences minimum.")
     music_prompt: str = Field(..., description="A prompt describing the music to compose for the reel. Describe instruments, genre, style, mood qualities, emotion, and any other relevant details.")
     visual_prompt: str = Field(..., description="A prompt a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, and action.")
     # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
@@ -157,14 +160,14 @@ def write_reel(
     voiceover: str = None,
     music_prompt: str = None,
 ):
-    system_prompt = "You are a critically acclaimed video director who writes incredibly captivating and original short-length single-scene reels of less than 1 minute in length which regularly go viral on social media."
-    
+    system_prompt = "You are a critically acclaimed video director who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which regularly go viral on social media."
+    print("make the reel !!!\n\n")
     if voiceover:
         prompt += f'\nUse this for the voiceover text: "{voiceover}"'
     if music_prompt:
         prompt += f'\nUse this for the music prompt: "{music_prompt}"'
 
-    prompt = f"""Users prompt you with a premise or synopsis for a reel. They may give you a cast of characters, a premise for the story, a narration, or just a basic spark of an idea. If they give you a lot of details, you should stay authentic to their vision. Otherwise, you should feel free to compensate for a lack of detail by adding your own creative flourishes.
+    prompt = f"""Users prompt you with a premise or synopsis for a reel. They may give you a cast of characters, a premise for the story, a narration, or just a basic spark of an idea. If they give you a lot of details, you should stay authentic to their vision. Otherwise, you should feel free to compensate for a lack of detail by adding your own creative flourishes. Make sure the voiceover is at least 30 words, or 2-3 sentences minimum.
     
     You are given the following prompt to make a short reeL:
     ---    
@@ -181,9 +184,9 @@ def write_reel(
         # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
 
 
-    return Reel(
-        voiceover='In the heart of a hidden forest, Verdelis stumbled upon a realm where reality twisted into magic. Her eyes widened at the sight of a mystical creature, shimmering with ethereal elegance, its eyes holding ancient secrets and untold stories. In this moment, the ordinary paused, and an extraordinary bond was born.', music_prompt='A mystical, enchanting orchestral piece with soft strings and ethereal woodwinds, creating a sense of wonder and discovery. The music is gentle and flowing, capturing the magical atmosphere of the forest encounter.', visual_prompt="A serene, enchanted forest with dappled sunlight filtering through lush green leaves. The scene shows Verdelis, a young adventurer dressed in earth-toned attire, floating gracefully through the trees. She encounters a mystical creature—a unicorn-like being with shimmering iridescent skin and an elegant presence. The forest is vibrant with colors, and there's a magical aura surrounding the creature, creating an ethereal glow that illuminates the scene, capturing a moment of awe and wonder."
-    )
+    # return Reel(
+    #     voiceover='In the heart of a hidden forest, Verdelis stumbled upon a realm where reality twisted into magic. Her eyes widened at the sight of a mystical creature, shimmering with ethereal elegance, its eyes holding ancient secrets and untold stories. In this moment, the ordinary paused, and an extraordinary bond was born.', music_prompt='A mystical, enchanting orchestral piece with soft strings and ethereal woodwinds, creating a sense of wonder and discovery. The music is gentle and flowing, capturing the magical atmosphere of the forest encounter.', visual_prompt="A serene, enchanted forest with dappled sunlight filtering through lush green leaves. The scene shows Verdelis, a young adventurer dressed in earth-toned attire, floating gracefully through the trees. She encounters a mystical creature—a unicorn-like being with shimmering iridescent skin and an elegant presence. The forest is vibrant with colors, and there's a magical aura surrounding the creature, creating an ethereal glow that illuminates the scene, capturing a moment of awe and wonder."
+    # )
 
     reel = client.chat.completions.create(
         model="gpt-4o-2024-08-06",
@@ -204,28 +207,31 @@ def write_visual_prompts(
 ):
     system_prompt = "You are a critically acclaimed video director and storyboard artist who writes incredibly captivating and original short-length single-scene reels of less than 1 minute in length which regularly go viral on social media."
     
-    prompt = f"""Users prompt you with a reel, which is a 30-60 second long commercial, movie trailer, tiny film, advertisement, or some other short time format. 
+    prompt = f"""Users give you with a reel, which is a 30-60 second long commercial, movie trailer, tiny film, advertisement, or some other short time format. The reel contains a visual prompt for a text-to-image model, and a voiceover.
     
-    You are given the following prompt to make a short reeL:
+    Your job is to produce a sequence of **exactly** {num_clips} visual prompts which respectively describe {num_clips} consecutive mini-scenes in the reel. Each of the prompts you produce should focus on the visual elements, action, content, and aesthetic, not plot or dialogue or other non-visual elements. The prompts should try to line up logically with the voiceover, to tell the story in {num_clips} individual frames. But always use the reel's visual prompt as a reference, in order to keep the individual prompts stylistically close to each other.
+    
+    You are given the following reel:
     ---    
-    {prompt}
+    Visual prompt: {reel.visual_prompt}
+    Voiceover: {reel.voiceover}
     ---
-    Create a short reel based on the prompt."""
+    Create {num_clips} visual prompts from this."""
 
-    return Reel(
-        voiceover='In the heart of a hidden forest, Verdelis stumbled upon a realm where reality twisted into magic. Her eyes widened at the sight of a mystical creature, shimmering with ethereal elegance, its eyes holding ancient secrets and untold stories. In this moment, the ordinary paused, and an extraordinary bond was born.', music_prompt='A mystical, enchanting orchestral piece with soft strings and ethereal woodwinds, creating a sense of wonder and discovery. The music is gentle and flowing, capturing the magical atmosphere of the forest encounter.', visual_prompt="A serene, enchanted forest with dappled sunlight filtering through lush green leaves. The scene shows Verdelis, a young adventurer dressed in earth-toned attire, floating gracefully through the trees. She encounters a mystical creature—a unicorn-like being with shimmering iridescent skin and an elegant presence. The forest is vibrant with colors, and there's a magical aura surrounding the creature, creating an ethereal glow that illuminates the scene, capturing a moment of awe and wonder."
-    )
+    class VisualPrompts(BaseModel):
+        """A sequence of visual prompts which retell the story of the Reel"""
+        prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
 
-    reel = client.chat.completions.create(
+    result = client.chat.completions.create(
         model="gpt-4o-2024-08-06",
-        response_model=Reel,
+        response_model=VisualPrompts,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
     )
 
-    return reel
+    return result.prompts
     
 
 
@@ -248,6 +254,8 @@ async def handler(args: dict, db: str):
     musicgen = Tool.load("musicgen", db=db)
     flux = Tool.load("flux_dev", db=db)
     runway = Tool.load("runway", db=db)
+    video_concat = Tool.load("video_concat", db=db)
+    audio_video_combine = Tool.load("audio_video_combine", db=db)
 
     reel = write_reel(
         prompt=args.get("prompt"),
@@ -261,43 +269,28 @@ async def handler(args: dict, db: str):
 
 
     if args.get("use_voiceover") and reel.voiceover:
-        print("the voice is", args.get("voice"))
         voice = args.get("voice") or select_random_voice("A heroic female voice")
-        print("THE VOICE IS", voice)
+        speech_audio = await elevenlabs.handler({
+            "text": reel.voiceover,
+            "voice_id": voice
+        }, db=db)
 
-        speech_audio = {"output": {"url": "https://edenartlab-stage-data.s3.amazonaws.com/4727fbe1b686b59c374e272e1eaf12f1a3f433c5e51243f2028ecaf21b24b930.mp3"}}
-
-        # speech_audio = await elevenlabs.handler({
-        #     "text": reel.voiceover,
-        #     "voice_id": voice
-        # }, db=db)
-
-        # if speech_audio.get("error"):
-        #     raise Exception(f"Speech generation failed: {speech_audio['error']}")
+        if speech_audio.get("error"):
+            raise Exception(f"Speech generation failed: {speech_audio['error']}")
         
-        # with open(speech_audio['output'], 'rb') as f:
-        #     speech_audio = AudioSegment.from_file(BytesIO(f.read()))
-        # duration = len(speech_audio) / 1000
-        # print("DURATION 0", duration)
-        # new_duration = round(duration / 5) * 5
-        # print("DURATION 1", new_duration)
-        # print("NEW DURATION 2", new_duration)
-        # if new_duration > duration:
-        #     amount_silence = new_duration - duration
-        #     print("AMOUNT SILENCE 3", amount_silence)
-        #     silence = AudioSegment.silent(duration=amount_silence * 1000 * 0.5)
-        #     speech_audio = silence + speech_audio + silence
-        #     print("SPEECH AUDIO 4", speech_audio)
-        #     print("SPEECH AUDIO 4 LENGTH", len(speech_audio))
-
-
-        speech_audio = AudioSegment.from_file(BytesIO(requests.get(speech_audio['output']['url']).content))
-
+        with open(speech_audio['output'], 'rb') as f:
+            speech_audio = AudioSegment.from_file(BytesIO(f.read()))
+        
         duration = len(speech_audio) / 1000
-        # audio_url, _ = s3.upload_audio_segment(speech_audio)
-        audio_url = "https://edenartlab-stage-data.s3.amazonaws.com/4727fbe1b686b59c374e272e1eaf12f1a3f433c5e51243f2028ecaf21b24b930.mp3"
+        new_duration = round((duration + 2) / 5) * 5
+        if new_duration > duration:
+            amount_silence = new_duration - duration
+            silence = AudioSegment.silent(duration=amount_silence * 1000 * 0.5)
+            speech_audio = silence + speech_audio + silence
+        duration = len(speech_audio) / 1000
 
-
+        audio_url, _ = s3.upload_audio_segment(speech_audio)
+        print("audio_url", audio_url)
 
         audio = speech_audio
 
@@ -307,11 +300,11 @@ async def handler(args: dict, db: str):
 
     if args.get("use_music"):
         music_prompt = args.get("music_prompt") or reel.music_prompt
-        # music_audio = await musicgen.async_run({
-        #     "prompt": music_prompt,
-        #     "duration": int(duration)
-        # }, db=db)
-        music_audio = {'output': {'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 20.052}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/430eb06b9a9bd66bece456fd3cd10f8c6d99fb75c1d05a1da6c317247ac171c6.mp3'}, 'status': 'completed'}
+        music_audio = await musicgen.async_run({
+            "prompt": music_prompt,
+            "duration": int(duration)
+        }, db=db)
+        # music_audio = {'output': {'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 20.052}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/430eb06b9a9bd66bece456fd3cd10f8c6d99fb75c1d05a1da6c317247ac171c6.mp3'}, 'status': 'completed'}
 
         if music_audio.get("error"):
             raise Exception(f"Music generation failed: {music_audio['error']}")
@@ -319,7 +312,7 @@ async def handler(args: dict, db: str):
         music_audio = eden_utils.prepare_result(music_audio, db=db)
         print("MUSIC AUDIO 55", music_audio)
 
-        import tempfile
+        
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         music_file = eden_utils.download_file(music_audio['output']['url'], temp_file.name+".mp3")
         print("MUSIC FILE 77", temp_file.name)
@@ -338,61 +331,45 @@ async def handler(args: dict, db: str):
         else:
             audio = music_audio
 
-
-    # upload audio
     if audio:
         audio_url, _ = s3.upload_audio_segment(audio)
-        print("audio_url !!!", audio_url)
-
-    # audio = None
-    # if speech_audio and music_audio:
-    #     diff_db = ratio_to_db(speech_audio.rms / music_audio.rms)
-    #     music_audio = music_audio + diff_db
-    #     speech_audio = speech_audio + speech_boost
-    #     audio = music_audio.overlay(speech_audio)        
-    # elif speech_audio:
-    #     audio = speech_audio
-    # elif music_audio:
-    #     audio = music_audio
-
-    # print("A 1")
-
-    # audio_bytes = audio.export(format="mp3")
-    # print("A 2")
-    # audio_url, _ = s3.upload_audio_segment(audio_bytes, db=db)
-    # print("A 3")
-
-    # print("audio_url", audio_url)
-
-
-
-    tens, fives = duration // 10, (duration - (duration // 10) * 10) // 5
-    durations = [10] * tens + [5] * fives
-    import random
-    random.shuffle(durations)
-
-    num_clips = len(durations)
-
-    print("THE DURATIONS ARE", durations)
-
-
-
-    print("MAKE THE VIDEO!")
     
+    # get resolution
     orientation = args.get("orientation")
+    print("TE ORIENTATION IS", orientation)
     if orientation == "landscape":
-        width = 1280
-        height = 768
+        width, height = 1280, 768
     else:
-        width = 768
-        height = 1280
+        width, height = 768, 1280
+    print("width", width)
+    print("height", height)
+
+    # get sequence lengths
+    print("==== get sequence lengths ====")
+    print("duration", duration)
+    tens, fives = duration // 10, (duration - (duration // 10) * 10) // 5
+    durations = [10] * int(tens) + [5] * int(fives)    
+    random.shuffle(durations)
+    num_clips = len(durations)
+    print("durations", durations)
+    print("num_clips", num_clips)
+
+
+    # get visual prompt sequence
+    print("==== get visual prompt sequence ====")
+    print("reel.visual_prompt", reel.visual_prompt)
+    visual_prompts = write_visual_prompts(reel, num_clips)
+    pprint(visual_prompts)
+
+
+
 
     flux_args = {
         "prompt": reel.visual_prompt,
         "width": width,
         "height": height
-    }        
-    print("flux_args", flux_args)
+    }
+
     use_lora = args.get("use_lora", False)
     if use_lora:
         lora = args.get("lora")
@@ -403,39 +380,88 @@ async def handler(args: dict, db: str):
             "lora_strength": lora_strength
         })
 
-    print("flux_arg !!!s", flux_args)
+    flux_args = [{**flux_args} for _ in range(num_clips)]
+    for i in range(num_clips):
+        print("FLUX ARGS", i)
+        flux_args[i]["prompt"] = visual_prompts[i % len(visual_prompts)]
+        flux_args[i]["seed"] = random.randint(0, 2147483647)
+
+    print("FLUX ARGS!!!")
+    pprint(flux_args)
+
+    images = []
+    for i in range(num_clips):
+        print("================")
+        print("FLUX ARGS", i)
+        print(flux_args[i])
+        image = await flux.async_run(flux_args[i], db=db)
+        print("IMAGE", image)
+        image = eden_utils.prepare_result(image, db=db)
+        print("IMAGE", image)
+        output_url = image['output'][0]["url"]
+        images.append(output_url)
+    # images =['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6af97716cf3a4703877576e07823d5c6492a0355c2c7a55148b8f6a4cc8d97a7.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4bbcee84993883fe767502a29cdbe615e5f16b962de5d92a77e50ca466ef6564.png']
+
+    print("IMAGES!!")
+    print(images)
 
 
-    # num_clips = math.ceil(duration / 10)
-    # print("num_clips", num_clips)
+    # videos = ['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/ccf83bd781685d8a457535c28d28c6c1dc1740486b7ad937813013558b95d4fe.mp4', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/2d22e7328a8a2ad72d16e42d766b9cf67b6c50be129ad8b3733b33eda0f1e369.mp4']
+    videos = []
+    for i, image in enumerate(images):
+        print("i", i)
+        print("image", image)
+        print("flux_args", flux_args[i])
+        print("durations", durations[i])
+        print("ok?", orientation)
+        print("OK!!!!", {
+            "prompt_image": image,
+            "prompt_text": flux_args[i]["prompt"],
+            "duration": str(durations[i]),
+            "ratio": "16:9" if orientation == "landscape" else "9:16"
+        })
+        video = await runway.async_run({
+            "prompt_image": image,
+            "prompt_text": flux_args[i]["prompt"],
+            "duration": str(durations[i]),
+            "ratio": "16:9" if orientation == "landscape" else "9:16"
+        }, db=db)
+        print("video!!", video)
+        video = eden_utils.prepare_result(video, db=db)
+        print("video", video)
+        video = video['output']['url']
+        videos.append(video)
 
-    # flux_args = [flux_args.copy()] * num_clips
-
-    # if num_clips > 1:
-    #     prompts = prompt_variations(prompt, num_clips)        
-    #     print("ORIGINAL PROMPT", prompt)
-    #     print("-----")
-    #     print("PROMPT VARIATIONS")
-    #     for p, new_prompt in enumerate(prompts):
-    #         print(p)
-    #         print("-----")
-    #         flux_args[p]["prompt"] = new_prompt
-        
 
     
-    images = []
-    num_clips = 1
-    for i in range(num_clips):
-        print("i", i)
-        image = await flux.async_run(flux_args, db=db)
-        print("THE IMAGE IS DONE!")
-        print(image)
-        output_url = image[0]["url"]
-        images.append(output_url)
+    video = await video_concat.async_run({"videos": videos}, db=db)
+    video = eden_utils.prepare_result(video, db=db)
+    video_url = video['output']['url']
+    
+    if audio_url:
+        output = await audio_video_combine.async_run({
+            "audio": audio_url,
+            "video": video_url
+        }, db=db)
+        print("OUTPTU!")
+        print(output)
+        final_video = eden_utils.prepare_result(output, db=db)
+        print(final_video)
+        final_video_url = final_video['output']['url']
+        print("a 5")
+        # output_url, _ = s3.upload_file(output)
+        print("a 6")
 
-    print("images1!!", images)
 
-    return {"output": audio_url}
+
+
+    return {
+        "output": final_video_url,
+        "intermediateOutputs": {
+            "images": images,
+            "videos": videos
+        }
+    }
 
 
 async def handler2(args: dict, env: str):
@@ -538,7 +564,8 @@ async def handler2(args: dict, env: str):
             
         # # generate music
         if music and story.music_prompt:
-            musicgen = load_tool("tools/musicgen")
+            from eve.tool import Tool
+            musicgen = Tool.load("musicgen", db="STAGE")
             music = await musicgen.async_run({
                 "prompt": story.music_prompt,
                 "duration": int(duration)
