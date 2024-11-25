@@ -51,6 +51,17 @@ def test_mongo_document():
 
     t2 = MongoModelTest.load(t.id, env="STAGE")
 
+    print("t2:", t2.model_dump())
+    print("expected:", MongoModelTest(
+        env="STAGE", 
+        num=2, 
+        args={"foo": "bar"}, 
+        user=ObjectId("666666663333366666666666"), 
+        id=t.id, 
+        createdAt=t.createdAt, 
+        updatedAt=t.updatedAt
+    ).model_dump())
+
     assert t2 == MongoModelTest(
         env="STAGE", 
         num=2, 

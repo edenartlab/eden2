@@ -22,8 +22,8 @@ def test_tool():
     assert args == {
         'name': 'John', 
         'type': 'thingy', 
-        'price': 1, 
         'age': age,
+        'price': 1, 
         'skills': ['cooking', 'swimming'], 
         'contacts': [
             {'type': 'email', 'value': 'widget@hotmail.com'}, 
