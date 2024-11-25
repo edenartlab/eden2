@@ -3,3 +3,4 @@ __pycache__
 *.egg-info*
 .DS_Store
 tests/out
+dist
