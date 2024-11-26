@@ -44,8 +44,6 @@ def prepare_result(result, db: str, summarize=False):
 
 
 def upload_result(result, db: str, save_thumbnails=False):
-    print("UR", result)
-    # print(" - >", is_file(result), isinstance(result, str))
     if isinstance(result, dict):
         return {k: upload_result(v, db) for k, v in result.items()}
     elif isinstance(result, list):
@@ -693,10 +691,7 @@ def save_test_results(tools, results):
         "tests", "out", f"results_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     )
     os.makedirs(results_dir, exist_ok=True)
-    print("this is the results", results)
     for tool, result in zip(tools.keys(), results):
-        print("------")
-        print(result)
         if "error" in result:
             file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
             with open(file_path, "w") as f:

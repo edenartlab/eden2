@@ -1,5 +1,8 @@
+# messages -> messages with urls prepared
+# messages with urls prepared -> substituted urls
+
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.config import ConfigDict
 from pydantic.json_schema import SkipJsonSchema
@@ -7,6 +10,7 @@ from typing import List, Optional, Dict, Any, Literal, Union
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 import sentry_sdk
+import traceback
 import os
 import json
 import asyncio
@@ -14,25 +18,23 @@ import openai
 import anthropic
 import instructor
 
-
-from eve.mongo2 import Document, Collection
-from eve.eden_utils import pprint, download_file, image_to_base64
+from eve.mongo2 import Document, Collection, get_collection
+from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
 from eve.task import Task
 from eve.tool import Tool, get_tools_from_mongo
-
+from eve.models import User
 
 anthropic_client = anthropic.AsyncAnthropic()
 openai_client = openai.AsyncOpenAI()
 
 
 class ChatMessage(BaseModel):
-    id: ObjectId = Field(default_factory=ObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    id: ObjectId = Field(default_factory=ObjectId)#, alias="_id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True
     )
-
 
 class UserMessage(ChatMessage):
     name: Optional[str] = None
@@ -94,6 +96,7 @@ class ToolCall(BaseModel):
     tool: str
     args: Dict[str, Any]
     
+    db: SkipJsonSchema[str]
     task: Optional[ObjectId] = None
     status: Optional[Literal["pending", "running", "completed", "failed", "cancelled"]] = None
     result: Optional[Dict[str, Any]] = None
@@ -103,20 +106,30 @@ class ToolCall(BaseModel):
         arbitrary_types_allowed=True
     )
 
+    def _get_result(self):
+        result = {"status": self.status}
+        if self.status == "completed":
+            result["result"] = prepare_result(self.result, db=self.db)
+        elif self.status == "failed":
+            result["error"] = self.error
+        return json.dumps(result)
+
     @staticmethod
-    def from_openai(tool_call):
+    def from_openai(tool_call, db="STAGE"):
         return ToolCall(
             id=tool_call.id,
             tool=tool_call.function.name,
             args=json.loads(tool_call.function.arguments),
+            db=db
         )
     
     @staticmethod
-    def from_anthropic(tool_call):
+    def from_anthropic(tool_call, db="STAGE"):
         return ToolCall(
             id=tool_call.id,
             tool=tool_call.name,
             args=tool_call.input,
+            db=db
         )
     
     def openai_call_schema(self):
@@ -136,26 +149,24 @@ class ToolCall(BaseModel):
             "name": self.tool,
             "input": self.args
         }
-    
-    def anthropic_result_schema(self):
+        
+    def anthropic_result_schema(self):        
         return {
             "type": "tool_result",
             "tool_use_id": self.id,
-            "content": json.dumps(self.result)
+            "content": self._get_result()
         }
     
     def openai_result_schema(self):
         return {
             "role": "tool",
             "name": self.tool,
-            "content": json.dumps(self.result),
+            "content": self._get_result(),
             "tool_call_id": self.id
         }
             
-    
-
 class AssistantMessage(ChatMessage):
-    reply_to: Optional[int] = None
+    reply_to: Optional[ObjectId] = None
     thought: Optional[str] = None
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = []
@@ -199,48 +210,68 @@ class Thread(Document):
     user: ObjectId
     messages: List[Union[UserMessage, AssistantMessage]] = []
 
+    @classmethod
+    def from_name(cls, name, user, db="STAGE"):
+        threads = get_collection("threads2", db=db)
+        thread = threads.find_one({"name": name, "user": user})
+        if not thread:
+            new_thread = cls(db=db, name=name, user=user)
+            new_thread.save()
+            return new_thread
+        else:
+            return cls(**thread, db=db)
+
     def update_tool_call(self, message_id, tool_call_index, updates):
+        # Update the in-memory object
         for key, value in updates.items():
             message = next(m for m in self.messages if m.id == message_id)
             setattr(message.tool_calls[tool_call_index], key, value)
+        # Update the database
         self.set_against_filter({
-            f"messages.$.tool_call.{k}": v for k, v in updates.items()
+            f"messages.$.tool_calls.{tool_call_index}.{k}": v for k, v in updates.items()
         }, filter={"messages.id": message_id})
 
 
-# messages -> messages with urls prepared
-# messages with urls prepared -> substituted urls
+async def async_anthropic_prompt(
+    messages: List[Union[UserMessage, AssistantMessage]], 
+    system_message: str = "You are a helpful assistant.", 
+    response_model: Optional[BaseModel] = None, 
+    tools: Dict[str, Tool] = {},
+    db: str = "STAGE"
+):
+    messages_json = [
+        item for msg in messages for item in msg.anthropic_schema()
+    ]
 
-
-
-async def async_anthropic_prompt(messages, system_message, response_model=None, tools={}):
-    messages_json = [item for msg in messages for item in msg.anthropic_schema()]
+    # print("MESSAGES JSON")
+    # pprint(messages_json)
 
     prompt = {
-        "model": "claude-3-5-sonnet-20240620",
+        "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 8192,
         "messages": messages_json,
         "system": system_message,
     }
 
     if response_model:
-        # prompt["response_model"] = response_model
         anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
         prompt["tools"] = anthropic_tools
         prompt["tool_choice"] = "required"
-        pass
+        
     elif tools:
         anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
         prompt["tools"] = anthropic_tools
 
     response = await anthropic_client.messages.create(**prompt)
-    # text_messages = [r.text for r in response.content if r.type == "text" and r.text]
+
     content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
-    tool_calls = [ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"]
+    tool_calls = [ToolCall.from_anthropic(r, db=db) for r in response.content if r.type == "tool_use"]
     stop = response.stop_reason != "tool_use"
+
     return content, tool_calls, stop
 
-async def async_openai_prompt(messages, system_message, tools={}):
+
+async def async_openai_prompt(messages, system_message, tools={}, db="STAGE"):
     messages_json = [item for msg in messages for item in msg.openai_schema()]
 
     openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()]
@@ -252,7 +283,7 @@ async def async_openai_prompt(messages, system_message, tools={}):
     )
     response = response.choices[0]        
     content = response.message.content or ""
-    tool_calls = [ToolCall.from_openai(t) for t in response.message.tool_calls or []]
+    tool_calls = [ToolCall.from_openai(t, db=db) for t in response.message.tool_calls or []]
     stop = response.finish_reason != "tool_calls"
     return content, tool_calls, stop
 
@@ -263,209 +294,81 @@ def openai_prompt(messages, system_message, tools={}):
     return asyncio.run(async_openai_prompt(messages, system_message, tools))
 
 
-
-
-def anthropic_prompt2(messages, system_message, response_model):
-    client = instructor.from_anthropic(anthropic.Anthropic())
-    result = client.messages.create(
-        model="claude-3.5-sonnet-20240620",
-        max_tokens=1024,
-        max_retries=0,
-        messages=messages,
-        # system_message=system_message,
-        response_model=response_model
-    )
-    return result
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# thread = Thread.load("6737ab65f27a1cc88397a361", db="STAGE")
-# thread = Thread(db="STAGE", name="test575", user=ObjectId(user_id))
-# thread.save()
-# thread.add_messages(UserMessage(content="can you make a picture of a fancy dog? go for it"), save=True)
-
-
-# raise Exception("TEST")
-
-
-async def prompt_thread(
+async def async_prompt_thread(
+    db: str,
     user_id: str, 
+    thread_name: str,
     user_message: UserMessage, 
-    thread: Thread, 
     tools: Dict[str, Tool]
 ):
+    user = User.load(user_id, db=db)
+    thread = Thread.from_name(name=thread_name, user=user.id, db=db)
     thread.push("messages", user_message)
 
     while True:
-        content, tool_calls, stop = await async_anthropic_prompt(
-            thread.messages, 
-            "You are a helpful assistant.", 
-            tools=tools
-        )
-        assistant_message = AssistantMessage(
-            content=content or "",
-            tool_calls=tool_calls
-        )
+        try:
+            content, tool_calls, stop = await async_anthropic_prompt(
+                thread.messages, 
+                tools=tools
+            )
+            assistant_message = AssistantMessage(
+                content=content or "",
+                tool_calls=tool_calls,
+                reply_to=user_message.id
+            )
+            thread.push("messages", assistant_message)
+            assistant_message = thread.messages[-1]
+            yield assistant_message
 
-        thread.push("messages", assistant_message)
-        assistant_message = thread.messages[-1]
+        except Exception as e:
+            assistant_message = AssistantMessage(
+                content="I'm sorry, but something went wrong internally. Please try again later.",
+                reply_to=user_message.id
+            )
+            thread.push("messages", assistant_message)
+            capture_exception(e)
+            traceback.print_exc()
+            yield assistant_message
+            # break
+            return
         
         for t, tool_call in enumerate(assistant_message.tool_calls):
-            tool = tools[tool_call.tool]
-            task = await tool.async_start_task(
-                user_id, tool_call.args, db="STAGE"
-            )
-            thread.update_tool_call(assistant_message.id, t, {
-                "task": ObjectId(task.id),
-                "status": "pending"
-            })
-            result = await tool.async_wait(task)
-            thread.update_tool_call(assistant_message.id, t, result)
+            tool = tools.get(tool_call.tool)
+            if not tool:
+                thread.update_tool_call(assistant_message.id, t, {
+                    "task": ObjectId(task.id),
+                    "status": "failed",
+                    "error": f"Tool {tool_call.tool} not found."
+                })
+                continue
+            
+            try:
+                task = await tool.async_start_task(user.id, tool_call.args, db=db)
+                thread.update_tool_call(assistant_message.id, t, {
+                    "task": ObjectId(task.id),
+                    "status": "pending"
+                })
+                result = await tool.async_wait(task)
+                thread.update_tool_call(assistant_message.id, t, result)
+                yield result
+            
+            except Exception as e:
+                thread.update_tool_call(assistant_message.id, t, {
+                    "status": "failed",
+                    "error": str(e)
+                })
+                capture_exception(e)
+                traceback.print_exc()
 
         if stop:
-            break
+            #break
+            return
 
 
-async def chat():
-
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
-    tools = get_tools_from_mongo(db="STAGE")
-    thread = Thread(db="STAGE", name="test_cli2", user=ObjectId(user_id))
-    thread.save()
-    print("ok 1")
-    # user_message = UserMessage(content="hello there! who am i?")
-    user_message = UserMessage(content="can you make a picture of a fancy dog? and then animate the result with runway?")
-    print("ok 2")
-    await prompt_thread(user_id, user_message, thread, tools)
-
-
-
-async def test2():
-    print("ok 1")
-    thread = Thread(db="STAGE", name="test102", user=ObjectId(user_id))
-    print("ok 2")
-    messages = [
-        UserMessage(content="hi there!!."),
-        UserMessage(content="do you hear me?"),
-        UserMessage(content="Hello, tell me something now."),
-        AssistantMessage(content="I have a cat."),
-        AssistantMessage(content="Apples are bananers."),
-        UserMessage(content="what did you just say? repeat everything you said verbatim."),
-        UserMessage(content="hello?"),
-        AssistantMessage(content="I said Apples are bananers."),
-        UserMessage(content="no"),
-        UserMessage(content="you said something before that"),
-    ]
-
-    messages = [
-        UserMessage(name="jim", content="i have an apple."),
-        UserMessage(name="kate", content="the capital of france is paris?"),
-        UserMessage(name="morgan", content="what is even going on here?"),
-        UserMessage(name="scott", content="i am you?"),
-        UserMessage(content="what did morgan say?"),
-    ]
-    print("ok 3")
-    # thread.push("messages", messages[0])
-    # thread.push("messages", messages[1])
-    # thread.push("messages", messages[2])
-    print("ok 4")
-    thread.save()
-    print("ok 5")
-    thread.messages = messages
-
-    content, tool_calls, stop = await async_openai_prompt(
-        thread.messages, 
-        "You are a helpful assistant.", 
-        tools=tools
-    )
-
-    print("CONTENT", content)
-
-
-
-if __name__ == "__main__":
-    asyncio.run(chat())
-
-
-
-
-
-# def interactive_chat(args):
-#     import asyncio
-#     asyncio.run(async_interactive_chat())
-
-
-# from rich.console import Console
-# from rich.progress import Progress, SpinnerColumn, TextColumn
-
-
-# async def async_interactive_chat():
-#     console = Console()
-#     thread_id = client.get_or_create_thread("test_thread")
-#     print("Thread:", thread_id)
-
-#     while True:
-#         try:
-#             console.print("[bold yellow]User:\t", end=' ')
-#             message_input = input("\033[93m\033[1m")
-
-#             if message_input.lower() == 'escape':
-#                 break
-            
-#             content, metadata, attachments = preprocess_message(message_input)
-#             message = {
-#                 "content": content,
-#                 "metadata": metadata,
-#                 "attachments": attachments
-#             }
-            
-#             with Progress(
-#                 SpinnerColumn(), 
-#                 TextColumn("[bold cyan]"), 
-#                 console=console,
-#                 transient=True
-#             ) as progress:
-#                 task = progress.add_task("[cyan]Processing", total=None)
-
-#                 async for response in client.async_chat(message, thread_id):
-#                     progress.update(task)
-#                     error = response.get("error")
-#                     if error:
-#                         console.print(f"[bold red]ERROR:\t({error})[/bold red]")
-#                         continue
-#                     message = json.loads(response.get("message"))
-#                     content = message.get("content") or ""
-#                     if message.get("tool_calls"):
-#                         content += f"{message['tool_calls'][0]['function']['name']}: {message['tool_calls'][0]['function']['arguments']}"
-#                     console.print(f"[bold green]Eden:\t{content}[/bold green]")
-
-#         except KeyboardInterrupt:
-#             break
-
-
-# def preprocess_message(message):
-#     metadata_pattern = r'\{.*?\}'
-#     attachments_pattern = r'\[.*?\]'
-#     metadata_match = re.search(metadata_pattern, message)
-#     attachments_match = re.search(attachments_pattern, message)
-#     metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-#     attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-#     clean_message = re.sub(metadata_pattern, '', message)
-#     clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-#     return clean_message, metadata, attachments
+# i think this might not be right
+def prompt_thread(db, user_id, thread_name, user_message, tools):
+    async def run():
+        return [msg async for msg in async_prompt_thread(db, user_id, thread_name, user_message, tools)]
+    
+    return asyncio.run(run())
 

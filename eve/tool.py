@@ -396,7 +396,6 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools = {}
     tools_collection = get_collection("tools2", db=db)
     for tool in tools_collection.find(filter):
-        print("loading tool", tool.get("key"))
         tool = Tool.load_from_schema(tool, prefer_local)
         if tool.status != "inactive" and not include_inactive:
             if tool.key in tools:

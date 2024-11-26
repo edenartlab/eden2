@@ -177,7 +177,7 @@ async def async_anthropic_prompt(messages, system_message, tools={}):
     
     
     response = await anthropic_client.messages.create(
-        model="claude-3-5-haiku-20241022", #"claude-3-5-sonnet-20240620",
+        model="claude-3-5-haiku-20241022", 
         max_tokens=8192,
         tools=anthropic_tools,
         messages=messages_json,

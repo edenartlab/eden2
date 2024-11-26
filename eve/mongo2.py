@@ -93,6 +93,7 @@ class Document(BaseModel):
             self.id = result.inserted_id
         self.db = db
 
+    # todo: this method is probably superfluous, should remove
     def validate_fields(self):
         """
         Validate fields using Pydantic's built-in validation.
@@ -104,7 +105,7 @@ class Document(BaseModel):
         Perform granular updates on specific fields.
         """
         updated_data = self.model_copy(update=kwargs)
-        updated_data.validate_fields()
+        updated_data.validate_fields()  # todo: check this, it's probably unnecessary
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id}, 
@@ -293,12 +294,7 @@ class VersionableMongoModel(VersionableBaseModel):
         if document is None:
             raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, env: {env}")
         
-        print("---- 1-12-213-4 234 --")
         schema = recreate_base_model(document['schema'])
-        from pprint import pprint
-        print("this is the schema")
-        pprint(schema.model_fields)
-        print("---- 1-12-213-4 234 --")
         initial = schema(**document['initial'])
         current = schema(**document['current'])
         

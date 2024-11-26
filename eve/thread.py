@@ -319,7 +319,7 @@ async def async_anthropic_prompt(messages, system_message, tools):
     messages_json = [item for msg in messages for item in msg.anthropic_schema()]
     anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
     response = await anthropic_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
+        model="claude-3-5-sonnet-20241022",
         max_tokens=8192,
         tools=anthropic_tools,
         messages=messages_json,
