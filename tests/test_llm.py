@@ -11,7 +11,7 @@ def test_prompting():
         db="STAGE",
         user_id=user_id, 
         thread_name="test_cli5", 
-        user_message=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
+        user_messages=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
         tools=get_tools_from_mongo(db="STAGE")
     )
     print(result)
