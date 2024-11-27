@@ -192,13 +192,13 @@ import re
 def preprocess_message(message):
     metadata_pattern = r'\{.*?\}'
     attachments_pattern = r'\[.*?\]'
-    metadata_match = re.search(metadata_pattern, message)
+    # metadata_match = re.search(metadata_pattern, message)
     attachments_match = re.search(attachments_pattern, message)
-    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
+    # metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
     attachments = json.loads(attachments_match.group(0)) if attachments_match else []
     clean_message = re.sub(metadata_pattern, '', message)
     clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-    return clean_message, metadata, attachments
+    return clean_message, attachments
 
 
 
@@ -220,79 +220,66 @@ def chat(db: str, thread: str, agent: str):
     
     click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
     
-    # for message in prompt_thread(
-    #     db=db,
-    #     user_id=user_id, 
-    #     thread_name=thread,
-    #     user_message=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
-    #     tools=get_tools_from_mongo(db)
-    # ):
-    #     click.echo(click.style(message, fg='green', bold=True))
-    prompt_thread(
+    for message in prompt_thread(
         db=db,
         user_id=user_id, 
         thread_name=thread,
-        user_message=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
-        # user_message=UserMessage(content="whats your name?"), 
-        tools=get_tools_from_mongo(db)
-    )
-
+        user_messages=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then animate it with runway."), 
+        tools=get_tools_from_mongo(db),
+        provider="anthropic"
+    ):
+        click.echo(click.style(message, fg='green', bold=True))
 
 
 # this might not work yet...
 @cli.command()
 @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
-@click.option('--thread', type=str, default='cli_test0', help='Thread name')
+@click.option('--thread', type=str, default='cli_test2', help='Thread name')
 @click.argument('agent', required=True, default="eve")
 def chat2(db: str, thread: str, agent: str):
     """Chat with an agent"""
 
-    db = db.upper()
+    async def async_chat(db, thread, agent):
+        db = db.upper()
+        user_id = os.getenv("EDEN_TEST_USER_STAGE")
+        
+        click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
+        console = Console()
 
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
-    
-    click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
-    
-    console = Console()
+        while True:
+            try:
+                console.print("[bold yellow]User:\t", end=' ')
+                message_input = input("\033[93m\033[1m")
 
-    while True:
-        try:
-            console.print("[bold yellow]User:\t", end=' ')
-            message_input = input("\033[93m\033[1m")
+                if message_input.lower() == 'escape':
+                    break
+                
+                content, attachments = preprocess_message(message_input)
+                
+                with Progress(
+                    SpinnerColumn(), 
+                    TextColumn("[bold cyan]"), 
+                    console=console,
+                    transient=True
+                ) as progress:
+                    task = progress.add_task("[cyan]Processing", total=None)
 
-            if message_input.lower() == 'escape':
+                    async for message in async_prompt_thread(
+                        db=db,
+                        user_id=user_id, 
+                        thread_name=thread,
+                        user_messages=UserMessage(content=content, attachments=attachments), 
+                        tools=get_tools_from_mongo(db),
+                        provider="anthropic"
+                    ):
+                        progress.update(task)
+                        content = message
+                        console.print(f"[bold green]Eve:\t{content}[/bold green]")
+
+            except KeyboardInterrupt:
                 break
-            
-            content, metadata, attachments = preprocess_message(message_input)
-            # message = {
-            #     "content": content,
-            #     "metadata": metadata,
-            #     "attachments": attachments
-            # }
-            
-            with Progress(
-                SpinnerColumn(), 
-                TextColumn("[bold cyan]"), 
-                console=console,
-                transient=True
-            ) as progress:
-                task = progress.add_task("[cyan]Processing", total=None)
-                for message in prompt_thread(
-                    db=db,
-                    user_id=user_id, 
-                    thread_name=thread,
-                    user_message=UserMessage(content=content, attachments=attachments), 
-                    tools=get_tools_from_mongo(db)
-                ):
-                    progress.update(task)
-                    # if isinstance(message, AssistantMessage):
-                    content = message#.content
-                    # if message.get("tool_calls"):
-                    #     content += f"{message['tool_calls'][0]['function']['name']}: {message['tool_calls'][0]['function']['arguments']}"
-                    console.print(f"[bold green]Eve:\t{content}[/bold green]")
 
-        except KeyboardInterrupt:
-            break
+    asyncio.run(async_chat(db, thread, agent))
 
 
 if __name__ == '__main__':

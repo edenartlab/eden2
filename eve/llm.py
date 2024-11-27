@@ -347,7 +347,8 @@ async def async_prompt_thread(
     user_id: str, 
     thread_name: str,
     user_messages: Union[UserMessage, List[UserMessage]], 
-    tools: Dict[str, Tool]
+    tools: Dict[str, Tool],
+    provider: Literal["anthropic", "openai"] = "anthropic"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user = User.load(user_id, db=db)
@@ -356,8 +357,12 @@ async def async_prompt_thread(
 
     while True:
         try:
-            # content, tool_calls, stop = await async_anthropic_prompt(
-            content, tool_calls, stop = await async_openai_prompt(
+            async_prompt_function = {
+                "anthropic": async_anthropic_prompt,
+                "openai": async_openai_prompt
+            }[provider]
+
+            content, tool_calls, stop = await async_prompt_function(
                 thread.messages, 
                 tools=tools
             )
@@ -368,7 +373,6 @@ async def async_prompt_thread(
             )
             thread.push("messages", assistant_message)
             assistant_message = thread.messages[-1]
-            # yield assistant_message
 
         except Exception as e:
             assistant_message = AssistantMessage(
@@ -399,7 +403,6 @@ async def async_prompt_thread(
                 })
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
-                # yield result
             
             except Exception as e:
                 thread.update_tool_call(assistant_message.id, t, {
@@ -415,18 +418,31 @@ async def async_prompt_thread(
             break
 
 
+def prompt_thread(
+    db: str,
+    user_id: str, 
+    thread_name: str,
+    user_messages: Union[UserMessage, List[UserMessage]], 
+    tools: Dict[str, Tool],
+    provider: Literal["anthropic", "openai"] = "anthropic"
+):
+    async_gen = async_prompt_thread(db, user_id, thread_name, user_messages, tools, provider)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        while True:
+            try:
+                yield loop.run_until_complete(async_gen.__anext__())
+            except StopAsyncIteration:
+                break
+    finally:
+        loop.close()
+
+
 def print_message(message, name):
     if isinstance(message, AssistantMessage):
         tool_calls = "\n\t".join([f"{t.tool}: {t.get_result()}" for t in message.tool_calls])
         print(f"\n\n===============================\n{name}: {message.content}\n\n{tool_calls}")
     elif isinstance(message, UserMessage):
         print(f"\n\n===============================\n{name}: {message.content}")
-
-# def prompt_thread(db, user_id, thread_name, user_messages, tools):
-#     async def run():
-#         async for message in async_prompt_thread(db, user_id, thread_name, user_messages, tools):
-#             # print(f"Assistant: {message.content}")
-#             print("------ yield message")
-#             print(message)
-    
-#     return asyncio.run(run())
