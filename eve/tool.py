@@ -242,6 +242,7 @@ class Tool(BaseModel, ABC):
                     result = {"output": eden_utils.mock_image(args)}
                 else:
                     result = await run_function(self, args, db)
+                result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
                 add_breadcrumb(category="handle_run", data=result)
                 result = eden_utils.upload_result(result, db)
                 add_breadcrumb(category="handle_run", data=result)
@@ -249,7 +250,6 @@ class Tool(BaseModel, ABC):
             except Exception as e:
                 result = {"status": "failed", "error": str(e)}
                 capture_exception(e)
-            # return eden_utils.prepare_result(result, env)
             return result
         
         return async_wrapper

@@ -8,12 +8,10 @@ from bson import ObjectId
 from abc import abstractmethod
 from typing import Annotated, Optional
 
-
-from pydantic import BaseModel, Field, ValidationError, conint
+from pydantic import BaseModel, Field, ValidationError
 from pymongo import MongoClient
 from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
-
 
 from .base import generate_edit_model, recreate_base_model, VersionableBaseModel
 

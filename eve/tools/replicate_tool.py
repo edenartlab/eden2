@@ -58,13 +58,12 @@ class ReplicateTool(Tool):
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
-        # raise Exception("This is a test error 123 for replicate")
         if self.version is None:
             return task.model_dump(include={"status", "error", "result"})
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
             status = "starting"
-            while True: 
+            while True:
                 if prediction.status != status:
                     status = prediction.status
                     result = replicate_update_task(
@@ -132,6 +131,8 @@ def get_webhook_url():
 
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
+    output = output if isinstance(output, list) else [output]
+
     if status == "failed":
         task.update(status="failed", error=error)
         n_samples = task.args.get("n_samples", 1)
@@ -182,7 +183,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time
-        
+
+        result = result if isinstance(result, list) else [result]
+
         task.status = "completed"
         task.result = result
         task.save()

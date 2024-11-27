@@ -64,7 +64,7 @@ async def chat_stream(request: Request):
 
 def task_handler(
     request: dict,
-    # _: dict = Depends(auth.authenticate_admin)  # bring auth back later
+    # _: dict = Depends(auth.authenticate_admin)
 ):
     workflow = request.get("workflow")
     user = request.get("user")

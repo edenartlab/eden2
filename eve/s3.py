@@ -53,7 +53,7 @@ def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     if f"{s3_buckets[db]}.s3." in url and ".amazonaws.com" in url:
-        print(f"File is already uploaded at {url}")
+        # print(f"File is already uploaded at {url}")
         filename = url.split("/")[-1]
         return url, filename
 
@@ -130,7 +130,7 @@ def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
 
     # Generate and return file URL
     file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
-    print(f"==> Uploaded: {file_url}")
+    # print(f"==> Uploaded: {file_url}")
 
     return file_url, name
 

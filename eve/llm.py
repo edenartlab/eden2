@@ -1,3 +1,34 @@
+
+# X ? what to do about empty text ("this is a test")
+# multiple user messages / multiple assistant messages
+# order by createdAt
+# verify hidden from agent works right, and tips
+# validate args before tool wait
+# sentry thread
+# tidy up handle_wait
+
+# pushing granular updates instead of .save()
+
+
+# make sure to use reply_to to peg assistant
+# contain last 10-15 messages
+# if reply to by old message, include context leading up to it
+# use reply_to index
+
+# vision (make sure it knows thumbnail is a video, or try mp4 vision tool
+# add attachments to s3 and get bytes
+# use filename not url, abstract url, url handling (substitute for fake links)
+# reactions (string)
+
+# thread creating and loading by name/slugs
+# hook up agents
+
+# cli (eve chat)
+# long instructions open ended test
+# think - decide to reply
+# test group chat
+
+
 # messages -> messages with urls prepared
 # messages with urls prepared -> substituted urls
 
@@ -29,14 +60,17 @@ openai_client = openai.AsyncOpenAI()
 
 
 class ChatMessage(BaseModel):
-    id: ObjectId = Field(default_factory=ObjectId)#, alias="_id")
+    id: ObjectId = Field(default_factory=ObjectId)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    role: Literal["user", "assistant"]
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True
     )
 
+
 class UserMessage(ChatMessage):
+    role: Literal["user"] = "user"
     name: Optional[str] = None
     content: str
     metadata: Optional[Dict[str, Any]] = {}
@@ -91,6 +125,7 @@ class UserMessage(ChatMessage):
             **({"name": self.name} if self.name else {})
         }]
 
+
 class ToolCall(BaseModel):
     id: str
     tool: str
@@ -99,20 +134,20 @@ class ToolCall(BaseModel):
     db: SkipJsonSchema[str]
     task: Optional[ObjectId] = None
     status: Optional[Literal["pending", "running", "completed", "failed", "cancelled"]] = None
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
     
     model_config = ConfigDict(
         arbitrary_types_allowed=True
     )
 
-    def _get_result(self):
+    def get_result(self):
         result = {"status": self.status}
         if self.status == "completed":
             result["result"] = prepare_result(self.result, db=self.db)
         elif self.status == "failed":
             result["error"] = self.error
-        return json.dumps(result)
+        return result
 
     @staticmethod
     def from_openai(tool_call, db="STAGE"):
@@ -154,18 +189,20 @@ class ToolCall(BaseModel):
         return {
             "type": "tool_result",
             "tool_use_id": self.id,
-            "content": self._get_result()
+            "content": json.dumps(self.get_result())
         }
     
     def openai_result_schema(self):
         return {
             "role": "tool",
             "name": self.tool,
-            "content": self._get_result(),
+            "content": json.dumps(self.get_result()),
             "tool_call_id": self.id
         }
-            
+
+
 class AssistantMessage(ChatMessage):
+    role: Literal["assistant"] = "assistant"
     reply_to: Optional[ObjectId] = None
     thought: Optional[str] = None
     content: Optional[str] = None
@@ -208,7 +245,7 @@ class AssistantMessage(ChatMessage):
 class Thread(Document):
     name: str
     user: ObjectId
-    messages: List[Union[UserMessage, AssistantMessage]] = []
+    messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
     @classmethod
     def from_name(cls, name, user, db="STAGE"):
@@ -223,8 +260,8 @@ class Thread(Document):
 
     def update_tool_call(self, message_id, tool_call_index, updates):
         # Update the in-memory object
+        message = next(m for m in self.messages if m.id == message_id)
         for key, value in updates.items():
-            message = next(m for m in self.messages if m.id == message_id)
             setattr(message.tool_calls[tool_call_index], key, value)
         # Update the database
         self.set_against_filter({
@@ -271,20 +308,31 @@ async def async_anthropic_prompt(
     return content, tool_calls, stop
 
 
-async def async_openai_prompt(messages, system_message, tools={}, db="STAGE"):
-    messages_json = [item for msg in messages for item in msg.openai_schema()]
 
-    openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()]
-    # print(json.dumps(openai_tools["example_tool"], indent=2))
+async def async_openai_prompt(
+    messages: List[Union[UserMessage, AssistantMessage]], 
+    system_message: str = "You are a helpful assistant.", 
+    response_model: Optional[BaseModel] = None, 
+    tools: Dict[str, Tool] = {},
+    db: str = "STAGE"
+):
+    messages_json = [
+        item for msg in messages for item in msg.openai_schema()
+    ]
+
+
+    openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()] if tools else None
     response = await openai_client.chat.completions.create(
         model="gpt-4o-2024-08-06",
         tools=openai_tools,
         messages=messages_json,
     )
-    response = response.choices[0]        
+    response = response.choices[0]
+
     content = response.message.content or ""
     tool_calls = [ToolCall.from_openai(t, db=db) for t in response.message.tool_calls or []]
     stop = response.finish_reason != "tool_calls"
+    
     return content, tool_calls, stop
 
 def anthropic_prompt(messages, system_message, response_model=None, tools={}):
@@ -298,39 +346,40 @@ async def async_prompt_thread(
     db: str,
     user_id: str, 
     thread_name: str,
-    user_message: UserMessage, 
+    user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool]
 ):
+    user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user = User.load(user_id, db=db)
     thread = Thread.from_name(name=thread_name, user=user.id, db=db)
-    thread.push("messages", user_message)
+    thread.push("messages", user_messages)
 
     while True:
         try:
-            content, tool_calls, stop = await async_anthropic_prompt(
+            # content, tool_calls, stop = await async_anthropic_prompt(
+            content, tool_calls, stop = await async_openai_prompt(
                 thread.messages, 
                 tools=tools
             )
             assistant_message = AssistantMessage(
                 content=content or "",
                 tool_calls=tool_calls,
-                reply_to=user_message.id
+                reply_to=user_messages[-1].id
             )
             thread.push("messages", assistant_message)
             assistant_message = thread.messages[-1]
-            yield assistant_message
+            # yield assistant_message
 
         except Exception as e:
             assistant_message = AssistantMessage(
                 content="I'm sorry, but something went wrong internally. Please try again later.",
-                reply_to=user_message.id
+                reply_to=user_messages[-1].id
             )
             thread.push("messages", assistant_message)
             capture_exception(e)
             traceback.print_exc()
             yield assistant_message
-            # break
-            return
+            break
         
         for t, tool_call in enumerate(assistant_message.tool_calls):
             tool = tools.get(tool_call.tool)
@@ -350,7 +399,7 @@ async def async_prompt_thread(
                 })
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
-                yield result
+                # yield result
             
             except Exception as e:
                 thread.update_tool_call(assistant_message.id, t, {
@@ -360,15 +409,24 @@ async def async_prompt_thread(
                 capture_exception(e)
                 traceback.print_exc()
 
+        yield assistant_message
+
         if stop:
-            #break
-            return
+            break
 
 
-# i think this might not be right
-def prompt_thread(db, user_id, thread_name, user_message, tools):
-    async def run():
-        return [msg async for msg in async_prompt_thread(db, user_id, thread_name, user_message, tools)]
+def print_message(message, name):
+    if isinstance(message, AssistantMessage):
+        tool_calls = "\n\t".join([f"{t.tool}: {t.get_result()}" for t in message.tool_calls])
+        print(f"\n\n===============================\n{name}: {message.content}\n\n{tool_calls}")
+    elif isinstance(message, UserMessage):
+        print(f"\n\n===============================\n{name}: {message.content}")
+
+# def prompt_thread(db, user_id, thread_name, user_messages, tools):
+#     async def run():
+#         async for message in async_prompt_thread(db, user_id, thread_name, user_messages, tools):
+#             # print(f"Assistant: {message.content}")
+#             print("------ yield message")
+#             print(message)
     
-    return asyncio.run(run())
-
+#     return asyncio.run(run())

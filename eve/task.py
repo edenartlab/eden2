@@ -79,9 +79,11 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             result = await func(*args[:-1], task.parent_tool or task.workflow, task_args, task.db)
+            
+            result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
             result = eden_utils.upload_result(result, db=task.db)
             results.extend([result])
-            
+
             if i == n_samples - 1:
                 task_update = {
                     "status": "completed", 

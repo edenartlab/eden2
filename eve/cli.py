@@ -55,9 +55,8 @@ def create(ctx, tool: str, db: str):
 
     async def async_create(tool, run_args, db):
         result = await tool.async_run(run_args, db=db)
-        
         color = random.choice(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"])
-        if "error" in result:
+        if result.get("error"):
             click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
         else:
             result = prepare_result(result, db=db)
@@ -111,7 +110,7 @@ def test(
         else:
             result = await tool.async_run(tool.test_args, db=db, mock=mock)
         
-        if "error" in result:
+        if result.get("error"):
             click.echo(click.style(f"\nFailed to test {tool.key}: {result['error']}", fg='red', bold=True))
         else:
             result = prepare_result(result, db=db)
@@ -150,9 +149,10 @@ def test(
     )
     
     if save and results:
+        # results = prepare_result(results, db=db)
         save_test_results(tools, results)
 
-    errors = [f"{tool}: {result['error']}" for tool, result in zip(tools.keys(), results) if "error" in result]
+    errors = [f"{tool}: {result['error']}" for tool, result in zip(tools.keys(), results) if result.get("error")]
     error_list = "\n\t".join(errors)
     click.echo(click.style(f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n{error_list}", fg='blue', bold=True))
 
@@ -210,7 +210,7 @@ def preprocess_message(message):
 
 @cli.command()
 @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
-@click.option('--thread', type=str, default='cli_test0', help='Thread name')
+@click.option('--thread', type=str, default='clitest0', help='Thread name')
 @click.argument('agent', required=True, default="eve")
 def chat(db: str, thread: str, agent: str):
     """Chat with an agent"""
@@ -220,15 +220,22 @@ def chat(db: str, thread: str, agent: str):
     
     click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
     
-    for message in prompt_thread(
+    # for message in prompt_thread(
+    #     db=db,
+    #     user_id=user_id, 
+    #     thread_name=thread,
+    #     user_message=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
+    #     tools=get_tools_from_mongo(db)
+    # ):
+    #     click.echo(click.style(message, fg='green', bold=True))
+    prompt_thread(
         db=db,
         user_id=user_id, 
         thread_name=thread,
         user_message=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it."), 
+        # user_message=UserMessage(content="whats your name?"), 
         tools=get_tools_from_mongo(db)
-    ):
-        click.echo(click.style(message, fg='green', bold=True))
-    
+    )
 
 
 
