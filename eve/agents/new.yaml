@@ -44,5 +44,5 @@ tools:
 clients:
   discord:
     enabled: true
-  # local:
-  #   enabled: true
+  local:
+    enabled: true

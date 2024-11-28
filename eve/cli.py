@@ -6,11 +6,12 @@ import random
 import json
 import click
 import asyncio
-import sys
-import re
+import time
 
 import yaml
+from dotenv import load_dotenv
 
+from eve.chat import async_chat
 from eve.models import ClientType
 
 from .eden_utils import save_test_results, prepare_result
@@ -21,11 +22,7 @@ from .tool import (
     get_tools_from_dirs,
     save_tool_from_dir,
 )
-from .llm import async_prompt_thread, UserMessage, UpdateType
 from eve.clients.discord.client import start as start_discord
-
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
 @click.group()
@@ -271,23 +268,7 @@ def test(
 #     asyncio.run(async_interactive_chat())
 
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
-
-
 import re
-
-
-def preprocess_message(message):
-    metadata_pattern = r"\{.*?\}"
-    attachments_pattern = r"\[.*?\]"
-    # metadata_match = re.search(metadata_pattern, message)
-    attachments_match = re.search(attachments_pattern, message)
-    # metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-    clean_message = re.sub(metadata_pattern, "", message)
-    clean_message = re.sub(attachments_pattern, "", clean_message).strip()
-    return clean_message, attachments
 
 
 # @cli.command()
@@ -324,99 +305,18 @@ def preprocess_message(message):
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str):
     """Chat with an agent"""
+    asyncio.run(async_chat(db, thread, agent))
 
-    async def async_chat(db, thread, agent):
-        db = db.upper()
-        user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
-        # Initial welcome message with some style
-        console = Console()
-        console.print("\n[bold blue]╭──────────────────────────────────╮")
-        console.print("[bold blue]│          Chat with Eve           │")
-        console.print("[bold blue]╰──────────────────────────────────╯\n")
-        console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
+def start_local_chat(db: str, env_path: str):
+    """Wrapper function for chat that can be pickled"""
+    load_dotenv(env_path)
+    # Get the agent name from the yaml file
+    with open("eve/agents/new.yaml") as f:  # or pass this path as parameter
+        config = yaml.safe_load(f)
+        agent = config.get("name", "eve").lower()
 
-        while True:
-            try:
-                # User input with a nice prompt
-                console.print("[bold yellow]You [dim]→[/dim] ", end="")
-                message_input = input("\033[93m")  # ANSI code for bright yellow
-
-                if message_input.lower() == "escape":
-                    console.print("\n[dim]Goodbye! 👋[/dim]\n")
-                    break
-
-                # Add a newline for spacing
-                print()
-
-                content, attachments = preprocess_message(message_input)
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[bold cyan]"),
-                    console=console,
-                    transient=True,
-                ) as progress:
-                    task = progress.add_task("", total=None)
-
-                    with open(os.devnull, "w") as devnull:
-                        original_stdout = sys.stdout
-                        sys.stdout = devnull
-
-                        async for update in async_prompt_thread(
-                            db=db,
-                            user_id=user_id,
-                            thread_name=thread,
-                            user_messages=UserMessage(
-                                content=content, attachments=attachments
-                            ),
-                            tools=get_tools_from_mongo(db),
-                            provider="anthropic",
-                        ):
-                            sys.stdout = original_stdout
-
-                            progress.update(task)
-                            if update.type == UpdateType.ASSISTANT_MESSAGE:
-                                console.print(
-                                    "[bold green]Eve [dim]→[/dim] [green]"
-                                    + update.message.content
-                                )
-                            elif update.type == UpdateType.TOOL_COMPLETE:
-                                result = prepare_result(
-                                    update.result.get("result"), db=db
-                                )
-                                console.print(
-                                    "[bold cyan]🔧 [dim]" + update.tool_name + "[/dim]"
-                                )
-
-                                # Convert the result to a formatted string
-                                formatted_result = json.dumps(result, indent=2)
-
-                                # Make URLs clickable by wrapping them in Rich's link markup
-                                formatted_result = re.sub(
-                                    r'(https?://[^\s"]+)',
-                                    lambda m: f"[link={m.group(1)}]{m.group(1)}[/link]",
-                                    formatted_result,
-                                )
-
-                                console.print("[cyan]" + formatted_result)
-                            elif update.type == UpdateType.ERROR:
-                                console.print(
-                                    "[bold red]❌ Error: [/bold red]"
-                                    + str(update.error)
-                                )
-
-                            # Add a newline after each message for better readability
-                            print()
-
-                            sys.stdout = devnull
-
-                        sys.stdout = original_stdout
-
-            except KeyboardInterrupt:
-                console.print("\n[dim]Chat interrupted. Goodbye! 👋[/dim]\n")
-                break
-
+    thread = f"local_client_{int(time.time())}"  # unique thread name
     asyncio.run(async_chat(db, thread, agent))
 
 
@@ -427,7 +327,11 @@ def chat(db: str, thread: str, agent: str):
     default="STAGE",
     help="DB to save against",
 )
-@click.option("--env", type=click.Path(exists=True), help="Path to environment file")
+@click.option(
+    "--env",
+    type=click.Path(exists=True, resolve_path=True),
+    help="Path to environment file",
+)
 @click.argument(
     "agents",
     nargs=-1,
@@ -456,28 +360,37 @@ def start(db: str, env: str, agents: tuple):
 
     click.echo(click.style(f"Starting {len(clients_to_start)} clients...", fg="blue"))
 
-    # Start each enabled client in a separate process
+    # Start discord and telegram first, local client last
     processes = []
     for client_type, yaml_path in clients_to_start.items():
-        try:
-            if client_type == ClientType.DISCORD:
-                p = multiprocessing.Process(target=start_discord, args=(env_path,))
-            # elif client_type == ClientType.TELEGRAM:
-            #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))
-            # elif client_type == ClientType.LOCAL:
-            #     p = multiprocessing.Process(target=chat, args=(db,))
+        if client_type != ClientType.LOCAL:
+            try:
+                if client_type == ClientType.DISCORD:
+                    p = multiprocessing.Process(target=start_discord, args=(env_path,))
+                # elif client_type == ClientType.TELEGRAM:
+                #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))
 
-            p.start()
-            processes.append(p)
-            click.echo(click.style(f"Started {client_type.value} client", fg="green"))
-        except Exception as e:
-            click.echo(
-                click.style(
-                    f"Failed to start {client_type.value} client: {e}", fg="red"
+                p.start()
+                processes.append(p)
+                click.echo(
+                    click.style(f"Started {client_type.value} client", fg="green")
                 )
-            )
+            except Exception as e:
+                click.echo(
+                    click.style(
+                        f"Failed to start {client_type.value} client: {e}", fg="red"
+                    )
+                )
 
-    # Wait for all processes
+    # Start local client last to maintain terminal focus
+    if ClientType.LOCAL in clients_to_start:
+        try:
+            click.echo(click.style("Starting local client...", fg="blue"))
+            start_local_chat(db, env_path)
+        except Exception as e:
+            click.echo(click.style(f"Failed to start local client: {e}", fg="red"))
+
+    # Wait for other processes
     try:
         for p in processes:
             p.join()
