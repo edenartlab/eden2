@@ -342,6 +342,27 @@ def openai_prompt(messages, system_message, tools={}):
     return asyncio.run(async_openai_prompt(messages, system_message, tools))
 
 
+
+from enum import Enum
+from typing import Optional, Dict, Any
+
+class UpdateType(str, Enum):
+    ASSISTANT_MESSAGE = "assistant_message"
+    TOOL_COMPLETE = "tool_complete"
+    ERROR = "error"
+
+class ThreadUpdate(BaseModel):
+    type: UpdateType
+    message: Optional[AssistantMessage] = None
+    tool_name: Optional[str] = None
+    tool_index: Optional[int] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+
 async def async_prompt_thread(
     db: str,
     user_id: str, 
@@ -373,16 +394,25 @@ async def async_prompt_thread(
             )
             thread.push("messages", assistant_message)
             assistant_message = thread.messages[-1]
+            yield ThreadUpdate(
+                type=UpdateType.ASSISTANT_MESSAGE,
+                message=assistant_message
+            )
 
         except Exception as e:
+            capture_exception(e)
+            traceback.print_exc()
+
             assistant_message = AssistantMessage(
                 content="I'm sorry, but something went wrong internally. Please try again later.",
                 reply_to=user_messages[-1].id
             )
             thread.push("messages", assistant_message)
-            capture_exception(e)
-            traceback.print_exc()
-            yield assistant_message
+
+            yield ThreadUpdate(
+                type=UpdateType.ERROR,
+                message=assistant_message
+            )
             break
         
         for t, tool_call in enumerate(assistant_message.tool_calls):
@@ -392,7 +422,14 @@ async def async_prompt_thread(
                     "task": ObjectId(task.id),
                     "status": "failed",
                     "error": f"Tool {tool_call.tool} not found."
-                })
+                })                
+                yield ThreadUpdate(
+                    type=UpdateType.ERROR,
+                    tool_name=tool_call.tool,
+                    tool_index=t,
+                    error=f"Tool {tool_call.tool} not found."
+                )
+
                 continue
             
             try:
@@ -401,18 +438,32 @@ async def async_prompt_thread(
                     "task": ObjectId(task.id),
                     "status": "pending"
                 })
+                
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
-            
+                
+                yield ThreadUpdate(
+                    type=UpdateType.TOOL_COMPLETE,
+                    tool_name=tool_call.tool,
+                    tool_index=t,
+                    result=result
+                )
+
             except Exception as e:
+                capture_exception(e)
+                traceback.print_exc()
+
                 thread.update_tool_call(assistant_message.id, t, {
                     "status": "failed",
                     "error": str(e)
                 })
-                capture_exception(e)
-                traceback.print_exc()
 
-        yield assistant_message
+                yield ThreadUpdate(
+                    type=UpdateType.ERROR,
+                    tool_name=tool_call.tool,
+                    tool_index=t,
+                    error=f"Tool {tool_call.tool} not found."
+                )
 
         if stop:
             break

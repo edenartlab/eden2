@@ -5,10 +5,15 @@ import random
 import json
 import click
 import asyncio
+import sys
+import re
 
 from .eden_utils import save_test_results, prepare_result
 from .tool import Tool, get_tool_dirs, get_tools_from_mongo, get_tools_from_dirs, save_tool_from_dir
-from .llm import async_prompt_thread, prompt_thread, UserMessage
+from .llm import async_prompt_thread, prompt_thread, UserMessage, UpdateType
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
 @click.group()
@@ -208,75 +213,115 @@ def preprocess_message(message):
 
 
 
-@cli.command()
-@click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
-@click.option('--thread', type=str, default='clitest0', help='Thread name')
-@click.argument('agent', required=True, default="eve")
-def chat(db: str, thread: str, agent: str):
-    """Chat with an agent"""
+# @cli.command()
+# @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
+# @click.option('--thread', type=str, default='clitest0', help='Thread name')
+# @click.argument('agent', required=True, default="eve")
+# def chat(db: str, thread: str, agent: str):
+#     """Chat with an agent"""
 
-    db = db.upper()
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
+#     db = db.upper()
+#     user_id = os.getenv("EDEN_TEST_USER_STAGE")
     
-    click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
+#     click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
     
-    for message in prompt_thread(
-        db=db,
-        user_id=user_id, 
-        thread_name=thread,
-        user_messages=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then animate it with runway."), 
-        tools=get_tools_from_mongo(db),
-        provider="anthropic"
-    ):
-        click.echo(click.style(message, fg='green', bold=True))
+#     for message in prompt_thread(
+#         db=db,
+#         user_id=user_id, 
+#         thread_name=thread,
+#         user_messages=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then animate it with runway."), 
+#         tools=get_tools_from_mongo(db),
+#         provider="anthropic"
+#     ):
+#         click.echo(click.style(message, fg='green', bold=True))
 
 
-# this might not work yet...
+
 @cli.command()
 @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
 @click.option('--thread', type=str, default='cli_test2', help='Thread name')
 @click.argument('agent', required=True, default="eve")
-def chat2(db: str, thread: str, agent: str):
+def chat(db: str, thread: str, agent: str):
     """Chat with an agent"""
 
     async def async_chat(db, thread, agent):
         db = db.upper()
         user_id = os.getenv("EDEN_TEST_USER_STAGE")
         
-        click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
+        # Initial welcome message with some style
         console = Console()
+        console.print("\n[bold blue]╭──────────────────────────────────╮")
+        console.print("[bold blue]│          Chat with Eve           │")
+        console.print("[bold blue]╰──────────────────────────────────╯\n")
+        console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
 
         while True:
             try:
-                console.print("[bold yellow]User:\t", end=' ')
-                message_input = input("\033[93m\033[1m")
+                # User input with a nice prompt
+                console.print("[bold yellow]You [dim]→[/dim] ", end='')
+                message_input = input("\033[93m")  # ANSI code for bright yellow
 
                 if message_input.lower() == 'escape':
+                    console.print("\n[dim]Goodbye! 👋[/dim]\n")
                     break
+                
+                # Add a newline for spacing
+                print()
                 
                 content, attachments = preprocess_message(message_input)
                 
                 with Progress(
-                    SpinnerColumn(), 
-                    TextColumn("[bold cyan]"), 
+                    SpinnerColumn(),
+                    TextColumn("[bold cyan]"),
                     console=console,
                     transient=True
                 ) as progress:
-                    task = progress.add_task("[cyan]Processing", total=None)
+                    task = progress.add_task("", total=None)
 
-                    async for message in async_prompt_thread(
-                        db=db,
-                        user_id=user_id, 
-                        thread_name=thread,
-                        user_messages=UserMessage(content=content, attachments=attachments), 
-                        tools=get_tools_from_mongo(db),
-                        provider="anthropic"
-                    ):
-                        progress.update(task)
-                        content = message
-                        console.print(f"[bold green]Eve:\t{content}[/bold green]")
+                    with open(os.devnull, 'w') as devnull:
+                        original_stdout = sys.stdout
+                        sys.stdout = devnull
+
+                        async for update in async_prompt_thread(
+                            db=db,
+                            user_id=user_id, 
+                            thread_name=thread,
+                            user_messages=UserMessage(content=content, attachments=attachments), 
+                            tools=get_tools_from_mongo(db),
+                            provider="anthropic"
+                        ):
+                            sys.stdout = original_stdout
+                            
+                            progress.update(task)
+                            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                                console.print("[bold green]Eve [dim]→[/dim] [green]" + update.message.content)
+                            elif update.type == UpdateType.TOOL_COMPLETE:
+                                result = prepare_result(update.result.get("result"), db=db)
+                                console.print("[bold cyan]🔧 [dim]" + update.tool_name + "[/dim]")
+                                
+                                # Convert the result to a formatted string
+                                formatted_result = json.dumps(result, indent=2)
+                                
+                                # Make URLs clickable by wrapping them in Rich's link markup
+                                formatted_result = re.sub(
+                                    r'(https?://[^\s"]+)', 
+                                    lambda m: f'[link={m.group(1)}]{m.group(1)}[/link]', 
+                                    formatted_result
+                                )
+                                
+                                console.print("[cyan]" + formatted_result)
+                            elif update.type == UpdateType.ERROR:
+                                console.print("[bold red]❌ Error: [/bold red]" + str(update.error))
+                            
+                            # Add a newline after each message for better readability
+                            print()
+                            
+                            sys.stdout = devnull
+
+                        sys.stdout = original_stdout
 
             except KeyboardInterrupt:
+                console.print("\n[dim]Chat interrupted. Goodbye! 👋[/dim]\n")
                 break
 
     asyncio.run(async_chat(db, thread, agent))
