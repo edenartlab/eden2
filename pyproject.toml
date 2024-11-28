@@ -41,6 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 discord = ["py-cord>=2.4.1"]
+telegram = ["python-telegram-bot>=21.7"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
@@ -52,6 +53,7 @@ dev-dependencies = [
     "ruff>=0.7.4",
     "pre-commit>=4.0.1",
     "pylance>=0.19.2",
+    "pytest>=8.3.3",
 ]
 
 [project.scripts]

@@ -168,6 +168,8 @@ imageio==2.36.0
     # via moviepy
 imageio-ffmpeg==0.5.1
     # via moviepy
+iniconfig==2.0.0
+    # via pytest
 instructor==1.6.4
     # via eve
 jinja2==3.1.4
@@ -213,12 +215,15 @@ openai==1.54.4
 packaging==24.2
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
+    # via pytest
     # via replicate
 pillow==11.0.0
     # via eve
     # via imageio
 platformdirs==4.3.6
     # via virtualenv
+pluggy==1.5.0
+    # via pytest
 pre-commit==4.0.1
 proglog==0.1.10
     # via moviepy
@@ -274,6 +279,7 @@ pyjwt==2.10.0
 pylance==0.19.2
 pymongo==4.6.1
     # via eve
+pytest==8.3.3
 python-dateutil==2.8.2
     # via botocore
     # via clerk-backend-api
