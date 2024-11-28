@@ -12,17 +12,17 @@ If you prefer to run the bot inside a Docker container, you can follow these ste
 
  ### Build the Docker Image
  ```
-docker build --no-cache -t telegram-bot .
+docker build -f eve/clients/telegram/Dockerfile --build-arg ENV_FILE=eve/clients/telegram/.env -t eve-telegram .
 
  ```
- This will build the Docker image with the tag telegram-bot without using any cached layers.
 
 ### Run the Docker Container
 
 After building the image, run the Docker container with the following command:
 
 ```
-docker run --env-file .env telegram-bot
+docker run --name eve-telegram eve-telegram
+
 
 ```
 
@@ -35,23 +35,19 @@ Make sure the .env file contains the required TELEGRAM_TOKEN and EDEN_API_KEY fo
  If you don't want to use Docker, you can set up the bot  manually:
 
  1. Clone the repository
-
- 2. Create a .env file
-  Copy the .env.example file to .env and set your 
-  TELEGRAM_TOKEN and EDEN_API_KEY in the .env file:
-
- 3. Install dependencies:
-
   ```
-  pip install -r requirements.txt
-
+  git clone https://github.com/edenartlab/eve.git
+  cd eve
+  rye sync
   ```
 
- 4. Run the bot:
-```
-  python client.py
-```
-This will launch the bot and start polling for incoming messages.
+ 2. Running locally:
+
+  ```
+ rye sync --features "telegram"
+ rye add python-telegram-bot==21.7
+ rye run python eve/clients/telegram/client.py --env=./eve/clients/telegram/.env
+ ```
 
 ## Usage
 The bot responds to the following types of interactions:
