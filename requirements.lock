@@ -41,6 +41,8 @@ boto3==1.35.64
 botocore==1.35.64
     # via boto3
     # via s3transfer
+bson==0.5.10
+    # via eve
 cachetools==5.5.0
     # via google-auth
 certifi==2024.8.30
@@ -257,6 +259,7 @@ pymongo==4.6.1
     # via eve
 python-dateutil==2.8.2
     # via botocore
+    # via bson
     # via clerk-backend-api
     # via google-cloud-bigquery
 python-dotenv==1.0.1
@@ -296,6 +299,7 @@ shellingham==1.5.4
 sigtools==4.0.1
     # via synchronicity
 six==1.16.0
+    # via bson
     # via python-dateutil
 smmap==5.0.1
     # via gitdb

@@ -1,8 +1,10 @@
+from enum import Enum
 from bson import ObjectId
 from typing import Dict, Any, Optional, List
 
 # from .mongo import MongoModel, get_collection
 from .mongo2 import Document, Collection, get_collection
+
 
 @Collection("models")
 class Model(Document):
@@ -23,12 +25,11 @@ class Model(Document):
     #     self._make_slug()
 
     def __init__(self, **data):
-        if isinstance(data.get('user'), str):
-            data['user'] = ObjectId(data['user'])
-        if isinstance(data.get('task'), str):
-            data['task'] = ObjectId(data['task'])
+        if isinstance(data.get("user"), str):
+            data["user"] = ObjectId(data["user"])
+        if isinstance(data.get("task"), str):
+            data["task"] = ObjectId(data["task"])
         super().__init__(**data)
-
 
     # @classmethod
     # def from_id(self, document_id: str, env: str):
@@ -47,8 +48,14 @@ class Model(Document):
             return
         name = self.name.lower().replace(" ", "-")
         # collection = get_collection(self.get_collection_name(), env=self.env)
-        existing_docs = list(self.get_collection().find({"name": self.name, "user": self.user}))
-        versions = [int(doc.get('slug', '').split('/')[-1][1:]) for doc in existing_docs if doc.get('slug')]
+        existing_docs = list(
+            self.get_collection().find({"name": self.name, "user": self.user})
+        )
+        versions = [
+            int(doc.get("slug", "").split("/")[-1][1:])
+            for doc in existing_docs
+            if doc.get("slug")
+        ]
         new_version = max(versions or [0]) + 1
         users = get_collection("users", db=self.db)
         username = users.find_one({"_id": self.user})["username"]
@@ -58,7 +65,7 @@ class Model(Document):
     def save(self, upsert_filter=None):
         self._make_slug()
         super().save(upsert_filter)
-    
+
     def update(self, **kwargs):
         self._make_slug()
         super().update(**kwargs)
@@ -76,7 +83,7 @@ class User(Document):
     featureFlags: List[str]
     subscriptionTier: Optional[int] = None
     highestMonthlySubscriptionTier: Optional[int] = None
-    deleted: bool    
+    deleted: bool
     # mannas: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
     # def __init__(self, env, **data):
@@ -84,11 +91,11 @@ class User(Document):
     #     self.mannas = get_collection("mannas", env=env)
     #     if not self.mannas.find_one({"user": self.id}):
     #         raise Exception("Mannas not found")
-    
+
     # @classmethod
     # def get_collection_name(cls) -> str:
     #     return "users"
-    
+
     def verify_manna_balance(self, amount: float):
         mannas = get_collection("mannas", db=self.db)
         manna = mannas.find_one({"user": self.id})
@@ -96,7 +103,9 @@ class User(Document):
             raise Exception("Mannas not found")
         balance = manna.get("balance") + manna.get("subscriptionBalance", 0)
         if balance < amount:
-            raise Exception(f"Insufficient manna balance. Need {amount} but only have {balance}")
+            raise Exception(
+                f"Insufficient manna balance. Need {amount} but only have {balance}"
+            )
 
     def spend_manna(self, amount: float):
         if amount == 0:
@@ -112,16 +121,13 @@ class User(Document):
             subscription_spend = min(subscription_balance, amount)
             mannas.update_one(
                 {"user": self.id},
-                {"$inc": {"subscriptionBalance": -subscription_spend}}
+                {"$inc": {"subscriptionBalance": -subscription_spend}},
             )
             amount -= subscription_spend
         # If there's remaining amount, use regular balance
         if amount > 0:
-            mannas.update_one(
-                {"user": self.id},
-                {"$inc": {"balance": -amount}}
-            )
-        
+            mannas.update_one({"user": self.id}, {"$inc": {"balance": -amount}})
+
     def refund_manna(self, amount: float):
         if amount == 0:
             return
@@ -129,3 +135,8 @@ class User(Document):
         mannas = get_collection("mannas", db=self.db)
         mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
 
+
+class ClientType(Enum):
+    LOCAL = "local"
+    DISCORD = "discord"
+    TELEGRAM = "telegram"
