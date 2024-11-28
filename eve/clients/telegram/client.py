@@ -13,7 +13,8 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
-from eden.client import EdenClient, EdenApiUrls
+from eve.sdk.eden import EdenClient
+from eve.sdk.eden.client import EdenApiUrls
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

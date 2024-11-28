@@ -1,15 +1,25 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bullseye AS python
+
+ARG ENV_FILE=.env
+
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /tgbot
 
-RUN apt-get update && apt-get install -y git
+COPY eve/clients/telegram/client.py .
+COPY eve/sdk ./eve/sdk
+COPY pyproject.toml .
 
-COPY requirements.txt .
+RUN pip install ".[telegram]" && \
+    pip install python-telegram-bot==21.7
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY client.py .
+# Copy the environment file
+COPY ${ENV_FILE} .env
 
-ENV PYTHONUTF8=1
-
-CMD ["python", "client.py"]
+ENTRYPOINT ["python", "client.py"]
+CMD ["--env", ".env"]
