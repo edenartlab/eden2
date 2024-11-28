@@ -237,7 +237,7 @@ def test(
 
     if "flux_trainer" in tools:
         confirm = click.confirm(
-            f"Include flux_trainer test? This will take a long time.", default=False
+            "Include flux_trainer test? This will take a long time.", default=False
         )
         if not confirm:
             tools.pop("flux_trainer")
@@ -261,37 +261,6 @@ def test(
             bold=True,
         )
     )
-
-
-# def interactive_chat(args):
-#     import asyncio
-#     asyncio.run(async_interactive_chat())
-
-
-import re
-
-
-# @cli.command()
-# @click.option('--db', type=click.Choice(['STAGE', 'PROD'], case_sensitive=False), default='STAGE', help='DB to save against')
-# @click.option('--thread', type=str, default='clitest0', help='Thread name')
-# @click.argument('agent', required=True, default="eve")
-# def chat(db: str, thread: str, agent: str):
-#     """Chat with an agent"""
-
-#     db = db.upper()
-#     user_id = os.getenv("EDEN_TEST_USER_STAGE")
-
-#     click.echo(click.style(f"Chatting with {agent} on {db}", fg='blue', bold=True))
-
-#     for message in prompt_thread(
-#         db=db,
-#         user_id=user_id,
-#         thread_name=thread,
-#         user_messages=UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then animate it with runway."),
-#         tools=get_tools_from_mongo(db),
-#         provider="anthropic"
-#     ):
-#         click.echo(click.style(message, fg='green', bold=True))
 
 
 @cli.command()
