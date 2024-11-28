@@ -86,10 +86,13 @@ class UserMessage(ChatMessage):
         content = content_str or ""
         
         if self.attachments:
-            attachment_files = [
-                download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
-                for attachment in self.attachments
-            ]
+            attachment_files = []
+            for attachment in self.attachments:
+                try:
+                    attachment_file = download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
+                    attachment_files.append(attachment_file)
+                except Exception as e:
+                    content_str += f"\n**Error downloading attachment {attachment}: {e}**"
 
             if schema == "anthropic":
                 content = [{

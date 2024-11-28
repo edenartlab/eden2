@@ -21,7 +21,7 @@ def preprocess_message(message):
     return clean_message, attachments
 
 
-async def async_chat(db, thread, agent):
+async def async_chat(db, thread, agent, debug=False):
     db = db.upper()
     user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
@@ -57,7 +57,8 @@ async def async_chat(db, thread, agent):
 
                 with open(os.devnull, "w") as devnull:
                     original_stdout = sys.stdout
-                    sys.stdout = devnull
+                    if not debug:                        
+                        sys.stdout = devnull
 
                     async for update in async_prompt_thread(
                         db=db,
@@ -102,7 +103,8 @@ async def async_chat(db, thread, agent):
                         # Add a newline after each message for better readability
                         print()
 
-                        sys.stdout = devnull
+                        if not debug:
+                            sys.stdout = devnull
 
                     sys.stdout = original_stdout
 

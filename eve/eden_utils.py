@@ -146,9 +146,9 @@ def download_file(url, local_filepath, overwrite=False):
                     num_bytes_downloaded = response.num_bytes_downloaded
         return str(local_filepath)
     except httpx.HTTPStatusError as e:
-        raise Exception(f"HTTP error occurred while downloading {url}: {e}")
+        raise Exception(f"HTTP error: {e}")
     except Exception as e:
-        raise Exception(f"An error occurred while downloading {url}: {e}")
+        raise Exception(f"Error downloading file: {e}")
 
 
 def exponential_backoff(

@@ -271,10 +271,11 @@ def test(
     help="DB to save against",
 )
 @click.option("--thread", type=str, default="cli_test2", help="Thread name")
+@click.option("--debug", is_flag=True, default=False, help="Debug mode")
 @click.argument("agent", required=True, default="eve")
-def chat(db: str, thread: str, agent: str):
+def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
-    asyncio.run(async_chat(db, thread, agent))
+    asyncio.run(async_chat(db, thread, agent, debug))
 
 
 def start_local_chat(db: str, env_path: str):
