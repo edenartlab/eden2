@@ -7,7 +7,6 @@ authors = [{ name = "Eden.art", email = "info@eden.art" }]
 dependencies = [
     "anthropic>=0.39.0",
     "boto3>=1.35.64",
-    "bson>=0.5.10",
     "click>=8.1.7",
     "elevenlabs>=1.12.1",
     "fastapi>=0.115.5",
