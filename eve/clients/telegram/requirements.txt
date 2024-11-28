@@ -1,0 +1,6 @@
+eden @ git+https://github.com/edenartlab/eve#subdirectory=eve/sdk
+python-dotenv==1.0.1
+websockets==14.1
+pydantic==2.10.1
+python-telegram-bot==21.7
+nest_asyncio==1.6.0
