@@ -2,7 +2,7 @@ name: Style transfer
 description: Reimagine an image in a different style
 tip: |-
   This is a tip for style transfer.
-thumbnail: app/controlnet-preset.png
+thumbnail: app/style_transfer.jpg
 resolutions: []  # get rid of width/height selector
 
 parent_tool: txt2img
