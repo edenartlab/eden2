@@ -87,6 +87,8 @@ async def stream_chat(
     request: ChatRequest,
     auth: dict = Depends(auth.authenticate),
 ):
+    user_messages = UserMessage(**request.user_message)
+
     async def event_generator():
         async for update in async_prompt_thread(
             db=db,
@@ -96,19 +98,18 @@ async def stream_chat(
             tools=get_tools_from_mongo(db=db),
             provider="anthropic",
         ):
-            # Just get the essential content we care about
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 data = {
-                    "type": UpdateType.ASSISTANT_MESSAGE,
+                    "type": str(update.type),
                     "content": update.message.content,
                 }
             elif update.type == UpdateType.TOOL_COMPLETE:
                 data = {
-                    "type": UpdateType.TOOL_COMPLETE,
+                    "type": str(update.type),
                     "tool": update.tool_name,
                     "result": update.result,
                 }
-            else:  # error case
+            else:
                 data = {
                     "type": "error",
                     "error": update.error or "Unknown error occurred",
