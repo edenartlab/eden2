@@ -47,6 +47,7 @@ import json
 import asyncio
 import openai
 import anthropic
+import magic
 import instructor
 
 from eve.mongo2 import Document, Collection, get_collection
@@ -91,6 +92,9 @@ class UserMessage(ChatMessage):
                 try:
                     attachment_file = download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
                     attachment_files.append(attachment_file)
+                    mime_type = magic.from_file(attachment_file, mime=True)
+                    if "video" in mime_type:
+                        content_str += f"\n\n**The attachment {attachment} is a video. Showing just the first frame.**"
                 except Exception as e:
                     content_str += f"\n**Error downloading attachment {attachment}: {e}**"
 
@@ -419,23 +423,11 @@ async def async_prompt_thread(
             break
         
         for t, tool_call in enumerate(assistant_message.tool_calls):
-            tool = tools.get(tool_call.tool)
-            if not tool:
-                thread.update_tool_call(assistant_message.id, t, {
-                    "task": ObjectId(task.id),
-                    "status": "failed",
-                    "error": f"Tool {tool_call.tool} not found."
-                })                
-                yield ThreadUpdate(
-                    type=UpdateType.ERROR,
-                    tool_name=tool_call.tool,
-                    tool_index=t,
-                    error=f"Tool {tool_call.tool} not found."
-                )
-
-                continue
-            
             try:
+                tool = tools.get(tool_call.tool)
+                if not tool:
+                    raise Exception(f"Tool {tool_call.tool} not found.")
+
                 task = await tool.async_start_task(user.id, tool_call.args, db=db)
                 thread.update_tool_call(assistant_message.id, t, {
                     "task": ObjectId(task.id),
@@ -444,14 +436,22 @@ async def async_prompt_thread(
                 
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
-                
-                yield ThreadUpdate(
-                    type=UpdateType.TOOL_COMPLETE,
-                    tool_name=tool_call.tool,
-                    tool_index=t,
-                    result=result
-                )
 
+                if result["status"] == "completed":
+                    yield ThreadUpdate(
+                        type=UpdateType.TOOL_COMPLETE,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        result=result
+                    )
+                else:
+                    yield ThreadUpdate(
+                        type=UpdateType.ERROR,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        error=result.get("error")
+                    )
+                
             except Exception as e:
                 capture_exception(e)
                 traceback.print_exc()
@@ -465,7 +465,7 @@ async def async_prompt_thread(
                     type=UpdateType.ERROR,
                     tool_name=tool_call.tool,
                     tool_index=t,
-                    error=f"Tool {tool_call.tool} not found."
+                    error=str(e)
                 )
 
         if stop:

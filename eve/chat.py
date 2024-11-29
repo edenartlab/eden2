@@ -97,7 +97,7 @@ async def async_chat(db, thread, agent, debug=False):
                             console.print("[cyan]" + formatted_result)
                         elif update.type == UpdateType.ERROR:
                             console.print(
-                                "[bold red]❌ Error: [/bold red]" + str(update.error)
+                                f"[bold red]❌ Error: [red]{str(update.error)}[/red]"
                             )
 
                         # Add a newline after each message for better readability

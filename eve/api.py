@@ -12,11 +12,13 @@ from fastapi import (
     Depends,
     HTTPException,
     Request,
+    BackgroundTasks,
 )
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI
 from fastapi.responses import StreamingResponse
+from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 
 # import auth
 # from agent import Agent
@@ -24,9 +26,8 @@ from fastapi.responses import StreamingResponse
 # from models import Task
 
 from eve import auth
-from eve.tool import Tool
-from eve.task import Task
-from eve.llm import Thread
+from eve.tool import Tool, get_tools_from_mongo
+from eve.llm import UserMessage, async_prompt_thread
 
 
 db = os.getenv("DB", "STAGE")
@@ -35,6 +36,9 @@ if db not in ["PROD", "STAGE"]:
 app_name = "tools" if db == "PROD" else "tools-dev"
 
 client = AsyncOpenAI()
+
+api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def chat_stream(request: Request):
@@ -72,7 +76,7 @@ def task_handler(
 
     async def submit_task():
         tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db="STAGE")
+        task = await tool.async_start_task(user, args, db=db)
         return task
 
     return asyncio.run(submit_task())
@@ -80,7 +84,7 @@ def task_handler(
 
 def task_handler_authenticated(
     request: dict,
-    auth: dict = Depends(auth.authenticate),  # bring auth back later
+    auth: dict = Depends(auth.authenticate),
 ):
     workflow = request.get("workflow")
     user = auth.userId
@@ -88,10 +92,35 @@ def task_handler_authenticated(
 
     async def submit_task():
         tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db="STAGE")
+        task = await tool.async_start_task(user, args, db=db)
         return task
 
     return asyncio.run(submit_task())
+
+
+async def chat_handler(
+    request: dict,
+    background_tasks: BackgroundTasks,
+    auth: dict = Depends(auth.authenticate),
+):
+    user_id = auth.userId
+    user_message = UserMessage(**request.get("user_message"))
+    thread_name = request.get("thread_name")
+    tools = get_tools_from_mongo(db=db)
+    
+    async def run_prompt():
+        async for _ in async_prompt_thread(
+            db=db,
+            user_id=user_id,
+            thread_name=thread_name,
+            user_messages=user_message,
+            tools=tools
+        ):
+            pass
+    
+    background_tasks.add_task(run_prompt)
+    
+    return {"status": "success"}
 
 
 web_app = FastAPI()
@@ -107,6 +136,7 @@ web_app.add_middleware(
 web_app.post("/create")(task_handler)
 web_app.post("/create-authenticated")(task_handler_authenticated)
 web_app.post("/chat/stream")(chat_stream)
+web_app.post("/chat")(chat_handler)
 
 
 app = modal.App(
