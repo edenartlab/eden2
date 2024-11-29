@@ -40,7 +40,7 @@ def get_user_data(user_id: str) -> UserData:
 
     return UserData(
         userId=str(user["_id"]),
-        subscriptionTier=user.get("subscriptionTier", "free"),
+        subscriptionTier=user.get("subscriptionTier", 0),
         featureFlags=user.get("featureFlags", []),
         isAdmin=user.get("isAdmin", False),
     )
@@ -123,18 +123,22 @@ async def authenticate_ws(websocket: WebSocket):
 
 
 def authenticate_admin(
-    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    api_key: str = Depends(api_key_header),
 ):
-    if token.credentials != ADMIN_KEY:
+    """Authenticate admin users by checking their API key's admin status"""
+    if not api_key:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="API key required"
         )
 
-
-def authenticate_abraham_admin(
-    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-):
-    if token.credentials != ABRAHAM_ADMIN_KEY:
+    api_key_doc = api_keys.find_one({"apiKey": api_key})
+    if not api_key_doc:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
+        )
+
+    user_obj = users.find_one({"_id": ObjectId(api_key_doc["user"])})
+    if not user_obj or not user_obj.get("isAdmin", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin access required"
         )

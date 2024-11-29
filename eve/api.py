@@ -1,130 +1,68 @@
 import os
+from fastapi.responses import StreamingResponse
 import modal
-import asyncio
-import json
-from bson import ObjectId
-from typing import Optional
-from pydantic import BaseModel
-from fastapi import (
-    FastAPI,
-    WebSocket,
-    WebSocketDisconnect,
-    Depends,
-    HTTPException,
-    Request,
-    BackgroundTasks,
-)
-from starlette.websockets import WebSocketDisconnect, WebSocketState
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI
-from fastapi.responses import StreamingResponse
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-
-# import auth
-# from agent import Agent
-# from thread import Thread, UserMessage, async_prompt, prompt
-# from models import Task
+from fastapi.security import APIKeyHeader, HTTPBearer
+from pydantic import BaseModel
+import json
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread
 
-
+# Config setup
 db = os.getenv("DB", "STAGE")
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools" if db == "PROD" else "tools-dev"
 
 client = AsyncOpenAI()
-
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
+background_tasks: BackgroundTasks = BackgroundTasks()
 
 
-async def chat_stream(request: Request):
-    # Parse the incoming JSON
-    data = await request.json()
-
-    async def generate():
-        stream = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": data["content"]}],
-            stream=True,
-        )
-
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield f"{chunk.choices[0].delta.content}\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
+class TaskRequest(BaseModel):
+    workflow: str
+    args: dict | None = None
+    user: str | None = None
 
 
-def task_handler(
-    request: dict,
-    # _: dict = Depends(auth.authenticate_admin)
-):
-    workflow = request.get("workflow")
-    user = request.get("user")
-    args = request.get("args")
-
-    async def submit_task():
-        tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db=db)
-        return task
-
-    return asyncio.run(submit_task())
+class ChatRequest(BaseModel):
+    user_message: dict
+    thread_name: str
 
 
-def task_handler_authenticated(
-    request: dict,
-    auth: dict = Depends(auth.authenticate),
-):
-    workflow = request.get("workflow")
-    user = auth.userId
-    args = request.get("args")
-
-    async def submit_task():
-        tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db=db)
-        return task
-
-    return asyncio.run(submit_task())
+async def handle_task(workflow: str, user: str, args: dict | None = None) -> dict:
+    tool = Tool.load(workflow, db=db)
+    return await tool.async_start_task(user, args or {}, db=db)
 
 
-async def chat_handler(
-    request: dict,
-    background_tasks: BackgroundTasks,
-    auth: dict = Depends(auth.authenticate),
-):
-    user_id = auth.userId
-    user_message = UserMessage(**request.get("user_message"))
-    thread_name = request.get("thread_name")
+async def handle_chat(
+    user_id: str,
+    user_message: str,
+    thread_name: str,
+) -> dict:
     tools = get_tools_from_mongo(db=db)
-    
+
     async def run_prompt():
         async for _ in async_prompt_thread(
             db=db,
             user_id=user_id,
             thread_name=thread_name,
             user_messages=user_message,
-            tools=tools
+            tools=tools,
         ):
             pass
-    
+
     background_tasks.add_task(run_prompt)
-    
     return {"status": "success"}
 
 
+# FastAPI app setup
 web_app = FastAPI()
-
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -133,25 +71,73 @@ web_app.add_middleware(
     allow_headers=["*"],
 )
 
-web_app.post("/create")(task_handler)
-web_app.post("/create-authenticated")(task_handler_authenticated)
-web_app.post("/chat/stream")(chat_stream)
-web_app.post("/chat")(chat_handler)
+
+@web_app.post("/admin/create")
+async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
+    return await handle_task(request.workflow, request.user, request.args)
 
 
+@web_app.post("/create")
+async def task(request: TaskRequest, auth: dict = Depends(auth.authenticate)):
+    return await handle_task(request.workflow, auth.userId, request.args)
+
+
+@web_app.post("/chat")
+async def stream_chat(
+    request: ChatRequest,
+    auth: dict = Depends(auth.authenticate),
+):
+    async def event_generator():
+        async for update in async_prompt_thread(
+            db=db,
+            user_id=auth.userId,
+            thread_name=request.thread_name,
+            user_messages=UserMessage(**request.user_message),
+            tools=get_tools_from_mongo(db=db),
+            provider="anthropic",
+        ):
+            # Just get the essential content we care about
+            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                data = {
+                    "type": UpdateType.ASSISTANT_MESSAGE,
+                    "content": update.message.content,
+                }
+            elif update.type == UpdateType.TOOL_COMPLETE:
+                data = {
+                    "type": UpdateType.TOOL_COMPLETE,
+                    "tool": update.tool_name,
+                    "result": update.result,
+                }
+            else:  # error case
+                data = {
+                    "type": "error",
+                    "error": update.error or "Unknown error occurred",
+                }
+
+            yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
+
+        yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# Modal app setup
 app = modal.App(
     name=app_name,
     secrets=[
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("replicate"),
-        modal.Secret.from_name("openai"),
-        modal.Secret.from_name("anthropic"),
-        modal.Secret.from_name("elevenlabs"),
-        modal.Secret.from_name("hedra"),
-        modal.Secret.from_name("newsapi"),
-        modal.Secret.from_name("runway"),
-        modal.Secret.from_name("sentry"),
+        modal.Secret.from_name(s)
+        for s in [
+            "s3-credentials",
+            "mongo-credentials",
+            "replicate",
+            "openai",
+            "anthropic",
+            "elevenlabs",
+            "hedra",
+            "newsapi",
+            "runway",
+            "sentry",
+        ]
     ],
 )
 
