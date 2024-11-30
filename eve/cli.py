@@ -24,6 +24,19 @@ from .tool import (
 )
 from eve.clients.discord.client import start as start_discord
 
+api_tools = [
+    "txt2img", "flux_dev", "flux_schnell", "layer_diffusion", "remix_flux_schnell", "remix",
+    "inpaint", "flux_inpainting", "outpaint", "face_styler",
+    "upscaler", "background_removal", "style_transfer", "storydiffusion",
+    "xhibit_vton", "xhibit_remix", "beeple_ai", "txt2img_test", "sd3_txt2img", 
+    "HelloMeme_image", "HelloMeme_video", "flux_redux", "mars-id",
+    "background_removal_video", "animate_3D", "style_mixing", 
+    "txt2vid", "vid2vid_sdxl", "img2vid", "video_upscaler", "frame_interpolation",
+    "reel", "story", "texture_flow", "runway", "animate_3D_new", "mochi_preview",
+    "lora_trainer", "flux_trainer", "news", "moodmix",
+    "stable_audio", "musicgen",     
+]
+
 
 @click.group()
 def cli():
@@ -45,6 +58,7 @@ def update(db: str, tools: tuple):
     db = db.upper()
 
     tool_dirs = get_tool_dirs(include_inactive=True)
+    tools_order = {tool: index for index, tool in enumerate(api_tools)}
 
     if tools:
         tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
@@ -57,8 +71,9 @@ def update(db: str, tools: tuple):
 
     for key, tool_dir in tool_dirs.items():
         try:
-            save_tool_from_dir(tool_dir, db=db)
-            click.echo(click.style(f"Updated {db}:{key}", fg="green"))
+            order = tools_order.get(key, len(api_tools))
+            save_tool_from_dir(tool_dir, order=order, db=db)
+            click.echo(click.style(f"Updated {db}:{key} with order {order}", fg="green"))
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 

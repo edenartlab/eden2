@@ -1,37 +1,33 @@
+"""
+
+ verify tips in params
+ hide from agent
+ validate args before tool wait unless already being done by prepare_args
+
+"""
+
 import os
 import re
 import yaml
 import json
 import random
-import asyncio
+from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
-
 
 from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 import sentry_sdk
 sentry_dsn = os.getenv("SENTRY_DSN")
 sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
 
-
 from . import eden_utils
 from .base import parse_schema
 from .models import User
 from .task import Task
-# from .mongo import MongoModel, get_collection
-from .mongo2 import Document, get_collection
-# from .tools.comfyui_tool import ComfyUITool
-# from .tools.replicate_tool import ReplicateTool
-# from .tools.modal_tool import ModalTool
-# from .tools.gcp_tool import GCPTool
-# from .tools.local_tool import LocalTool
+from .mongo2 import get_collection
 
-from functools import wraps
-
-# class Tool(MongoModel):
-from abc import ABC, abstractmethod
 
 class Tool(BaseModel, ABC):
     """
@@ -65,10 +61,10 @@ class Tool(BaseModel, ABC):
         """Load the tool class based on the handler in api.yaml"""
         
         tools = get_collection("tools2", db=db)
-        schema = tools.find_one({"key": key})
-        
+        schema = tools.find_one({"key": key})      
         if not schema:
             raise ValueError(f"Tool with key {key} not found on db: {db}")
+        schema["parameters"] = {p["name"]: p for p in schema["parameters"]}
 
         return cls.load_from_schema(schema, prefer_local, **kwargs)
 
@@ -189,6 +185,7 @@ class Tool(BaseModel, ABC):
         #     schema["function"]["parameters"]["properties"] = {
         #         k: v for k, v in schema["function"]["parameters"]["properties"].items() if not v.get('hide_from_agent')
         #     }
+
         return {
             "type": "function",
             "function": schema
@@ -293,7 +290,7 @@ class Tool(BaseModel, ABC):
                         handler_id=handler_id,
                         status="completed", 
                         result=result,
-                        performance={"waitTime": (datetime.now(timezone.utc) - task.createdAt).total_seconds()}
+                        performance={"waitTime": (datetime.now(timezone.utc) - task.created_at).total_seconds()}
                     )
                 else:
                     handler_id = await start_task_function(self, task)
@@ -357,18 +354,24 @@ class Tool(BaseModel, ABC):
         pass
 
 
-def save_tool_from_dir(tool_dir: str, db: str) -> Tool:
+def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> Tool:
     """Upload tool from directory to mongo"""
 
     schema = Tool._get_schema_from_dir(tool_dir)
     schema['key'] = tool_dir.split('/')[-1]
-    
+        
+    # timestamps
     tools = get_collection("tools2", db=db)
     tool = tools.find_one({"key": schema['key']})
-    
     time = datetime.now(timezone.utc)
-    schema['created_at'] = tool.get('created_at', time) if tool else time
-    schema['updated_at'] = time
+    schema['createdAt'] = tool.get('createdAt', time) if tool else time
+    schema['updatedAt'] = time
+    schema['order'] = order or schema.get('order', len(tools.find()))
+
+    # convert parameters to list
+    schema["parameters"] = [
+        {"name": k, **v} for k, v in schema.get("parameters", {}).items()
+    ]
     
     tools.replace_one(
         {"key": schema['key']}, 
@@ -396,6 +399,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools = {}
     tools_collection = get_collection("tools2", db=db)
     for tool in tools_collection.find(filter):
+        tool["parameters"] = {p["name"]: p for p in tool["parameters"]}
         tool = Tool.load_from_schema(tool, prefer_local)
         if tool.status != "inactive" and not include_inactive:
             if tool.key in tools:
