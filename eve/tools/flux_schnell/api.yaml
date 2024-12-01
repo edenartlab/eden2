@@ -9,21 +9,21 @@ replicate_model: black-forest-labs/flux-schnell
 handler: replicate
 parameters:
   prompt:
-    type: str
+    type: string
     label: Prompt
     description: Text prompt
     tip: |-
       Flux loves very detailed and descriptive prompts so try to be elaborate. Flux is also great at drawing text in images so feel free to add something if it makes sense.
     required: true
   aspect_ratio:
-    type: str
+    type: string
     label: Aspect ratio
     description: Aspect ratio width/height
     required: true
     default: "1:1"
     choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
   num_outputs:
-    type: int
+    type: integer
     label: Number of samples
     description: Number of samples to generate
     tip: |-
@@ -33,7 +33,7 @@ parameters:
     minimum: 1
     maximum: 4
   output_format:
-    type: str
+    type: string
     label: Output format
     description: Format of the output images
     default: png
@@ -41,7 +41,7 @@ parameters:
     hide_from_ui: true
     hide_from_agent: true
   output_quality:
-    type: int
+    type: integer
     label: Save quality
     description: |-
       Quality when saving the output images, from 0 to 100. 100 is best quality, 0 is lowest quality. Not relevant for .png outputs
@@ -52,14 +52,14 @@ parameters:
     maximum: 100
     step: 1
   disable_safety_checker:
-    type: bool
+    type: boolean
     label: Disable safety checker
     description: Disable safety checker
     default: true
     hide_from_ui: true
     hide_from_agent: true
   go_fast:
-    type: bool
+    type: boolean
     label: Go Fast
     description: |-
       Run faster predictions with model optimized for speed (currently fp8 quantized); disable to run in original bf16
@@ -67,7 +67,7 @@ parameters:
     hide_from_ui: true
     hide_from_agent: true
   seed:
-    type: int
+    type: integer
     label: Seed
     description: Set random seed for reproducibility. If blank, will be set to a random value.
     tip: |-

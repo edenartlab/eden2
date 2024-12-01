@@ -7,47 +7,47 @@ status: stage
 visible: false
 parameters:
   prompt:
-    type: str
+    type: string
     label: Prompt
     description: Describe what your reel is about
     required: true
   use_voiceover:
-    type: bool
+    type: boolean
     label: Voiceover
     description: Include a voiceover in the reel
     default: true
   voice:
-    type: str
+    type: string
     label: Voice ID
     description: Override voice. If left blank, voice is auto-generated.
   voiceover:
-    type: str
+    type: string
     label: Voiceover text
     description: Override voiceover. If left blank, voiceover text is auto-generated.
   use_music:
-    type: bool
+    type: boolean
     label: Music
     description: Include music in the reel
     default: true
   music_prompt:
-    type: str
+    type: string
     label: Music prompt
     description: Override music prompt. If left blank, music prompt is auto-generated.
   min_duration:
-    type: int
+    type: integer
     label: Minimum duration
     description: Minimum number of seconds for the reel
     default: 10
     minimum: 5
     maximum: 60
   orientation:
-    type: str
+    type: string
     label: Orientation
     description: The aspect ratio of the reel
     default: portrait
     choices: [landscape, portrait]
   use_lora:
-    type: bool
+    type: boolean
     label: Use LoRA
     description: Apply LoRA finetune model style to image generation
     tip: |-

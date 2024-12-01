@@ -13,24 +13,24 @@ parameters:
     description: The image to animate
     required: true
   prompt_text:
-    type: str
+    type: string
     label: Prompt Text
     description: The prompt to guide the animation
     required: true
   duration:
-    type: str
+    type: string
     label: Duration
     description: The duration of the video in seconds
     default: '5'
     choices: ['5', '10']
   ratio:
-    type: str
+    type: string
     label: Ratio
     description: The aspect ratio of the video
     default: '9:16'
     choices: ['16:9', '9:16']
   seed:
-    type: int
+    type: integer
     label: Seed
     description: Set random seed for reproducibility. If blank, will be set to a random value.
     tip: |-
@@ -39,7 +39,7 @@ parameters:
     minimum: 0
     maximum: 2147483647
   watermark:
-    type: bool
+    type: boolean
     label: Watermark
     description: Add a Runway watermark to the video
     default: false

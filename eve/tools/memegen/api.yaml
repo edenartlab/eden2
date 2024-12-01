@@ -5,7 +5,7 @@ cost_estimate: 10
 status: stage
 parameters:
   prompt:
-    type: str
+    type: string
     label: Give a prompt
     description: Prompt me
     required: true

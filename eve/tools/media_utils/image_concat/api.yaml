@@ -13,7 +13,7 @@ parameters:
     description: Image URLs to paste together
     required: true
   height:
-    type: int
+    type: integer
     label: Height
     description: Height of the resulting image
     default: 512

@@ -13,7 +13,7 @@ gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
 machine_type: a2-highgpu-1g
 parameters:
   name:
-    type: str
+    type: string
     label: Name
     description: Name of the LoRA
     required: true
@@ -26,7 +26,7 @@ parameters:
     required: true
     min_length: 1
   max_train_steps:
-    type: int
+    type: integer
     label: Training steps
     description: |-
       Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
@@ -35,7 +35,7 @@ parameters:
     maximum: 5000
     step: 10
   lora_rank:
-    type: int
+    type: integer
     label: Rank
     description: |-
       LoRA rank. Higher gives model more capacity to learn but might lead to overfitting.
@@ -62,12 +62,12 @@ parameters:
     maximum: 0.001
     step: 1.0e-06
   caption_prefix:
-    type: str
+    type: string
     label: Caption prefix
     description: Caption prefix for training.
     default: TOK
   seed:
-    type: int
+    type: integer
     label: Seed
     description: Set random seed for reproducibility. If blank, will be set to a random value.
     tip: |-
