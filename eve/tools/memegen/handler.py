@@ -8,7 +8,7 @@ import instructor
 from ...eden_utils import download_file
 
 async def handler(args: dict, db: str):   
-    print("args", args)
+    # print("args", args)
 
 
     class DrakepostingMeme(BaseModel):

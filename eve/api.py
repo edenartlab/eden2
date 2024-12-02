@@ -11,12 +11,14 @@ import json
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.thread import Thread
 
 # Config setup
 db = os.getenv("DB", "STAGE")
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "tools" if db == "PROD" else "tools-dev"
+app_name = "tools-new" if db == "PROD" else "tools-new-dev"
 
 client = AsyncOpenAI()
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
@@ -29,10 +31,24 @@ class TaskRequest(BaseModel):
     args: dict | None = None
     user: str | None = None
 
-
 class ChatRequest(BaseModel):
-    user_message: dict
-    thread_name: str
+    user_id = str
+    agent_id = str
+    thread_id = str
+    user_message = dict
+
+def task_handler(
+    request: dict,
+    _: dict = Depends(auth.authenticate_admin)
+):
+    tool_name = request.get("tool")
+    user_id = request.get("user_id")
+    args = request.get("args")
+
+    async def submit_task():
+        tool = Tool.load(tool_name, db=db)
+        task = await tool.async_start_task(user_id, args, db=db)
+        return task
 
 
 async def handle_task(workflow: str, user: str, args: dict | None = None) -> dict:
@@ -40,25 +56,45 @@ async def handle_task(workflow: str, user: str, args: dict | None = None) -> dic
     return await tool.async_start_task(user, args or {}, db=db)
 
 
-async def handle_chat(
-    user_id: str,
-    user_message: str,
-    thread_name: str,
-) -> dict:
+async def chat_handler(
+    request: dict,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin)
+):
+    user_id = request.get("user_id")
+    agent_id = request.get("agent_id")
+    thread_id = request.get("thread_id")
+    user_message = UserMessage(**request.get("user_message"))
+
     tools = get_tools_from_mongo(db=db)
-
-    async def run_prompt():
-        async for _ in async_prompt_thread(
+    
+    if not thread_id:
+        thread_new = Thread.create(
             db=db,
-            user_id=user_id,
-            thread_name=thread_name,
-            user_messages=user_message,
-            tools=tools,
-        ):
-            pass
+            user=user_id,
+            agent=agent_id,
+        )
+        thread_id = str(thread_new.id)
 
-    background_tasks.add_task(run_prompt)
-    return {"status": "success"}
+    try:
+        async def run_prompt():
+            async for _ in async_prompt_thread(
+                db=db,
+                user_id=user_id,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                user_messages=user_message,
+                tools=tools
+            ):
+                pass
+        
+        background_tasks.add_task(run_prompt)        
+        return {"status": "success", "thread_id": thread_id}
+    
+    except Exception as e:
+        print(e)
+        return {"status": "error", "message": str(e)}
+    
 
 
 # FastAPI app setup
@@ -71,6 +107,9 @@ web_app.add_middleware(
     allow_headers=["*"],
 )
 
+web_app.post("/create")(task_handler)
+web_app.post("/chat")(chat_handler)
+web_app.post("/chat/stream")(chat_stream)
 
 @web_app.post("/admin/create")
 async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
@@ -128,6 +167,7 @@ app = modal.App(
     secrets=[
         modal.Secret.from_name(s)
         for s in [
+            "admin-key",
             "s3-credentials",
             "mongo-credentials",
             "replicate",
@@ -144,7 +184,7 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"ENV": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
+    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
 )

@@ -32,4 +32,3 @@ def test_tool():
         'address': None, 
         'matrix': None
     }
-

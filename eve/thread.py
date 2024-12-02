@@ -1,632 +1,457 @@
-from bson import ObjectId
-from datetime import datetime
-from pydantic import BaseModel, Field, ValidationError
-from typing import List, Optional, Dict, Any, Literal, Union
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-from sentry_sdk import add_breadcrumb, capture_exception, capture_message
+"""
+organize bin/downloads
+new discord/telegram channels
+eq grants
+advisory
+make eden wallet
+assert
+
+"""
+
+
 import os
-import re
 import json
-import asyncio
-import openai
-import anthropic
-import sentry_sdk
+import magic
+from bson import ObjectId
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+from pydantic.config import ConfigDict
+from pydantic.json_schema import SkipJsonSchema
+from typing import List, Optional, Dict, Any, Literal, Union
 
-from . import s3
-from .agent import Agent
-from .mongo import MongoModel, get_collection
-from .eden_utils import pprint, download_file, image_to_base64
-from .models import User
-from .task import Task
-
-env = os.getenv("ENV", "STAGE")
-sentry_dsn = os.getenv("SENTRY_DSN")
-
-sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
-
-openai_client = openai.AsyncOpenAI()
-anthropic_client = anthropic.AsyncAnthropic()
+from .mongo2 import Document, Collection, get_collection
+from .eden_utils import download_file, image_to_base64, prepare_result
 
 
 class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system", "tool"]
-    createdAt: datetime = Field(default_factory=datetime.utcnow, exclude=True)
-    
-    def to_mongo(self):
-        data = self.model_dump()
-        data["createdAt"] = self.createdAt
-        return data
+    id: ObjectId = Field(default_factory=ObjectId)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    role: Literal["user", "assistant"]
+    reply_to: Optional[ObjectId] = None
+    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )
+
+    def react(self, user: ObjectId, reaction: str):
+        if reaction not in self.reactions:
+            self.reactions[reaction] = []
+        self.reactions[reaction].append(user)
 
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
     name: Optional[str] = None
-    content: str
+    content: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = {}
     attachments: Optional[List[str]] = []
 
-    def _get_content(self, schema, truncate_images=False):
-        content_str = self.content
-        if self.metadata:
-            content_str += f"\n\n## Metadata: \n\n{json.dumps(self.metadata)}"
-        if self.attachments:
-            attachment_urls = ',\n\t'.join([f'"{url}"' for url in self.attachments])  # Convert HttpUrl to string
-            content_str += f"\n\n## Attachments:\n\n[\n\t{attachment_urls}\n]"        
-        content = content_str
-        
-        if self.attachments:
-            attachment_files = [
-                download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
-                for attachment in self.attachments
-            ]
 
+    # todo: anthropic consider names?
+    # todo: time string
+    def _get_content(self, schema, truncate_images=False):
+        """Assemble user message content block"""
+
+        # start with original message content
+        content = self.content or ""
+        
+        if self.attachments:        
+            # append attachments info (url and type) to content
+            attachment_lines = []
+            attachment_files = []
+            attachment_errors = []
+            for attachment in self.attachments:
+                try:
+                    attachment_file = download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
+                    attachment_files.append(attachment_file)
+                    mime_type = magic.from_file(attachment_file, mime=True)
+                    if "video" in mime_type:
+                        attachment_lines.append(f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)")
+                    else:
+                        attachment_lines.append(f"* {attachment}")
+                except Exception as e:
+                    attachment_errors.append(f"* {attachment}: {str(e)}")
+            
+            attachments = ""
+            if attachment_lines:
+                attachments += "The attached images correspond to the following urls:\n"
+                attachments += "\n".join(attachment_lines)
+            if attachment_errors:
+                attachments += "The following files failed to attach:\n"
+                attachments += "\n".join(attachment_errors)            
+            attachments = f"<attachments>\n{attachments}\n</attachments>"
+            content += f"\n{attachments}"
+            
+            # add image blocks
             if schema == "anthropic":
-                content = [{
+                block = [{
                     "type": "image", 
                     "source": {
                         "type": "base64", 
                         "media_type": "image/jpeg",
-                        "data": image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)
+                        "data": image_to_base64(
+                            file_path, 
+                            max_size=512, 
+                            quality=95, 
+                            truncate=truncate_images
+                        )
                     }
                 } for file_path in attachment_files]
             elif schema == "openai":
-                content = [{
+                block = [{
                     "type": "image_url", 
                     "image_url": {
-                        "url": f"data:image/jpeg;base64,{image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)}"
+                        "url": f"""data:image/jpeg;base64,{image_to_base64(
+                            file_path, 
+                            max_size=512, 
+                            quality=95, 
+                            truncate=truncate_images
+                        )}"""
                     }
                 } for file_path in attachment_files]
 
-            content.extend([{"type": "text", "text": content_str}])
-                        
+            if content:
+                # todo: or maybe this needs to be "..." ?
+                block.extend([{"type": "text", "text": content.strip()}])
+
+            content = block
+
+        # todo: can user messages be blank in anthropic?
+        elif not content and schema == "anthropic":
+            content = "..."
+
         return content
+    
+    def anthropic_schema(self, truncate_images=False):
+        return [{
+            "role": "user",
+            "content": self._get_content(
+                "anthropic", 
+                truncate_images=truncate_images
+            )
+        }]
 
     def openai_schema(self, truncate_images=False):
         return [{
-            "role": self.role,
-            "content": self._get_content("openai", truncate_images=truncate_images),
+            "role": "user",
+            "content": self._get_content(
+                "openai", 
+                truncate_images=truncate_images
+            ),
             **({"name": self.name} if self.name else {})
         }]
-
-    def anthropic_schema(self, truncate_images=False):
-        return [{
-            "role": self.role,
-            "content": self._get_content("anthropic", truncate_images=truncate_images)
-        }]
-    
-    def __str__(self, truncate_images=False):
-        string = f"{(self.name or self.role).capitalize()}:\t\t{self.content}"
-        if self.metadata:
-            string += f"\t {json.dumps(self.metadata)}" 
-        if self.attachments:
-            string += f"\t {', '.join(self.attachments)}"
-        return pprint(string, "yellow")
 
 
 class ToolCall(BaseModel):
     id: str
-    name: str
-    input: Dict[str, Any]
+    tool: str
+    args: Dict[str, Any]
+    
+    db: SkipJsonSchema[str]
+    task: Optional[ObjectId] = None
+    status: Optional[Literal["pending", "running", "completed", "failed", "cancelled"]] = None
+    result: Optional[List[Dict[str, Any]]] = None
+    reactions: Optional[Dict[str, List[ObjectId]]] = None
+    error: Optional[str] = None
+    
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )
+
+    def get_result(self):
+        result = {"status": self.status}
+        if self.status == "completed":
+            result["result"] = prepare_result(self.result, db=self.db)
+        elif self.status == "failed":
+            result["error"] = self.error
+        return result
+    
+    def react(self, user: ObjectId, reaction: str):
+        pass
 
     @staticmethod
-    def from_openai(tool_call):
+    def from_openai(tool_call, db="STAGE"):
         return ToolCall(
             id=tool_call.id,
-            name=tool_call.function.name,
-            input=json.loads(tool_call.function.arguments),
+            tool=tool_call.function.name,
+            args=json.loads(tool_call.function.arguments),
+            db=db
         )
     
     @staticmethod
-    def from_anthropic(tool_call):
-        return ToolCall(**tool_call.model_dump())
+    def from_anthropic(tool_call, db="STAGE"):
+        return ToolCall(
+            id=tool_call.id,
+            tool=tool_call.name,
+            args=tool_call.input,
+            db=db
+        )
     
-    def validate(self, tools):
-        if self.name not in tools:
-            raise ToolNotFoundException(self.name)
-        tool = tools[self.name]
-        input = {k: v for k, v in self.input.items() if v is not None}
-        tool.get_base_model(**input)
-    
-    def openai_schema(self):
+    def openai_call_schema(self):
         return {
             "id": self.id,
             "type": "function",
             "function": {
-                "name": self.name,
-                "arguments": json.dumps(self.input)
+                "name": self.tool,
+                "arguments": json.dumps(self.args)
             }
         }
     
-    def anthropic_schema(self):
+    def anthropic_call_schema(self):
         return {
             "type": "tool_use",
             "id": self.id,
-            "name": self.name,
-            "input": self.input
+            "name": self.tool,
+            "input": self.args
         }
-
-
-class ToolResult(BaseModel):
-    id: str
-    name: str
-    result: Optional[Any] = None
-    error: Optional[str] = None
-
-    def _get_content(self):
-        # res = f"Error: {self.error}" if self.error else json.dumps(self.result)
-        res = f"Error: {self.error}" if self.error else self.result
-        return res
-
-    def openai_schema(self):
-        return {
-            "role": "tool",
-            "name": self.name,
-            "content": self._get_content(),
-            "tool_call_id": self.id
-        }
-    
-    def anthropic_schema(self):
+        
+    def anthropic_result_schema(self):        
         return {
             "type": "tool_result",
             "tool_use_id": self.id,
-            "content": self._get_content()
+            "content": json.dumps(self.get_result())
+        }
+    
+    def openai_result_schema(self):
+        return {
+            "role": "tool",
+            "name": self.tool,
+            "content": json.dumps(self.get_result()),
+            "tool_call_id": self.id
         }
 
 
 class AssistantMessage(ChatMessage):
     role: Literal["assistant"] = "assistant"
-    content: Optional[str] = ""
-    tool_calls: Optional[List[ToolCall]] = Field(None, description="Tool calls")
+    agent_id: Optional[ObjectId] = None
+    thought: Optional[str] = None
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = []
     
     def openai_schema(self, truncate_images=False):
         schema = [{
-            "role": self.role,
+            "role": "assistant",
             "content": self.content,
             "function_call": None,
             "tool_calls": None
         }]
         if self.tool_calls:
-            schema[0]["tool_calls"] = [t.openai_schema() for t in self.tool_calls]
+            schema[0]["tool_calls"] = [t.openai_call_schema() for t in self.tool_calls]
+            schema.extend([t.openai_result_schema() for t in self.tool_calls])        
         return schema
     
     def anthropic_schema(self, truncate_images=False):
         schema = [{
-            "role": self.role,
+            "role": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": self.content,
+                    "text": self.content or "..."
                 }
             ],
         }]
         if self.tool_calls:
             schema[0]["content"].extend([
-                t.anthropic_schema() for t in self.tool_calls
+                t.anthropic_call_schema() for t in self.tool_calls
             ])
+            schema.append({
+                "role": "user",
+                "content": [t.anthropic_result_schema() for t in self.tool_calls]
+            })
         return schema
 
-    def __str__(self):
-        string = f"{self.role.capitalize()}:\t{self.content}"
-        if self.tool_calls:
-            string += f"\t [{', '.join([t.name for t in self.tool_calls])}]"
-        return pprint(string, "green")
 
-
-class ToolResultMessage(ChatMessage):
-    role: Literal["tool"] = "tool"
-    tool_results: List[ToolResult]
-
-    def openai_schema(self, truncate_images=False):
-        return [t.openai_schema() for t in self.tool_results]
-    
-    def anthropic_schema(self, truncate_images=False):
-        return [{
-            "role": "user",
-            "content": [t.anthropic_schema() for t in self.tool_results]
-        }]
-
-    def __str__(self):
-        string = ", ".join([
-            f"{t.id}:\t\t{t.name} => {t.error or t.result}"
-            for t in self.tool_results
-        ])
-        return pprint(string, "blue")
-
-import uuid
-class Thread(MongoModel):
-    name: str
+@Collection("threads2")
+class Thread(Document):
+    # name: str
     user: ObjectId
-    messages: List[Union[UserMessage, AssistantMessage, ToolResultMessage]] = []
-    has_id: bool = Field(False, exclude=True)
+    agent: ObjectId
+    messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
-    def __init__(self, env, **data):
-        if "name" not in data:
-            data["name"] = str(uuid.uuid4())
-        if isinstance(data["user"], str):
-            data["user"] = ObjectId(data["user"])
-        super().__init__(collection_name="threads", env=env, **data)
-        message_types = {
-            "user": UserMessage,
-            "assistant": AssistantMessage,
-            "tool": ToolResultMessage
-        }
-        self.messages = [message_types[m.role](**m.model_dump()) for m in self.messages]
+    # @classmethod
+    # def from_name(cls, name, user, agent, create_if_missing=True, db="STAGE"):
+    #     threads = get_collection("threads2", db=db)
+    #     thread = threads.find_one({"name": name, "user": user, "agent": agent})
+    #     if not thread:
+    #         if create_if_missing:
+    #             return cls.create(cls, name, user, agent=agent, db=db)
+    #         else:
+    #             raise Exception(f"Thread {name} not found in {db}")
+    #     else:
+    #         return cls(**thread, db=db)
+        
+    @classmethod
+    def create(cls, user, agent, db="STAGE"):
+        user = user if isinstance(user, ObjectId) else ObjectId(user)
+        agent = agent if isinstance(agent, ObjectId) else ObjectId(agent)
+        new_thread = cls(db=db, user=user, agent=agent)
+        new_thread.save()
+        return new_thread
+
+    def update_tool_call(self, message_id, tool_call_index, updates):
+        # Update the in-memory object
+        message = next(m for m in self.messages if m.id == message_id)
+        for key, value in updates.items():
+            setattr(message.tool_calls[tool_call_index], key, value)
+        # Update the database
+        self.set_against_filter({
+            f"messages.$.tool_calls.{tool_call_index}.{k}": v for k, v in updates.items()
+        }, filter={"messages.id": message_id})
+
+    def get_messages(self, filters):
+        # filter by time, number, or prompt
+        # if reply to inside messages, mark it 
+        # if reply to by old message, include context leading up to it
+
+        pass
+
+
+@Collection("agents")
+class Agent(Document):
+    key: str
+    name: str
+    owner: ObjectId
+    description: str
+    instructions: str
+    tools: Optional[List[dict]] # default / null set
 
     @classmethod
-    def from_id(self, document_id: str, env: str):
-        thread = super().from_id(self, document_id, "threads", env)
-        return thread
+    def load(cls, agent, db="STAGE"):
+        print("load", agent)
+        pass
+
+    def load_from_dir(self, ):
+        pass
+
+    def prompt_thread(thread: Thread):
+        #
+        pass
+
+    def think(thread: Thread):
+        # consider reply
+        pass
+
+    def moderate(thread: Thread):
+        # spam / nsfw / user abuse
+        pass
+
+    def stream_of_consciousness(
+        think: Thread, 
+        act: Thread, 
+        prompt: str
+    ):
+        pass
 
     @classmethod
-    def from_name(self, name: str, user_id: dict, env: str, create_if_missing: bool = False):
-        user = User.from_id(user_id, env=env)
-        threads = get_collection("threads", env=env)
-        thread = threads.find_one({"name": name, "user": user.id})
-
-        if not thread:
-            if create_if_missing:
-                thread = self(name=name, user=user.id, env=env)
-                thread.save()
-            else:
-                raise Exception(f"Thread {name} not found")
-        else:
-            if thread["user"] != user.id:
-                raise Exception(f"Thread {name} does not belong to user {user.username}")
-            thread = self(env=env, **thread)
-        return thread
-
-    def to_mongo(self):
-        data = super().to_mongo()
-        data['messages'] = [m.to_mongo() for m in self.messages]
-        return data
-
-    def get_messages(self, schema):
-        if schema == "openai":
-            return [item for m in self.messages for item in m.openai_schema()]
-        elif schema == "anthropic":
-            return [item for m in self.messages for item in m.anthropic_schema()]
-
-    def add_messages(self, *new_messages, save=False, reload_messages=False):
-        if reload_messages and not self.collection is None:
-            self.reload_messages()
-        self.messages.extend(new_messages)
-        if save:
-            self.save()
-
-    def reload_messages(self):
-        self.messages = self.from_id(self.id, env=env).messages
+    def dialogue(cls, other):
+        pass
 
 
-class ToolNotFoundException(Exception):
-    def __init__(self, *tool_names): 
-        invalid_tools = ", ".join(tool_names)
-        super().__init__(f"ToolNotFoundException: {invalid_tools} not found.") 
-
-class UrlNotFoundException(Exception):
-    def __init__(self, *urls): 
-        invalid_urls = ", ".join(urls)
-        super().__init__(f"UrlNotFoundException: {invalid_urls} not found in user messages") 
 
 
-async def async_anthropic_prompt(messages, system_message, tools):
-    print("my tools")
-    print("-=====")
-    print(tools)
-    print("-=====")
-    print(type(tools))
-    print("-=====")
-    print(tools.values())
-    messages_json = [item for msg in messages for item in msg.anthropic_schema()]
-    anthropic_tools = [t.anthropic_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
-    response = await anthropic_client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=8192,
-        tools=anthropic_tools,
-        messages=messages_json,
-        system=system_message,
+from abc import ABC, abstractmethod
+import yaml
+# from eve.llm import async_prompt_thread
+
+class Agent2(BaseModel, ABC):
+    """
+    Base class for all agents.
+    """
+
+    key: str
+    owner: ObjectId
+    name: str
+    description: str
+    instructions: str
+    tools: Optional[List[dict]] = None
+    
+    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    visible: Optional[bool] = True
+    allowlist: Optional[str] = None
+    
+    test_args: List[Dict[str, Any]]
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
     )
-    text_messages = [r.text for r in response.content if r.type == "text"]
-    content = text_messages[0] or ""
-    tool_calls = [ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"]
-    stop = response.stop_reason == "tool_use"
-    return content, tool_calls, stop
 
-
-def anthropic_prompt(messages, system_message, tools):
-    return asyncio.run(async_anthropic_prompt(messages, system_message, tools))
-
-
-async def async_openai_prompt(messages, system_message, tools):
-    print("my tools 2")
-    print(tools.values())
-    messages_json = [{"role": "system", "content": system_message}]
-    messages_json.extend([item for msg in messages for item in msg.openai_schema()])
-    openai_tools = [t.openai_tool_schema(remove_hidden_fields=True, include_tips=True) for t in tools.values()] or None
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        tools=openai_tools,
-        messages=messages_json,
-    )
-    response = response.choices[0]        
-    content = response.message.content or ""
-    tool_calls = [ToolCall.from_openai(tool_call) for tool_call in response.message.tool_calls or []]
-    stop = response.finish_reason == "tool_calls"
-    return content, tool_calls, stop
-
-
-def openai_prompt(messages, system_message, tools):
-    return asyncio.run(async_openai_prompt(messages, system_message, tools))
-
-
-async def process_tool_calls(agent, tool_calls, settings, tools):
-    tool_results = []
-    for tool_call in tool_calls:
-        add_breadcrumb(category="tool_call", data=tool_call.model_dump())
+    @classmethod
+    def load(cls, key: str, db: str, prefer_local: bool = True, **kwargs):
+        """Load the tool class based on the handler in api.yaml"""
         
-        # try:
-        if 1:
-            tool_call.validate(tools)
-            tool = tools[tool_call.name]
-            input = {k: v for k, v in tool_call.input.items() if v is not None}
-            input.update(settings)        
-            updated_args = tool.get_base_model(**input).model_dump()
-
-            if tool.handler == "mongo":
-                result = await tool.async_run(updated_args)
-            else:
-                task = Task(
-                    workflow=tool.key,
-                    output_type=tool.output_type,
-                    args=updated_args,
-                    user=agent.owner,
-                    env=env
-                )
-                add_breadcrumb(category="tool_call_task", data=task.model_dump())
-                result = await tool.async_submit_and_run(task)
-
-            add_breadcrumb(category="tool_result_before", data={"result": result})
-            result = tool.get_user_result(result)
-            add_breadcrumb(category="tool_result_after", data={"result": result})
-            result = json.dumps(result)
-            result = ToolResult(id=tool_call.id, name=tool_call.name, result=result)
-
-        # except ToolNotFoundException as err:
-        #     error = f"Tool {tool_call.name} not found"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
-        #     capture_exception(err)
-
-        # except ValidationError as err:
-        #     errors = [f"{e['loc'][0]}: {e['msg']}" for e in err.errors()]
-        #     errors = ", ".join(errors)
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=errors)
-        #     capture_exception(err)
-
-        # except Exception as err:
-        #     error = f"An internal error occurred: {err}"
-        #     result = ToolResult(id=tool_call.id, name=tool_call.name, error=error)
-        #     capture_exception(err)
-
-        # finally:
-        tool_results.append(result)
-
-    return tool_results
-
-
-@retry(
-    retry=retry_if_exception(lambda e: isinstance(e, (
-        openai.RateLimitError, anthropic.RateLimitError
-    ))),
-    wait=wait_exponential(multiplier=5, max=60),
-    stop=stop_after_attempt(3),
-    reraise=True
-)
-@retry(
-    retry=retry_if_exception(lambda e: isinstance(e, (
-        openai.APIConnectionError, openai.InternalServerError, 
-        anthropic.APIConnectionError, anthropic.InternalServerError
-    ))),
-    wait=wait_exponential(multiplier=2, max=30),
-    stop=stop_after_attempt(3),
-    reraise=True
-)
-async def prompt_llm_and_validate(messages, system_message, provider, tools):
-    num_attempts, max_attempts = 0, 3
-    while num_attempts < max_attempts:
-        num_attempts += 1 
-        # pretty_print_messages(messages, schema=provider)
-
-        # try:
-        if 1:
-            if provider == "anthropic":
-                content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
-            elif provider == "openai":
-                content, tool_calls, stop = await async_openai_prompt(messages, system_message, tools)
-            
-            # check for hallucinated tools
-            invalid_tools = [t.name for t in tool_calls if not t.name in tools]
-            if invalid_tools:
-                add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
-                raise ToolNotFoundException(*invalid_tools)
-
-            # check for hallucinated urls
-            url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
-            valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-            valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
-            tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
-            invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
-            if invalid_urls:
-                add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
-                raise UrlNotFoundException(*invalid_urls)
-            return content, tool_calls, stop
-
-        # if there are still hallucinations after max_attempts, just let the LLM deal with it
-        # except (ToolNotFoundException, UrlNotFoundException) as e:
-        #     if num_attempts == max_attempts:
-        #         return content, tool_calls, stop
-
-
-
-
-
-async def async_prompt(
-    thread: Thread,
-    agent: Agent,
-    user_message: UserMessage,
-    provider: Literal["anthropic", "openai"] = "anthropic",
-    auto_save: bool = True
-):
-    tools = agent.get_tools()
-    settings = user_message.metadata.get("settings", {})
-    system_message = agent.get_system_message()
-
-    data = user_message.model_dump().update({"attachments": user_message.attachments, "settings": settings, "agent": agent.id})
-    add_breadcrumb(category="prompt", data=data)
-
-    # upload all attachments to s3
-    attachments = user_message.attachments or []    
-    for a, attachment in enumerate(attachments):
-        if not attachment.startswith(s3.get_root_url(env=env)):
-            attachment_url, _ = s3.upload_file_from_url(attachment, env=env)
-            attachments[a] = attachment_url
-    user_message.attachments = attachments
-    if user_message.attachments:
-        add_breadcrumb(category="attachments", data=user_message.attachments)
-
-    # get message buffer starting from the 5th last UserMessage
-    user_messages = [i for i, msg in enumerate(thread.messages) if isinstance(msg, UserMessage)]
-    start_index = user_messages[-5] if len(user_messages) >= 5 else 0
-    thread_messages = thread.messages[start_index:]
-    new_messages = [user_message]
-
-    data = {"messages": [m.model_dump() for m in thread_messages]}
-    add_breadcrumb(category="thread_messages", data=data)
-
-    while True:
-        messages = thread_messages + new_messages
-
-        # try:   
-        if 1:
-            content, tool_calls, stop = await prompt_llm_and_validate(
-                messages, system_message, provider, tools
-            )
-            data = {"content": content, "tool_calls": [t.model_dump() for t in tool_calls], "stop": stop}
-            add_breadcrumb(category="llm_response", data=data)
-
-        # except Exception as err:
-        #     capture_exception(err)
-        #     assistant_message = AssistantMessage(
-        #         content="I'm sorry but something went wrong internally. Please try again later.",
-        #         tool_calls=None
-        #     )
-        #     yield assistant_message
-        #     return
+        agents = get_collection("agents", db=db)
+        schema = agents.find_one({"key": key})
         
-        assistant_message = AssistantMessage(
-            content=content,
-            tool_calls=tool_calls
+        if not schema:
+            raise ValueError(f"Agent with key {key} not found on db: {db}")
+
+        return cls.load_from_schema(schema, prefer_local, **kwargs)
+
+    @classmethod
+    def load_from_dir(cls, agent_dir: str, prefer_local: bool = True, **kwargs):
+        """Load the tool from an api.yaml and test.json"""
+        
+        schema = cls._get_schema_from_dir(agent_dir)
+        schema['key'] = agent_dir.split('/')[-1]
+        
+        return cls.load_from_schema(schema, prefer_local, **kwargs)
+
+    @classmethod
+    def load_from_schema(cls, schema: dict, prefer_local: bool = True, **kwargs):
+        """Load the tool class based on the handler in api.yaml"""
+        
+        key = schema.pop('key')
+        test_args = schema.pop('test_args')
+        
+        return cls._create_agent(key, schema, test_args, **kwargs)    
+
+    @classmethod
+    def _create_agent(cls, key: str, schema: dict, test_args: dict, **kwargs):
+        """Create a new tool instance from a schema"""
+
+        agent_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
+        agent_data['test_args'] = test_args
+        agent_data['owner'] = ObjectId(agent_data['owner'])
+
+        return cls(key=key, **agent_data, **kwargs)
+
+    @classmethod
+    def _get_schema_from_dir(cls, agent_dir: str):
+        if not os.path.exists(agent_dir):
+            raise ValueError(f"Agent directory {agent_dir} does not exist")
+
+        api_file = os.path.join(agent_dir, 'api.yaml')
+        test_file = os.path.join(agent_dir, 'test.json')
+
+        with open(api_file, 'r') as f:
+            schema = yaml.safe_load(f)
+                
+        with open(test_file, 'r') as f:
+            schema['test_args'] = json.load(f)
+
+        return schema
+    
+    async def async_prompt(
+        db: str,
+        user_id: str, 
+        thread_name: str,
+        user_messages: Union[UserMessage, List[UserMessage]], 
+    ):
+        tools = {} # get self tools
+        await async_prompt_thread(
+            db=db,
+            user_id=user_id,
+            thread_name=thread_name,
+            user_messages=user_messages,
+            tools=tools
         )
-        new_messages.append(assistant_message)
-        yield assistant_message
-        
-        if tool_calls:
-            tool_results = await process_tool_calls(agent, tool_calls, settings, tools)
-            add_breadcrumb(category="tool_results", data={"tool_results": [t.model_dump() for t in tool_results]})
-            tool_message = ToolResultMessage(tool_results=tool_results)
-            new_messages.append(tool_message)
-            yield tool_message
-
-        if not stop:
-            break
-
-    if auto_save:
-        thread.add_messages(*new_messages, save=True, reload_messages=True)
 
 
-def prompt(
-    thread: Thread,
-    agent: Agent,
-    user_message: UserMessage,
-    provider: Literal["anthropic", "openai"] = "anthropic",
-    auto_save: bool = True
-):
-    async def async_wrapper():
-        return [message async for message in async_prompt(
-            thread, agent, user_message, provider, auto_save
-        )]
-    return asyncio.run(async_wrapper())
-
-
-async def interactive_chat(initial_message=None):
-    user_id = ObjectId("65284b18f8bbb9bff13ebe65") # user = gene3
-    agent = Agent.from_id("66f1c7b5ee5c5f46bbfd3cb9", env=env)
-
-    # thread = Thread(
-    #     name="my_test_interactive_thread", 
-    #     user=user,
-    #     env=env
-    # )
-    thread = Thread.from_name(
-        name="my_test_interactive_thread",
-        user_id=user_id,
-        env=env, 
-        create_if_missing=True
-    )
-    
-    while True:
-        try:
-        # if 1:
-            if initial_message:
-                message_input = initial_message
-                initial_message = None
-            else:
-                message_input = input("\033[93m\033[1m\nUser:\t\t")
-            if message_input.lower() == 'escape':
-                break
-            print("\033[93m\033[1m")
-            
-            content, metadata, attachments = preprocess_message(message_input)
-            
-            user_message = UserMessage(
-                content=content,
-                metadata=metadata,
-                attachments=attachments
-            )
-
-            async for message in async_prompt(thread, agent, user_message): 
-                print(message)
-
-        except KeyboardInterrupt:
-            break
-
-
-def preprocess_message(message):
-    metadata_pattern = r'\{.*?\}'
-    attachments_pattern = r'\[.*?\]'
-    metadata_match = re.search(metadata_pattern, message)
-    attachments_matches = re.findall(r'\[(.*?)\]', message)
-    
-    metadata = json.loads(metadata_match.group(0)) if metadata_match else {}
-    
-    attachments = []
-    for match in attachments_matches:
-        urls = match.split(',')
-        attachments.extend([url.strip() for url in urls])
-    
-    clean_message = re.sub(metadata_pattern, '', message)
-    clean_message = re.sub(attachments_pattern, '', clean_message).strip()
-    
-    return clean_message, metadata, attachments
-
-
-def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "openai"):
-    if schema == "anthropic":
-        messages = [item for msg in messages for item in msg.anthropic_schema(truncate_images=True)]
-    elif schema == "openai":
-        messages = [item for msg in messages for item in msg.openai_schema(truncate_images=True)]
-    json_str = json.dumps(messages, indent=4)
-    print(json_str)
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(interactive_chat()) 
+    async def async_stream(
+        db: str,
+        user_id: str, 
+        thread_name: str,
+        user_messages: Union[UserMessage, List[UserMessage]], 
+    ):
+        pass

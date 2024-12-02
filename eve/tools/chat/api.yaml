@@ -1,6 +1,6 @@
 name: Chat
 description: Chat with an agent
-output_type: str
+output_type: string
 # status: prod
 cost_estimate: 1
 status: inactive
@@ -9,7 +9,7 @@ parameters:
   content:
     label: Message
     description: Text of the message to send to the agent
-    type: str
+    type: string
     required: true
   attachments:
     label: Attachments
@@ -18,11 +18,11 @@ parameters:
   thread_id:
     label: Thread ID
     description: ID of the thread to use
-    type: str
+    type: string
   agent_id:
     label: Agent ID
     description: ID of the agent to use
-    type: str
+    type: string
     required: true
 # preset:
 #   label: Preset

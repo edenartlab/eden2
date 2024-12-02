@@ -19,6 +19,7 @@ generic_instructions = """Follow these additional guidelines:
 - When returning the final results to the user, do not include *any* text except a markdown link to the image(s) and/or video(s) with the prompt as the text and the media url as the link. DO NOT include any other text, such as the name of the tool used, a summary of the results, the other args, or any other explanations. Just [prompt](url).
 - When doing multi-step tasks, present your intermediate results in each message before moving onto the next tool use. For example, if you are asked to create an image and then animate it, make sure to return the image (including the url) to the user (as markdown, like above)."""
 
+from typing import Optional
 
 
 class Agent(MongoModel):
@@ -27,7 +28,7 @@ class Agent(MongoModel):
     owner: ObjectId
     description: str
     instructions: str
-    tools: List[dict]
+    tools: Optional[List[dict]]
 
     def __init__(self, env, **data):
         data['description'] = data['description'].strip()

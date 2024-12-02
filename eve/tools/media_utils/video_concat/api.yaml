@@ -13,7 +13,7 @@ parameters:
     description: Videos to concatenate
     required: true
   fps:
-    type: int
+    type: integer
     label: FPS
     description: Frames per second
     default: 30

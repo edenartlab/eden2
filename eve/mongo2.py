@@ -69,11 +69,18 @@ class Document(BaseModel):
         """
         document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
         data = cls.get_collection(db).find_one({"_id": document_id})
-        if data:
-            instance = cls.model_validate(data)
-            instance.db = db
-            return instance
-        return None
+        # if data:
+        #     instance = cls.model_validate(data)
+        #     instance.db = db
+        #     return instance
+        # return None
+        if not data:
+            raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")
+        
+        instance = cls.model_validate(data)
+        instance.db = db
+        return instance
+        
 
     def save(self, db=None):
         """

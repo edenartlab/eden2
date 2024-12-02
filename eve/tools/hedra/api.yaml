@@ -18,7 +18,7 @@ parameters:
     description: The audio to turn into a talking head
     required: true
   aspectRatio:
-    type: str
+    type: string
     label: Aspect ratio
     description: The aspect ratio of the video
     default: '1:1'

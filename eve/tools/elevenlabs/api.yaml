@@ -8,12 +8,12 @@ status: prod
 visible: false
 parameters:
   text:
-    type: str
+    type: string
     label: Text
     description: The text to be spoken
     required: true
   voice_id:
-    type: str
+    type: string
     label: Voice ID
     description: The voice ID to use for the speech
     required: true
@@ -39,17 +39,17 @@ parameters:
     minimum: 0
     maximum: 1
   use_speaker_boost:
-    type: bool
+    type: boolean
     label: Use Speaker Boost
     description: Whether to use speaker boost
     default: true
   max_attempts:
-    type: int
+    type: integer
     label: Max Attempts
     description: The maximum number of attempts to generate the speech
     default: 3
   initial_delay:
-    type: int
+    type: integer
     label: Initial Delay
     description: The initial delay before starting to generate the speech
     default: 1

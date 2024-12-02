@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from eve.llm import async_prompt_thread, UserMessage, UpdateType
+from eve.thread import Thread
 from eve.tool import get_tools_from_mongo
 from eve.eden_utils import prepare_result
 
@@ -21,7 +22,7 @@ def preprocess_message(message):
     return clean_message, attachments
 
 
-async def async_chat(db, thread, agent, debug=False):
+async def async_chat(db, agent_id, thread_id, debug=False):
     db = db.upper()
     user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
@@ -60,10 +61,19 @@ async def async_chat(db, thread, agent, debug=False):
                     if not debug:                        
                         sys.stdout = devnull
 
+                    if not thread_id:
+                        thread = Thread.create(
+                            db=db,
+                            user=user_id,
+                            agent=agent_id,
+                        )
+                        thread_id = str(thread.id)
+
                     async for update in async_prompt_thread(
                         db=db,
                         user_id=user_id,
-                        thread_name=thread,
+                        agent_id=agent_id,
+                        thread_id=thread_id,
                         user_messages=UserMessage(
                             content=content, attachments=attachments
                         ),

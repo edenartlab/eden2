@@ -26,13 +26,13 @@ comfyui_intermediate_outputs:
   controlnet_signal: 323
 parameters:
   name:
-    type: str
+    type: string
     label: Name of the widget
     description: The name of a widget should tell you what it's called
     example: Wompus
     required: true
   type:
-    type: str
+    type: string
     label: Type of widget
     description: This should tell you what kind of a widget you've got
     tip: Thingies are better than gadgets, but doohickies are better than thingies
@@ -41,14 +41,15 @@ parameters:
     choices: [thingy, gadget, doohickey]
     choices_labels: [Thingy, Gadget, Doohickey]
   age:
-    type: int
+    anyOf: 
+      - type: integer
+        minimum: -16
+        maximum: 144
+        default: random
+      - type: string
     label: Age
     description: Age of the widget
     tip: If you don't set this, it will be randomized between minimum and maximum
-    example: 10
-    default: random
-    minimum: -16
-    maximum: 144
     comfyui:
       node_id: 162
       field: height
@@ -63,7 +64,9 @@ parameters:
   skills:
     type: array
     items:
-      type: str
+      type: string
+    min_length: 1
+    max_length: 3
     description: A list of skills the widget has
     default: [reading, swimming, cooking]
   contacts:
@@ -72,12 +75,12 @@ parameters:
       type: object
       parameters:
         type:
-          type: str
+          type: string
           description: The contact method type
           example: email
           choices: [email, phone, social_media]
         value:
-          type: str
+          type: string
           description: The contact value
           example: john@example.com
     description: A list of contact methods
@@ -85,22 +88,22 @@ parameters:
     type: object
     parameters:
       street:
-        type: str
+        type: string
         description: The street address
-        example: 123 Main St
+        example: 1234 Main St
       city:
-        type: str
-        description: The city name
+        type: string
+        description: The city name3
         example: Somewhere
-        required: true
+        # required: true
       postal_code:
-        type: int
+        type: integer
         description: Postal code for the address
         example: 12345
         minimum: 10000
         maximum: 99999
     description: The person's address
-    example: {"street": "123 Main St", "city": "Somewhere", "postal_code": 12345}
+    example: {"street": "2123 Main St", "city": "Somewhere", "postal_code": 12345}
   matrix:
     type: object
     parameters:
@@ -109,7 +112,7 @@ parameters:
         items:
           type: array
           items:
-            type: int
+            type: integer
         description: A row in the matrix
     description: A 2D array of integers (matrix)
     tip: Matrix is a 2D array of integers
