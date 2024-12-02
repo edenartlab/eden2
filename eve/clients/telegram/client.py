@@ -154,12 +154,18 @@ async def send_response(
     message_type: str, chat_id: int, response: list, context: ContextTypes.DEFAULT_TYPE
 ):
     """
-    Send messages or photos based on the type of response.
+    Send messages, photos, or videos based on the type of response.
     """
     for item in response:
         if item.startswith("https://"):
-            logging.info(f"Sending photo to {chat_id}")
-            await context.bot.send_photo(chat_id=chat_id, photo=item)
+            # Common video file extensions
+            video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+            if any(item.lower().endswith(ext) for ext in video_extensions):
+                logging.info(f"Sending video to {chat_id}")
+                await context.bot.send_video(chat_id=chat_id, video=item)
+            else:
+                logging.info(f"Sending photo to {chat_id}")
+                await context.bot.send_photo(chat_id=chat_id, photo=item)
         else:
             logging.info(f"Sending message to {chat_id}")
             await context.bot.send_message(chat_id=chat_id, text=item)
@@ -214,7 +220,7 @@ class EdenTG:
 
         user_id = "65284b18f8bbb9bff13ebe65"
         agent_id = "67069a27fa89a12910650755"
-        thread_id = None
+        thread_id = "67491a4ecc662e6ec2c7cd15"
         user_message = UserMessage(content=cleaned_text)
         db="STAGE"
         tools = get_tools_from_mongo(db=db)
@@ -235,14 +241,10 @@ class EdenTG:
             user_messages=user_message,
             tools=tools
         ):
-            print("THE RESPONSe ")
-            print(msg)
             if msg.type == UpdateType.ASSISTANT_MESSAGE:
                 await send_response(message_type, chat_id, [msg.message.content], context)
             elif msg.type == UpdateType.TOOL_COMPLETE:
-                print(msg.result['result'])
                 msg.result['result'] = prepare_result(msg.result['result'], db="STAGE")
-                print(msg.result['result'])
                 url = msg.result['result'][0]['output'][0]['url']
                 await send_response(message_type, chat_id, [url], context)
             elif msg.type == UpdateType.ERROR:

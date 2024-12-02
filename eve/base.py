@@ -354,10 +354,6 @@ def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
     fields = {}
     required_fields = schema.get('required', [])
     
-    print("*********")
-    print(schema)
-    print(required_fields)
-    print("*********")
     for field, props in schema.get('parameters', {}).items():
         if props.get('anyOf'):
             # anyOf makes a Union of its types
