@@ -11,7 +11,7 @@ from . import eden_utils
 
 @Collection("tasks2")
 class Task(Document):
-    workflow: str
+    tool: str
     parent_tool: Optional[str] = None
     output_type: str
     args: Dict[str, Any]
@@ -78,7 +78,7 @@ async def _task_handler(func, *args, **kwargs):
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i
 
-            result = await func(*args[:-1], task.parent_tool or task.workflow, task_args, task.db)
+            result = await func(*args[:-1], task.parent_tool or task.tool, task_args, task.db)
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
             result = eden_utils.upload_result(result, db=task.db)

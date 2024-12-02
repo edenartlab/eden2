@@ -130,8 +130,8 @@ image = (
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-        "torchaudio", "pydub", "moviepy", "accelerate", "pymongo", "google-cloud-aiplatform", 
-        "runwayml", "elevenlabs")
+        "torchaudio", "pydub", "moviepy==1.0.3", "accelerate", "pymongo", "google-cloud-aiplatform", 
+        "runwayml", "elevenlabs", "sentry-sdk")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
@@ -139,7 +139,6 @@ image = (
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
     .copy_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows, "SKIP_TESTS": skip_tests})
-    .pip_install("sentry-sdk")
 )
 
 gpu = modal.gpu.A100()
@@ -518,10 +517,11 @@ class ComfyUI:
                     if str(remap.get('node_id')) not in workflow or str(remap.get('field')) not in workflow[str(remap.get('node_id'))] or subfield not in workflow[str(remap.get('node_id'))][str(remap.get('field'))]:
                         raise Exception(f"Node ID {remap.get('node_id')}, field {remap.get('field')}, subfield {subfield} not found in workflow")
                 param = tool.model.model_fields[key]
-                has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
-                if not has_choices:
-                    raise Exception(f"Remap parameter {key} has no original choices")
-                choices = [e.value for e in param.annotation]
+                # has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
+                # if not has_choices:
+                #     raise Exception(f"Remap parameter {key} has no original choices")
+                # choices = [e.value for e in param.annotation]
+                choices = param.json_schema_extra.get("choices")
                 if not all(choice in choices for choice in remap['map'].keys()):
                     raise Exception(f"Remap parameter {key} has invalid choices: {remap['map']}")
                 if not all(choice in remap['map'].keys() for choice in choices):
@@ -548,7 +548,7 @@ class ComfyUI:
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
 
-            if file_type in ["image", "video", "audio", "image|video", "image|audio", "video|audio", "image|video|audio"]:
+            if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
                     continue
                 if is_array:

@@ -28,12 +28,13 @@ from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredenti
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread
+from eve.thread import Thread
 
 
 db = os.getenv("DB", "STAGE")
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "tools" if db == "PROD" else "tools-dev"
+app_name = "tools-new" if db == "PROD" else "tools-new-dev"
 
 client = AsyncOpenAI()
 
@@ -66,61 +67,63 @@ async def chat_stream(request: Request):
     )
 
 
+
 def task_handler(
     request: dict,
-    # _: dict = Depends(auth.authenticate_admin)
+    _: dict = Depends(auth.authenticate_admin)
 ):
-    workflow = request.get("workflow")
-    user = request.get("user")
+    tool_name = request.get("tool")
+    user_id = request.get("user_id")
     args = request.get("args")
 
     async def submit_task():
-        tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db=db)
+        tool = Tool.load(tool_name, db=db)
+        task = await tool.async_start_task(user_id, args, db=db)
         return task
 
     return asyncio.run(submit_task())
 
-
-def task_handler_authenticated(
-    request: dict,
-    auth: dict = Depends(auth.authenticate),
-):
-    workflow = request.get("workflow")
-    user = auth.userId
-    args = request.get("args")
-
-    async def submit_task():
-        tool = Tool.load(workflow, db=db)
-        task = await tool.async_start_task(user, args, db=db)
-        return task
-
-    return asyncio.run(submit_task())
 
 
 async def chat_handler(
     request: dict,
     background_tasks: BackgroundTasks,
-    auth: dict = Depends(auth.authenticate),
+    _: dict = Depends(auth.authenticate_admin)
 ):
-    user_id = auth.userId
+    user_id = request.get("user_id")
+    agent_id = request.get("agent_id")
+    thread_id = request.get("thread_id")
     user_message = UserMessage(**request.get("user_message"))
-    thread_name = request.get("thread_name")
+
     tools = get_tools_from_mongo(db=db)
     
-    async def run_prompt():
-        async for _ in async_prompt_thread(
+    if not thread_id:
+        thread_new = Thread.create(
             db=db,
-            user_id=user_id,
-            thread_name=thread_name,
-            user_messages=user_message,
-            tools=tools
-        ):
-            pass
+            user=user_id,
+            agent=agent_id,
+        )
+        thread_id = str(thread_new.id)
+
+    try:
+        async def run_prompt():
+            async for _ in async_prompt_thread(
+                db=db,
+                user_id=user_id,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                user_messages=user_message,
+                tools=tools
+            ):
+                pass
+        
+        background_tasks.add_task(run_prompt)        
+        return {"status": "success", "thread_id": thread_id}
     
-    background_tasks.add_task(run_prompt)
+    except Exception as e:
+        print(e)
+        return {"status": "error", "message": str(e)}
     
-    return {"status": "success"}
 
 
 web_app = FastAPI()
@@ -134,14 +137,14 @@ web_app.add_middleware(
 )
 
 web_app.post("/create")(task_handler)
-web_app.post("/create-authenticated")(task_handler_authenticated)
-web_app.post("/chat/stream")(chat_stream)
 web_app.post("/chat")(chat_handler)
+web_app.post("/chat/stream")(chat_stream)
 
 
 app = modal.App(
     name=app_name,
     secrets=[
+        modal.Secret.from_name("admin-key"),
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("replicate"),
@@ -157,7 +160,7 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"ENV": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
+    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
 )

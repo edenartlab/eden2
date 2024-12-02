@@ -29,13 +29,13 @@ class EdenClient:
         )
         self.api_key = api_key or get_api_key()
 
-    def create(self, workflow, args):
-        return asyncio.run(self.async_create(workflow, args))
+    def create(self, tool, args):
+        return asyncio.run(self.async_create(tool, args))
 
-    async def async_create(self, workflow, args):
+    async def async_create(self, tool, args):
         uri = f"{self.api_url}/v2/tasks/create"
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        payload = {"workflow": workflow, "args": args}
+        payload = {"tool": tool, "args": args}
 
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(uri, headers=headers, json=payload)

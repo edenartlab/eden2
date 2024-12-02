@@ -70,14 +70,16 @@ def update(db: str, tools: tuple):
             return
 
     for key, tool_dir in tool_dirs.items():
+        updated = 0
         try:
             order = tools_order.get(key, len(api_tools))
             save_tool_from_dir(tool_dir, order=order, db=db)
             click.echo(click.style(f"Updated {db}:{key} with order {order}", fg="green"))
+            updated += 1
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
-    click.echo(click.style(f"\nUpdated {len(tool_dirs)} tools", fg="blue", bold=True))
+    click.echo(click.style(f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True))
 
 
 @cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
@@ -285,12 +287,13 @@ def test(
     default="STAGE",
     help="DB to save against",
 )
-@click.option("--thread", type=str, default="cli_test2", help="Thread name")
+@click.option("--thread", type=str, help="Thread id")
 @click.option("--debug", is_flag=True, default=False, help="Debug mode")
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
-    asyncio.run(async_chat(db, thread, agent, debug))
+    agent = "67069a27fa89a12910650755"
+    asyncio.run(async_chat(db, agent, thread, debug))
 
 
 def start_local_chat(db: str, env_path: str):
@@ -302,7 +305,7 @@ def start_local_chat(db: str, env_path: str):
         agent = config.get("name", "eve").lower()
 
     thread = f"local_client_{int(time.time())}"  # unique thread name
-    asyncio.run(async_chat(db, thread, agent))
+    asyncio.run(async_chat(db, agent, thread))
 
 
 @cli.command()

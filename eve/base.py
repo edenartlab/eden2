@@ -231,12 +231,12 @@ def get_python_type(field_info):
     """
 
     type_map = {
-        'str': str,
+        # 'str': str,
         'string': str,
-        'int': int,
+        # 'int': int,
         'integer': int,
         'float': float,
-        'bool': bool,
+        # 'bool': bool,
         'boolean': bool,
         'array': List,
         'object': Dict,
@@ -292,71 +292,116 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
 # def create_enum(name: str, choices: List[str]):
 #     return Enum(name, {str(choice): choice for choice in choices})
 
+
+
+
+
+def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
+    field_kwargs = {}
+    json_schema_extra = {}
+    
+    if 'description' in props:
+        field_kwargs['description'] = props['description']
+        if 'tip' in props:
+            field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
+    if 'example' in props:
+        json_schema_extra['example'] = props['example']
+    if 'default' in props:
+        field_kwargs['default'] = props['default']
+
+    # Handle array
+    if props['type'] == 'array':
+        if 'min_length' in props:
+            field_kwargs['min_length'] = props['min_length']
+        if 'max_length' in props:
+            field_kwargs['max_length'] = props['max_length']
+
+    # Handle min and max for numeric types
+    if props['type'] in ['integer', 'float']:
+        if 'minimum' in props:
+            field_kwargs['ge'] = props['minimum']
+        if 'maximum' in props:
+            field_kwargs['le'] = props['maximum']
+    
+    # Handle choices
+    if props['type'] in ['integer', 'float', 'string'] and 'choices' in props:
+        field_kwargs['choices'] = props['choices']
+        return Literal[tuple(props['choices'])], field_kwargs, json_schema_extra
+    
+    # Handle file types
+    if props['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+        json_schema_extra['file_type'] = props['type']
+        
+    # Handle different types
+    if props['type'] == 'object':
+        type_annotation = create_model(field, **parse_schema(props))
+    elif props['type'] == 'array':
+        json_schema_extra['is_array'] = True
+        if props['items']['type'] == 'object':
+            item_type = create_model(f"{field}Item", **parse_schema(props['items']))
+        else:
+            item_type = get_python_type(props['items'])
+            if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
+                json_schema_extra['file_type'] = props['items']['type']
+        type_annotation = List[item_type]
+    else:
+        type_annotation = get_python_type(props)
+        
+    return type_annotation, field_kwargs, json_schema_extra
+
+
 def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
     fields = {}
     required_fields = schema.get('required', [])
-    for field, props in schema.get('parameters', {}).items():
-        # print("========")
-        # print(field)
-        # print(props)
-        field_kwargs = {}
-        json_schema_extra = {}  # New dict for extra parameters
-        
-        if 'description' in props:
-            field_kwargs['description'] = props['description']
-            if 'tip' in props:
-                field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
-        if 'example' in props:
-            json_schema_extra['example'] = props['example']  # Moved to json_schema_extra
-        if 'default' in props:
-            field_kwargs['default'] = props['default']
-        
-        # Store additional parameters
-        # additional_props = {}
-        
-        # Handle min and max for int and float
-        if props['type'] in ['int', 'float']:
-            if 'minimum' in props:
-                field_kwargs['ge'] = props['minimum']
-            if 'maximum' in props:
-                field_kwargs['le'] = props['maximum']
-        
-        # Handle choices for strings using Literal instead of Enum
-        if props['type'] in ['int', 'float', 'str'] and 'choices' in props:
-            annotation = Literal[tuple(props['choices'])]  # Create a Literal type with the choices
-            fields[field] = (annotation, Field(**field_kwargs, json_schema_extra=json_schema_extra))
-            continue
-        
-        # Add special handling for file types
-        if props['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
-            json_schema_extra['file_type'] = props['type']  # Moved to json_schema_extra
-        if props['type'] == 'array' and 'items' in props:
-            if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
-                json_schema_extra['file_type'] = props['items']['type']  # Moved to json_schema_extra
-
-        if props['type'] == 'object':
-            nested_model = create_model(field, **parse_schema(props))
-            fields[field] = (nested_model, Field(**field_kwargs, json_schema_extra=json_schema_extra))
-        elif props['type'] == 'array':
-            item_type = get_python_type(props['items'])
-            json_schema_extra['is_array'] = True  # Moved to json_schema_extra
-            if props['items']['type'] == 'object':
-                item_type = create_model(f"{field}Item", **parse_schema(props['items']))
-            fields[field] = (List[item_type], Field(**field_kwargs, json_schema_extra=json_schema_extra))
-        else:
-            fields[field] = (get_python_type(props), Field(**field_kwargs, json_schema_extra=json_schema_extra))
     
-        if 'alias' in props:
-            json_schema_extra['alias'] = props['required']  # Moved to json_schema_extra
+    print("*********")
+    print(schema)
+    print(required_fields)
+    print("*********")
+    for field, props in schema.get('parameters', {}).items():
+        if props.get('anyOf'):
+            # anyOf makes a Union of its types
+            types = []
+            field_kwargs = {}
+            json_schema_extra = {}
+            
+            for prop in props['anyOf']:
+                type_annotation, prop_kwargs, prop_extra = parse_props(field, prop)
+                types.append(type_annotation)
+                field_kwargs.update(prop_kwargs)
+                if 'file_type' in json_schema_extra:
+                    json_schema_extra['file_type'] += f"|{prop_extra['file_type']}"
+                    prop_extra.pop('file_type')
+                elif 'file_type' in prop_extra:
+                    json_schema_extra['file_type'] = prop_extra['file_type']
+                json_schema_extra.update(prop_extra)
+                
+            type_annotation = Union[tuple(types)]
+        else:
+            type_annotation, field_kwargs, json_schema_extra = parse_props(field, props)
 
-        # if 'hide_from_ui' in props:
-        #     json_schema_extra['hide_from_ui'] = props['hide_from_ui']
-        if 'hide_from_agent' in props:
-            json_schema_extra['hide_from_agent'] = props['hide_from_agent']
+        # Handle additional metadata
+        for key in ['alias', 'hide_from_agent', 'hide_from_ui']:
+            if key in props:
+                json_schema_extra[key] = props[key]
 
-        if not props.get('required') and not field in required_fields:
-            fields[field] = (Optional[fields[field][0]], fields[field][1])
-            fields[field][1].default = field_kwargs.get("default", None)
+        # if props.get('required'):
+        #     required_fields.append(field)
+        
+        if field not in required_fields:
+            type_annotation = Optional[type_annotation]
+            field_kwargs['default'] = field_kwargs.get('default', None)
+
+        if field_kwargs.get('default') == "random":
+            json_schema_extra['randomize'] = True
+            field_kwargs.pop('default')
+
+        # Make field optional if not required
+        # if not props.get('required') and field not in required_fields:
+        #     type_annotation = Optional[type_annotation]
+        #     field_kwargs['default'] = field_kwargs.get('default', None)
+
+        fields[field] = (type_annotation, Field(**field_kwargs, json_schema_extra=json_schema_extra))
 
     return fields
 

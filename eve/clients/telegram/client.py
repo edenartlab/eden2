@@ -16,6 +16,13 @@ from telegram.ext import (
 from eve.sdk.eden import EdenClient
 from eve.sdk.eden.client import EdenApiUrls
 
+
+from eve import auth
+from eve.tool import Tool, get_tools_from_mongo
+from eve.llm import UserMessage, async_prompt_thread, UpdateType
+from eve.thread import Thread
+from eve.eden_utils import prepare_result
+
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -98,10 +105,10 @@ async def send_response(message_type: str, chat_id: int, response: list, context
             logging.info(f"Sending message to {chat_id}")
             await context.bot.send_message(chat_id=chat_id, text=item)
 
+
 class EdenTG:
     def __init__(self, token: str):
         self.token = token
-        self.eden_client = EdenClient(stage=False)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -134,13 +141,42 @@ class EdenTG:
         else:
             cleaned_text = remove_bot_mentions(message_text, (await context.bot.get_me()).username)
             logging.info(f"Received message from {user_name}: {cleaned_text}")
+
+        user_id = "65284b18f8bbb9bff13ebe65"
+        agent_id = "67069a27fa89a12910650755"
+        thread_id = None
+        user_message = UserMessage(content=cleaned_text)
+        db="STAGE"
+        tools = get_tools_from_mongo(db=db)
         
-        # Mock response
-        response = [
-            "Hello, I am the Eden Telegram Bot.",
-            "https://res.cloudinary.com/prdg34ew78adsg/image/upload/v1732713849/creations/h8oh82rzapnnile2yjms.jpg"
-        ]
-        await send_response(message_type, chat_id, response, context)
+        if not thread_id:
+            thread_new = Thread.create(
+                db=db,
+                user=user_id,
+                agent=agent_id,
+            )
+            thread_id = str(thread_new.id)
+
+        async for msg in async_prompt_thread(
+            db=db,
+            user_id=user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            user_messages=user_message,
+            tools=tools
+        ):
+            print("THE RESPONSe ")
+            print(msg)
+            if msg.type == UpdateType.ASSISTANT_MESSAGE:
+                await send_response(message_type, chat_id, [msg.message.content], context)
+            elif msg.type == UpdateType.TOOL_COMPLETE:
+                print(msg.result['result'])
+                msg.result['result'] = prepare_result(msg.result['result'], db="STAGE")
+                print(msg.result['result'])
+                url = msg.result['result'][0]['output'][0]['url']
+                await send_response(message_type, chat_id, [url], context)
+            elif msg.type == UpdateType.ERROR:
+                await send_response(message_type, chat_id, [msg.message.error], context)
 
 def main(env_path: str):
     load_dotenv(env_path)

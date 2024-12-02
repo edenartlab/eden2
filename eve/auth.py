@@ -125,6 +125,7 @@ async def authenticate_ws(websocket: WebSocket):
 def authenticate_admin(
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
+    print("THE ADMIN KEY IS", ADMIN_KEY)
     if token.credentials != ADMIN_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"

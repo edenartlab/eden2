@@ -19,7 +19,7 @@ eden_client = EdenClient()
 
 # txt2img
 response = eden_client.create(
-    workflow="txt2img", 
+    tool="txt2img", 
     args={
         "prompt": "An astronaut riding a horse",
         "width": 1024, 

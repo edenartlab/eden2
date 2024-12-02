@@ -39,7 +39,7 @@ class Tool(BaseModel, ABC):
     description: str
     tip: Optional[str] = None
     
-    output_type: Literal["bool", "str", "int", "float", "image", "video", "audio", "lora"]
+    output_type: Literal["boolean", "string", "integer", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
     resolutions: Optional[List[str]] = None
     base_model: Literal["sd15", "sdxl", "sd3", "flux-dev", "flux-schnell"] = "sdxl"
@@ -57,14 +57,20 @@ class Tool(BaseModel, ABC):
 
 
     @classmethod
-    def load(cls, key: str, db: str, prefer_local: bool = True, **kwargs):
+    def load(cls, key: str, db: str = "STAGE", prefer_local: bool = True, **kwargs):
         """Load the tool class based on the handler in api.yaml"""
         
         tools = get_collection("tools2", db=db)
         schema = tools.find_one({"key": key})      
         if not schema:
             raise ValueError(f"Tool with key {key} not found on db: {db}")
-        schema["parameters"] = {p["name"]: p for p in schema["parameters"]}
+        
+        schema["parameters"] = {
+            p["name"]: {**(p.pop("schema")), **p} for p in schema["parameters"]
+        }
+
+        print("THE PARAMs")
+        print(schema["parameters"])
 
         return cls.load_from_schema(schema, prefer_local, **kwargs)
 
@@ -92,6 +98,7 @@ class Tool(BaseModel, ABC):
         """Create a new tool instance from a schema"""
 
         fields = parse_schema(schema)
+
         model = create_model(key, **fields)
         model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
 
@@ -143,6 +150,13 @@ class Tool(BaseModel, ABC):
             parent_schema['parameters'] = parent_parameters
             schema = parent_schema
         
+        # collect required parameters
+        schema["required"] = schema.get("required", [])
+        for k, v in schema.get("parameters", {}).items():
+            if v.get("required"):
+                schema["required"].append(k)
+                schema["parameters"][k].pop("required")
+
         return schema
     
 
@@ -209,10 +223,13 @@ class Tool(BaseModel, ABC):
 
         prepared_args = {}
         for field, field_info in self.model.model_fields.items():
+            # print(field)
+            # print(field_info.json_schema_extra.get('randomize'))
             if field in args:
                 prepared_args[field] = args[field]
             elif field_info.default is not None:
-                if field_info.default == "random":
+                # if field_info.default == "random":
+                if field_info.json_schema_extra.get('randomize'):
                     minimum, maximum = field_info.metadata[0].ge, field_info.metadata[1].le
                     prepared_args[field] = random.randint(minimum, maximum)
                 else:
@@ -268,7 +285,7 @@ class Tool(BaseModel, ABC):
 
             # create task and set to pending
             task = Task(
-                workflow=self.key, 
+                tool=self.key, 
                 parent_tool=self.parent_tool,
                 output_type=self.output_type, 
                 args=args, 
@@ -359,20 +376,27 @@ def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> T
 
     schema = Tool._get_schema_from_dir(tool_dir)
     schema['key'] = tool_dir.split('/')[-1]
-        
+    
     # timestamps
     tools = get_collection("tools2", db=db)
     tool = tools.find_one({"key": schema['key']})
     time = datetime.now(timezone.utc)
     schema['createdAt'] = tool.get('createdAt', time) if tool else time
     schema['updatedAt'] = time
-    schema['order'] = order or schema.get('order', len(tools.find()))
+    schema['order'] = order or schema.get('order', len(list(tools.find())))
 
-    # convert parameters to list
-    schema["parameters"] = [
-        {"name": k, **v} for k, v in schema.get("parameters", {}).items()
-    ]
+    # convert parameters to list with schema
+    parameters = []
+    for k, v in schema.get("parameters", {}).items():
+        v['schema'] = {
+            key: v.pop(key) 
+            for key in ['type', 'items', 'anyOf']
+            if key in v
+        }
+        parameters.append({"name": k, **v})
     
+    schema["parameters"] = parameters
+
     tools.replace_one(
         {"key": schema['key']}, 
         schema,
@@ -399,13 +423,16 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools = {}
     tools_collection = get_collection("tools2", db=db)
     for tool in tools_collection.find(filter):
-        tool["parameters"] = {p["name"]: p for p in tool["parameters"]}
-        tool = Tool.load_from_schema(tool, prefer_local)
-        if tool.status != "inactive" and not include_inactive:
-            if tool.key in tools:
-                raise ValueError(f"Duplicate tool {tool.key} found.")
-            tools[tool.key] = tool
-        
+        try:
+            tool["parameters"] = {p["name"]: {**(p.pop("schema")), **p} for p in tool["parameters"]}
+            tool = Tool.load_from_schema(tool, prefer_local)
+            if tool.status != "inactive" and not include_inactive:
+                if tool.key in tools:
+                    raise ValueError(f"Duplicate tool {tool.key} found.")
+                tools[tool.key] = tool
+        except Exception as e:
+            print(f"Error loading tool {tool['key']}: {e}")
+
     return tools
 
 
