@@ -1,72 +1,41 @@
 import os
+from fastapi.responses import StreamingResponse
 import modal
-import asyncio
-import json
-from bson import ObjectId
-from typing import Optional
-from pydantic import BaseModel
-from fastapi import (
-    FastAPI,
-    WebSocket,
-    WebSocketDisconnect,
-    Depends,
-    HTTPException,
-    Request,
-    BackgroundTasks,
-)
-from starlette.websockets import WebSocketDisconnect, WebSocketState
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI
-from fastapi.responses import StreamingResponse
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-
-# import auth
-# from agent import Agent
-# from thread import Thread, UserMessage, async_prompt, prompt
-# from models import Task
+from fastapi.security import APIKeyHeader, HTTPBearer
+from pydantic import BaseModel
+import json
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
 
-
+# Config setup
 db = os.getenv("DB", "STAGE")
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools-new" if db == "PROD" else "tools-new-dev"
 
 client = AsyncOpenAI()
-
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
+background_tasks: BackgroundTasks = BackgroundTasks()
 
 
-async def chat_stream(request: Request):
-    # Parse the incoming JSON
-    data = await request.json()
+class TaskRequest(BaseModel):
+    workflow: str
+    args: dict | None = None
+    user: str | None = None
 
-    async def generate():
-        stream = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": data["content"]}],
-            stream=True,
-        )
-
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield f"{chunk.choices[0].delta.content}\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
-
-
+class ChatRequest(BaseModel):
+    user_id = str
+    agent_id = str
+    thread_id = str
+    user_message = dict
 
 def task_handler(
     request: dict,
@@ -81,8 +50,10 @@ def task_handler(
         task = await tool.async_start_task(user_id, args, db=db)
         return task
 
-    return asyncio.run(submit_task())
 
+async def handle_task(workflow: str, user: str, args: dict | None = None) -> dict:
+    tool = Tool.load(workflow, db=db)
+    return await tool.async_start_task(user, args or {}, db=db)
 
 
 async def chat_handler(
@@ -126,8 +97,8 @@ async def chat_handler(
     
 
 
+# FastAPI app setup
 web_app = FastAPI()
-
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -140,21 +111,74 @@ web_app.post("/create")(task_handler)
 web_app.post("/chat")(chat_handler)
 web_app.post("/chat/stream")(chat_stream)
 
+@web_app.post("/admin/create")
+async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
+    return await handle_task(request.workflow, request.user, request.args)
 
+
+@web_app.post("/create")
+async def task(request: TaskRequest, auth: dict = Depends(auth.authenticate)):
+    return await handle_task(request.workflow, auth.userId, request.args)
+
+
+@web_app.post("/chat")
+async def stream_chat(
+    request: ChatRequest,
+    auth: dict = Depends(auth.authenticate),
+):
+    user_messages = UserMessage(**request.user_message)
+
+    async def event_generator():
+        async for update in async_prompt_thread(
+            db=db,
+            user_id=auth.userId,
+            thread_name=request.thread_name,
+            user_messages=UserMessage(**request.user_message),
+            tools=get_tools_from_mongo(db=db),
+            provider="anthropic",
+        ):
+            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                data = {
+                    "type": str(update.type),
+                    "content": update.message.content,
+                }
+            elif update.type == UpdateType.TOOL_COMPLETE:
+                data = {
+                    "type": str(update.type),
+                    "tool": update.tool_name,
+                    "result": update.result,
+                }
+            else:
+                data = {
+                    "type": "error",
+                    "error": update.error or "Unknown error occurred",
+                }
+
+            yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
+
+        yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# Modal app setup
 app = modal.App(
     name=app_name,
     secrets=[
-        modal.Secret.from_name("admin-key"),
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("replicate"),
-        modal.Secret.from_name("openai"),
-        modal.Secret.from_name("anthropic"),
-        modal.Secret.from_name("elevenlabs"),
-        modal.Secret.from_name("hedra"),
-        modal.Secret.from_name("newsapi"),
-        modal.Secret.from_name("runway"),
-        modal.Secret.from_name("sentry"),
+        modal.Secret.from_name(s)
+        for s in [
+            "admin-key",
+            "s3-credentials",
+            "mongo-credentials",
+            "replicate",
+            "openai",
+            "anthropic",
+            "elevenlabs",
+            "hedra",
+            "newsapi",
+            "runway",
+            "sentry",
+        ]
     ],
 )
 

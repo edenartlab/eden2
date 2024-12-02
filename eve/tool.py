@@ -69,9 +69,6 @@ class Tool(BaseModel, ABC):
             p["name"]: {**(p.pop("schema")), **p} for p in schema["parameters"]
         }
 
-        print("THE PARAMs")
-        print(schema["parameters"])
-
         return cls.load_from_schema(schema, prefer_local, **kwargs)
 
     @classmethod

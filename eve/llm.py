@@ -31,222 +31,6 @@ anthropic_client = anthropic.AsyncAnthropic()
 openai_client = openai.AsyncOpenAI()
 
 
-# class ChatMessage(BaseModel):
-#     id: ObjectId = Field(default_factory=ObjectId)
-#     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-#     role: Literal["user", "assistant"]
-
-#     model_config = ConfigDict(
-#         arbitrary_types_allowed=True
-#     )
-
-
-# class UserMessage(ChatMessage):
-#     role: Literal["user"] = "user"
-#     name: Optional[str] = None
-#     content: str
-#     metadata: Optional[Dict[str, Any]] = {}
-#     attachments: Optional[List[str]] = []
-
-#     def _get_content(self, schema, truncate_images=False):
-#         content_str = self.content
-#         if self.metadata:
-#             content_str += f"\n\n## Metadata: \n\n{json.dumps(self.metadata)}"
-#         if self.attachments:
-#             attachment_urls = ',\n\t'.join([f'"{url}"' for url in self.attachments])  # Convert HttpUrl to string
-#             content_str += f"\n\n## Attachments:\n\n[\n\t{attachment_urls}\n]"        
-#         content = content_str or ""
-        
-#         if self.attachments:
-#             attachment_files = []
-#             for attachment in self.attachments:
-#                 try:
-#                     attachment_file = download_file(attachment, os.path.join("/tmp/eden_file_cache/", attachment.split("/")[-1]), overwrite=False) 
-#                     attachment_files.append(attachment_file)
-#                     mime_type = magic.from_file(attachment_file, mime=True)
-#                     if "video" in mime_type:
-#                         content_str += f"\n\n**The attachment {attachment} is a video. Showing just the first frame.**"
-#                 except Exception as e:
-#                     content_str += f"\n**Error downloading attachment {attachment}: {e}**"
-
-#             if schema == "anthropic":
-#                 content = [{
-#                     "type": "image", 
-#                     "source": {
-#                         "type": "base64", 
-#                         "media_type": "image/jpeg",
-#                         "data": image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)
-#                     }
-#                 } for file_path in attachment_files]
-#             elif schema == "openai":
-#                 content = [{
-#                     "type": "image_url", 
-#                     "image_url": {
-#                         "url": f"data:image/jpeg;base64,{image_to_base64(file_path, max_size=512, quality=95, truncate=truncate_images)}"
-#                     }
-#                 } for file_path in attachment_files]
-
-#             content.extend([{"type": "text", "text": content_str}])
-                        
-#         return content
-    
-#     def anthropic_schema(self, truncate_images=False):
-#         return [{
-#             "role": "user",
-#             "content": self._get_content("anthropic", truncate_images=truncate_images)
-#         }]
-
-#     def openai_schema(self, truncate_images=False):
-#         return [{
-#             "role": "user",
-#             "content": self._get_content("openai", truncate_images=truncate_images),
-#             **({"name": self.name} if self.name else {})
-#         }]
-
-
-# class ToolCall(BaseModel):
-#     id: str
-#     tool: str
-#     args: Dict[str, Any]
-    
-#     db: SkipJsonSchema[str]
-#     task: Optional[ObjectId] = None
-#     status: Optional[Literal["pending", "running", "completed", "failed", "cancelled"]] = None
-#     result: Optional[List[Dict[str, Any]]] = None
-#     error: Optional[str] = None
-    
-#     model_config = ConfigDict(
-#         arbitrary_types_allowed=True
-#     )
-
-#     def get_result(self):
-#         result = {"status": self.status}
-#         if self.status == "completed":
-#             result["result"] = prepare_result(self.result, db=self.db)
-#         elif self.status == "failed":
-#             result["error"] = self.error
-#         return result
-
-#     @staticmethod
-#     def from_openai(tool_call, db="STAGE"):
-#         return ToolCall(
-#             id=tool_call.id,
-#             tool=tool_call.function.name,
-#             args=json.loads(tool_call.function.arguments),
-#             db=db
-#         )
-    
-#     @staticmethod
-#     def from_anthropic(tool_call, db="STAGE"):
-#         return ToolCall(
-#             id=tool_call.id,
-#             tool=tool_call.name,
-#             args=tool_call.input,
-#             db=db
-#         )
-    
-#     def openai_call_schema(self):
-#         return {
-#             "id": self.id,
-#             "type": "function",
-#             "function": {
-#                 "name": self.tool,
-#                 "arguments": json.dumps(self.args)
-#             }
-#         }
-    
-#     def anthropic_call_schema(self):
-#         return {
-#             "type": "tool_use",
-#             "id": self.id,
-#             "name": self.tool,
-#             "input": self.args
-#         }
-        
-#     def anthropic_result_schema(self):        
-#         return {
-#             "type": "tool_result",
-#             "tool_use_id": self.id,
-#             "content": json.dumps(self.get_result())
-#         }
-    
-#     def openai_result_schema(self):
-#         return {
-#             "role": "tool",
-#             "name": self.tool,
-#             "content": json.dumps(self.get_result()),
-#             "tool_call_id": self.id
-#         }
-
-
-# class AssistantMessage(ChatMessage):
-#     role: Literal["assistant"] = "assistant"
-#     reply_to: Optional[ObjectId] = None
-#     thought: Optional[str] = None
-#     content: Optional[str] = None
-#     tool_calls: Optional[List[ToolCall]] = []
-    
-#     def openai_schema(self, truncate_images=False):
-#         schema = [{
-#             "role": "assistant",
-#             "content": self.content,
-#             "function_call": None,
-#             "tool_calls": None
-#         }]
-#         if self.tool_calls:
-#             schema[0]["tool_calls"] = [t.openai_call_schema() for t in self.tool_calls]
-#             schema.extend([t.openai_result_schema() for t in self.tool_calls])        
-#         return schema
-    
-#     def anthropic_schema(self, truncate_images=False):
-#         schema = [{
-#             "role": "assistant",
-#             "content": [
-#                 {
-#                     "type": "text",
-#                     "text": self.content
-#                 }
-#             ],
-#         }]
-#         if self.tool_calls:
-#             schema[0]["content"].extend([
-#                 t.anthropic_call_schema() for t in self.tool_calls
-#             ])
-#             schema.append({
-#                 "role": "user",
-#                 "content": [t.anthropic_result_schema() for t in self.tool_calls]
-#             })
-#         return schema
-
-
-# @Collection("threads2")
-# class Thread(Document):
-#     name: str
-#     user: ObjectId
-#     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
-
-#     @classmethod
-#     def from_name(cls, name, user, db="STAGE"):
-#         threads = get_collection("threads2", db=db)
-#         thread = threads.find_one({"name": name, "user": user})
-#         if not thread:
-#             new_thread = cls(db=db, name=name, user=user)
-#             new_thread.save()
-#             return new_thread
-#         else:
-#             return cls(**thread, db=db)
-
-#     def update_tool_call(self, message_id, tool_call_index, updates):
-#         # Update the in-memory object
-#         message = next(m for m in self.messages if m.id == message_id)
-#         for key, value in updates.items():
-#             setattr(message.tool_calls[tool_call_index], key, value)
-#         # Update the database
-#         self.set_against_filter({
-#             f"messages.$.tool_calls.{tool_call_index}.{k}": v for k, v in updates.items()
-#         }, filter={"messages.id": message_id})
-
-
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]], 
     system_message: str = "You are a helpful assistant.", 
@@ -357,15 +141,9 @@ async def async_prompt_thread(
     user = User.load(user_id, db=db)
     thread = Thread.load(thread_id, db=db)
 
-    print("THIS IS THE THREAD!")
-    print(thread)
-
-    print(thread.user)
-    print(user_id)
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
     thread.push("messages", user_messages)
-
 
     # think = True
     # if think:
@@ -373,8 +151,7 @@ async def async_prompt_thread(
 
 
     while True:
-        # try:
-        if 1:
+        try:
             async_prompt_provider = {
                 "anthropic": async_anthropic_prompt,
                 "openai": async_openai_prompt
@@ -384,8 +161,6 @@ async def async_prompt_thread(
                 thread.messages, 
                 tools=tools
             )
-            print("CONTENT")
-            print(content)
             assistant_message = AssistantMessage(
                 content=content or "",
                 tool_calls=tool_calls,
@@ -398,9 +173,7 @@ async def async_prompt_thread(
                 message=assistant_message
             )
 
-        # except Exception as e:
-        e="A"
-        if 0:
+        except Exception as e:
             capture_exception(e)
             traceback.print_exc()
 
@@ -417,8 +190,7 @@ async def async_prompt_thread(
             break
         
         for t, tool_call in enumerate(assistant_message.tool_calls):
-            # try:
-            if 1:
+            try:
                 tool = tools.get(tool_call.tool)
                 if not tool:
                     raise Exception(f"Tool {tool_call.tool} not found.")
@@ -447,9 +219,7 @@ async def async_prompt_thread(
                         error=result.get("error")
                     )
                 
-            # except Exception as e:
-            e="A"
-            if 0:
+            except Exception as e:
                 capture_exception(e)
                 traceback.print_exc()
 
@@ -513,57 +283,57 @@ def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "op
 
 
 
-@retry(
-    retry=retry_if_exception(lambda e: isinstance(e, (
-        openai.RateLimitError, anthropic.RateLimitError
-    ))),
-    wait=wait_exponential(multiplier=5, max=60),
-    stop=stop_after_attempt(3),
-    reraise=True
-)
-@retry(
-    retry=retry_if_exception(lambda e: isinstance(e, (
-        openai.APIConnectionError, openai.InternalServerError, 
-        anthropic.APIConnectionError, anthropic.InternalServerError
-    ))),
-    wait=wait_exponential(multiplier=2, max=30),
-    stop=stop_after_attempt(3),
-    reraise=True
-)
-async def prompt_llm_and_validate(messages, system_message, provider, tools):
-    num_attempts, max_attempts = 0, 3
-    while num_attempts < max_attempts:
-        num_attempts += 1 
-        # pretty_print_messages(messages, schema=provider)
+# @retry(
+#     retry=retry_if_exception(lambda e: isinstance(e, (
+#         openai.RateLimitError, anthropic.RateLimitError
+#     ))),
+#     wait=wait_exponential(multiplier=5, max=60),
+#     stop=stop_after_attempt(3),
+#     reraise=True
+# )
+# @retry(
+#     retry=retry_if_exception(lambda e: isinstance(e, (
+#         openai.APIConnectionError, openai.InternalServerError, 
+#         anthropic.APIConnectionError, anthropic.InternalServerError
+#     ))),
+#     wait=wait_exponential(multiplier=2, max=30),
+#     stop=stop_after_attempt(3),
+#     reraise=True
+# )
+# async def prompt_llm_and_validate(messages, system_message, provider, tools):
+#     num_attempts, max_attempts = 0, 3
+#     while num_attempts < max_attempts:
+#         num_attempts += 1 
+#         # pretty_print_messages(messages, schema=provider)
 
-        # try:
-        if 1:
-            if provider == "anthropic":
-                content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
-            elif provider == "openai":
-                content, tool_calls, stop = await async_openai_prompt(messages, system_message, tools)
+#         # try:
+#         if 1:
+#             if provider == "anthropic":
+#                 content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
+#             elif provider == "openai":
+#                 content, tool_calls, stop = await async_openai_prompt(messages, system_message, tools)
             
-            # check for hallucinated tools
-            invalid_tools = [t.name for t in tool_calls if not t.name in tools]
-            if invalid_tools:
-                add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
-                raise ToolNotFoundException(*invalid_tools)
+#             # check for hallucinated tools
+#             invalid_tools = [t.name for t in tool_calls if not t.name in tools]
+#             if invalid_tools:
+#                 add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
+#                 raise ToolNotFoundException(*invalid_tools)
 
-            # check for hallucinated urls
-            url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
-            valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-            valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
-            tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
-            invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
-            if invalid_urls:
-                add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
-                raise UrlNotFoundException(*invalid_urls)
-            return content, tool_calls, stop
+#             # check for hallucinated urls
+#             url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
+#             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
+#             valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
+#             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
+#             invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
+#             if invalid_urls:
+#                 add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
+#                 raise UrlNotFoundException(*invalid_urls)
+#             return content, tool_calls, stop
 
-        # if there are still hallucinations after max_attempts, just let the LLM deal with it
-        # except (ToolNotFoundException, UrlNotFoundException) as e:
-        #     if num_attempts == max_attempts:
-        #         return content, tool_calls, stop
+#         # if there are still hallucinations after max_attempts, just let the LLM deal with it
+#         # except (ToolNotFoundException, UrlNotFoundException) as e:
+#         #     if num_attempts == max_attempts:
+#         #         return content, tool_calls, stop
 
 
 

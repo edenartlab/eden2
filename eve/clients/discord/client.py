@@ -140,7 +140,6 @@ class Eden2Cog(commands.Cog):
             trigger_reply = is_mentioned(message, self.bot.user)
             if not trigger_reply:
                 return
-            logger.info(f"message.channel.id {message.channel.id}")
 
         if user_over_rate_limits(message.author.id):
             await reply(
@@ -148,6 +147,7 @@ class Eden2Cog(commands.Cog):
                 "I'm sorry, you've hit your rate limit. Please try again a bit later!",
             )
             return
+
         content = replace_bot_mention(message.content, only_first=True)
         content = replace_mentions_with_usernames(content, message.mentions)
 
@@ -167,43 +167,25 @@ class Eden2Cog(commands.Cog):
 
         ctx = await self.bot.get_context(message)
         async with ctx.channel.typing():
-            thread_id = self.bot.eden_client.get_or_create_thread(thread_name)
             answered = False
-            channel_id = str(message.channel.id)
-
-            async for response in self.bot.eden_client.async_discord_chat(
-                chat_message, thread_id, channel_id
-            ):
-                if "error" in response:
-                    error_message = response.get("error")
-                    await reply(message, f"Error: {error_message}")
-                    continue
-
-                if not response.get("message"):
-                    continue
-
-                response = json.loads(response.get("message"))
-                content = response.get("content", "")
-                tool_results = response.get("tool_results")
-
-                if tool_results:
-                    for t in tool_results:
-                        logger.info("tool result")
-                        hour_timestamps[message.author.id].append(
-                            {"time": time.time(), "tool": t["name"]}
-                        )
-                        day_timestamps[message.author.id].append(
-                            {"time": time.time(), "tool": t["name"]}
-                        )
-                        logger.info(f"tool called {t['name']}")
-                        logger.info(hour_timestamps[message.author.id])
-
-                if content:
-                    if not answered:
-                        await reply(message, content)
-                    else:
-                        await send(message, content)
-                    answered = True
+            async for update in self.bot.eden_client.async_chat(chat_message, thread_name):
+                if update["type"] == "ASSISTANT_MESSAGE":
+                    content = update["content"]
+                    if content:
+                        if not answered:
+                            await reply(message, content)
+                        else:
+                            await send(message, content)
+                        answered = True
+                elif update["type"] == "TOOL_COMPLETE":
+                    tool_name = update["tool"]
+                    hour_timestamps[message.author.id].append(
+                        {"time": time.time(), "tool": tool_name}
+                    )
+                    day_timestamps[message.author.id].append(
+                        {"time": time.time(), "tool": tool_name}
+                    )
+                    logger.info(f"tool called {tool_name}")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
