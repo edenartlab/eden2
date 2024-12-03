@@ -13,6 +13,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.constants import ChatAction
 from eve.sdk.eden import EdenClient
 
 
@@ -232,7 +233,7 @@ class EdenTG:
                 agent=agent_id,
             )
             thread_id = str(thread_new.id)
-
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
         async for msg in async_prompt_thread(
             db=db,
             user_id=user_id,
