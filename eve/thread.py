@@ -27,7 +27,7 @@ class ChatMessage(BaseModel):
         if reaction not in self.reactions:
             self.reactions[reaction] = []
         self.reactions[reaction].append(user)
-
+    
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
@@ -102,14 +102,9 @@ class UserMessage(ChatMessage):
                 } for file_path in attachment_files]
 
             if content:
-                # todo: or maybe this needs to be "..." ?
                 block.extend([{"type": "text", "text": content.strip()}])
 
             content = block
-
-        # todo: can user messages be blank in anthropic?
-        # elif not content and schema == "anthropic":
-        #     content = "..."
 
         return content
     
@@ -291,13 +286,12 @@ class AssistantMessage(ChatMessage):
         return schema
     
     def anthropic_schema(self, truncate_images=False):
-        print("assistant", truncate_images)
         schema = [{
             "role": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": self.content # or "..."
+                    "text": self.content
                 }
             ] if self.content else [],
         }]
