@@ -156,7 +156,31 @@ class EdenX:
         except requests.RequestException as e:
             logging.error(f"Failed to send reply tweet: {e}")
 
-    def run(self):
+    def post_tweet(self, tweet_text, media_url=None):
+        """
+        Posts a tweet with or without media content.
+        """
+
+        media_id = self.tweet_media(media_url) if media_url else None
+
+        if media_url and not media_id:
+            logging.error("Media upload was unsuccessful. Cannot post tweet with media.")
+            return
+
+        payload = {
+            "text": tweet_text,
+            "media": {"media_ids": [media_id]} if media_id else None,
+        }
+
+        try:
+            response = self.oauth.post("https://api.twitter.com/2/tweets", json=payload)
+            response.raise_for_status()
+            logging.info("Tweet sent successfully")
+        except requests.RequestException as e:
+            logging.error(f"Failed to send tweet: {e}")
+
+
+    def run_reply_process(self):
         """Continuously fetches mentions and replies to them if necessary."""
         while True:
             data = self.fetch_mentions()
@@ -165,8 +189,8 @@ class EdenX:
                 if tweet:
                     tweet_content = get_cleaned_text(tweet)
                     logging.info(f"Replying to tweet ID {tweet['id']} with content: {tweet_content}")
-                    self.reply_to_tweet(tweet_content, tweet.get('id'))
-                    self.last_processed_id = tweet.get('id')
+                    #self.reply_to_tweet(tweet_content, tweet.get('id'))
+                    #self.last_processed_id = tweet.get('id')
                 else:
                     logging.info("No new tweets found to process.")
             else:
@@ -174,6 +198,84 @@ class EdenX:
                 
             logging.info("Sleeping for 15 minutes...")
             time.sleep(900)
+
+    def run(self):
+        """Test"""
+        # get tweets from @elonmusk
+        user_id = self.get_user_id_by_username("god")
+        tweets = self.fetch_user_tweets(user_id)
+        print(tweets)
+        
+    def run_tweet(self):
+        """Continuously fetches mentions and replies to them if necessary."""
+        media_url = "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/15602ac4cac9e96246d1b3fbc6b1ecb2b48e3a6b3f182fd6a9f88fed97b7a12f.png"
+        self.post_tweet("Let there be light", media_url)
+        return
+        while True:      
+            logging.info("Sleeping for 15 minutes...")
+            time.sleep(900)
+
+    def fetch_user_tweets(self, target_user_id):
+        """
+        Fetches the latest tweets from a specific user.
+        
+        Args:
+            target_user_id (str): The Twitter user ID to fetch tweets from.
+            
+        Returns:
+            dict: Response from Twitter API.
+        """
+        params = {
+            "expansions": "author_id",
+            "user.fields": "username",
+            "max_results": 5,
+            "exclude": "retweets,replies"  # Only get original tweets
+        }
+        if self.last_processed_id:
+            params["since_id"] = self.last_processed_id
+
+        url = f"https://api.twitter.com/2/users/{target_user_id}/tweets"
+        headers = {"Authorization": f"Bearer {self.bearer_token}"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:
+                logging.error("Rate limit exceeded. Sleeping for 15 minutes before retrying...")
+                time.sleep(900)  # Sleep for 15 minutes
+            else:
+                logging.error(f"HTTP error occurred: {e}")
+            return {}
+        except requests.RequestException as e:
+            logging.error(f"Error fetching tweets: {e}")
+            return {}
+
+    def get_user_id_by_username(self, username):
+        """
+        Looks up a user's ID from their Twitter username/handle.
+        
+        Args:
+            username (str): Twitter username (without the @ symbol)
+            
+        Returns:
+            str or None: The user's ID if found, None otherwise
+        """
+        # Remove @ symbol if present
+        username = username.lstrip('@')
+        
+        url = f"https://api.twitter.com/2/users/by/username/{username}"
+        headers = {"Authorization": f"Bearer {self.bearer_token}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('data', {}).get('id')
+        except requests.RequestException as e:
+            logging.error(f"Error looking up user ID for @{username}: {e}")
+            return None
 
 def start(env_path):
     """Starts the bot."""
