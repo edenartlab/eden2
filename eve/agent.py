@@ -37,8 +37,12 @@ class Agent(MongoModel):
         #self.get_tools()
 
     @classmethod
-    def from_id(self, document_id: str, env: str):
-        return super().from_id(self, document_id, "agents", env)
+    def from_id(self, document_id: str, db: str):
+        return super().from_id(self, document_id, "agents", db)
+
+    # @classmethod
+    # def from_name(self, name: str, db: str):
+    #     return super().from_key(self, key, "agents", env)
 
     def get_system_message(self):
         system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"

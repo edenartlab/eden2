@@ -1,3 +1,4 @@
+print("MONGO!")
 import os
 import copy
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
@@ -13,13 +14,14 @@ from .base import generate_edit_model, recreate_base_model, VersionableBaseModel
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
 MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
-MONGO_DB_NAME_ABRAHAM = os.getenv("MONGO_DB_NAME_ABRAHAM")
 
 db_names = {
     "STAGE": MONGO_DB_NAME_STAGE,
     "PROD": MONGO_DB_NAME_PROD,
-    "ABRAHAM": MONGO_DB_NAME_ABRAHAM
 }
+
+if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
+    raise ValueError("MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
 
 # todo: this requires internet upon import
 # make it so only when imported it connects

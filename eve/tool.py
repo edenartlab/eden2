@@ -1,16 +1,9 @@
-"""
-
- verify tips in params
- hide from agent
- validate args before tool wait unless already being done by prepare_args
-
-"""
-
 import os
 import re
 import yaml
 import json
 import random
+import asyncio
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
@@ -55,7 +48,6 @@ class Tool(BaseModel, ABC):
     gpu: Optional[str] = None    
     test_args: Dict[str, Any]
 
-
     @classmethod
     def load(cls, key: str, db: str = "STAGE", prefer_local: bool = True, **kwargs):
         """Load the tool class based on the handler in api.yaml"""
@@ -94,9 +86,8 @@ class Tool(BaseModel, ABC):
     def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
         """Create a new tool instance from a schema"""
 
-        fields = parse_schema(schema)
-
-        model = create_model(key, **fields)
+        fields, model_config = parse_schema(schema)        
+        model = create_model(key, __config__=model_config, **fields)    
         model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
 
         tool_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
@@ -152,51 +143,29 @@ class Tool(BaseModel, ABC):
         for k, v in schema.get("parameters", {}).items():
             if v.get("required"):
                 schema["required"].append(k)
-                schema["parameters"][k].pop("required")
 
         return schema
-    
+        
+    def _remove_hidden_fields(self, parameters):
+        print("THE PARAMS")
+        from pprint import pprint
+        pprint(parameters)
+        hidden_parameters = [k for k, v in parameters['properties'].items() if v.get('hide_from_agent')]
+        for k in hidden_parameters:
+            del parameters['properties'][k]
+        parameters['required'] = [k for k in parameters['required'] if k not in hidden_parameters]
 
-
-    # def _get_model_schema(self, exclude_hidden: bool = False):
-    #     schema = self.model.model_json_schema()
-
-    #     parameters = {
-    #         k: v for k, v in schema.get('parameters', {}).items()
-    #     }
-
-    #     for k, v in schema.get('properties').items():
-    #         for ref in v.get('allOf', []).values():
-    #             theref = schema['$defs'][ref].split
-    #             print(theref)
-
-
-
-    #     if exclude_hidden:
-    #         schema['properties'] = {
-    #             k: v for k, v in schema['properties'].items() if not v.get('hide_from_agent')
-    #         }
-    #         schema['required'] = [
-    #             k for k, v in schema['properties'].items() if k in schema['required'] and not v.get('hide_from_agent')
-    #         ]
-    #     return schema
-    
     def anthropic_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
         schema = openai_schema(self.model).anthropic_schema
         schema["input_schema"].pop("description")  # duplicated
-        # if exclude_hidden:
-        #     schema["input_schema"]["properties"] = {
-        #         k: v for k, v in schema["input_schema"]["properties"].items() if not v.get('hide_from_agent')
-        #     }
+        if exclude_hidden:
+            self._remove_hidden_fields(schema["input_schema"])
         return schema
 
     def openai_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
         schema = openai_schema(self.model).openai_schema
-        # if exclude_hidden:
-        #     schema["function"]["parameters"]["properties"] = {
-        #         k: v for k, v in schema["function"]["parameters"]["properties"].items() if not v.get('hide_from_agent')
-        #     }
-
+        if exclude_hidden:
+            self._remove_hidden_fields(schema["parameters"])
         return {
             "type": "function",
             "function": schema
@@ -220,12 +189,9 @@ class Tool(BaseModel, ABC):
 
         prepared_args = {}
         for field, field_info in self.model.model_fields.items():
-            # print(field)
-            # print(field_info.json_schema_extra.get('randomize'))
             if field in args:
                 prepared_args[field] = args[field]
             elif field_info.default is not None:
-                # if field_info.default == "random":
                 if field_info.json_schema_extra.get('randomize'):
                     minimum, maximum = field_info.metadata[0].ge, field_info.metadata[1].le
                     prepared_args[field] = random.randint(minimum, maximum)
@@ -367,6 +333,18 @@ class Tool(BaseModel, ABC):
     async def async_cancel(self):
         pass
 
+    def run(self, args: Dict, db: str, mock: bool = False):
+        return asyncio.run(self.async_run(args, db, mock))
+
+    def start_task(self, user_id: str, args: Dict, db: str, mock: bool = False):
+        return asyncio.run(self.async_start_task(user_id, args, db, mock))
+    
+    def wait(self, task: Task):
+        return asyncio.run(self.async_wait(task))
+    
+    def cancel(self, task: Task):
+        return asyncio.run(self.async_cancel(task))
+
 
 def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> Tool:
     """Upload tool from directory to mongo"""
@@ -393,6 +371,7 @@ def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> T
         parameters.append({"name": k, **v})
     
     schema["parameters"] = parameters
+    # schema.pop("required")
 
     tools.replace_one(
         {"key": schema['key']}, 
@@ -401,13 +380,14 @@ def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> T
     )
 
 
-def get_tools_from_dirs(root_dir: str = None, include_inactive: bool = False) -> Dict[str, Tool]:
+def get_tools_from_dirs(root_dir: str = None, tools: List[str] = None,include_inactive: bool = False) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
     
     tool_dirs = get_tool_dirs(root_dir, include_inactive)
     tools = {
         key: Tool.load_from_dir(tool_dir) 
         for key, tool_dir in tool_dirs.items()
+        if key in tools
     }
 
     return tools

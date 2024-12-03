@@ -21,6 +21,7 @@ class ReplicateTool(Tool):
     
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
+        check_replicate_api_token()
         args = self._format_args_for_replicate(args)
         if self.version:
             prediction = self._create_prediction(args, webhook=False)        
@@ -43,6 +44,7 @@ class ReplicateTool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task, webhook: bool = True):
+        check_replicate_api_token()
         args = self.prepare_args(task.args)
         args = self._format_args_for_replicate(args)
         if self.version:
@@ -224,3 +226,7 @@ def replicate_process_eden(output, db):
 
     return {"output": results}
     
+
+def check_replicate_api_token():
+    if not os.getenv("REPLICATE_API_TOKEN"):
+        raise Exception("REPLICATE_API_TOKEN is not set")

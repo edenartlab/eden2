@@ -740,3 +740,8 @@ def save_test_results(tools, results):
                             f.write(response.content)
 
     print(f"Test results saved to {results_dir}")
+
+
+CLICK_COLORS = [
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"
+]

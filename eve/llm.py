@@ -27,9 +27,6 @@ from eve.models import User
 # from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 
-anthropic_client = anthropic.AsyncAnthropic()
-openai_client = openai.AsyncOpenAI()
-
 
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]], 
@@ -38,6 +35,9 @@ async def async_anthropic_prompt(
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
 ):
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise ValueError("ANTHROPIC_API_KEY env is not set")
+        
     messages_json = [
         item for msg in messages for item in msg.anthropic_schema()
     ]
@@ -61,6 +61,7 @@ async def async_anthropic_prompt(
         anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
         prompt["tools"] = anthropic_tools
 
+    anthropic_client = anthropic.AsyncAnthropic()
     response = await anthropic_client.messages.create(**prompt)
 
     content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
@@ -78,12 +79,17 @@ async def async_openai_prompt(
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
 ):
+    if not os.getenv("OPENAI_API_KEY"):
+        raise ValueError("OPENAI_API_KEY env is not set")
+
+
     messages_json = [
         item for msg in messages for item in msg.openai_schema()
     ]
 
-
     openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()] if tools else None
+    
+    openai_client = openai.AsyncOpenAI()
     response = await openai_client.chat.completions.create(
         model="gpt-4o-2024-08-06",
         tools=openai_tools,
@@ -185,7 +191,8 @@ async def async_prompt_thread(
 
             yield ThreadUpdate(
                 type=UpdateType.ERROR,
-                message=assistant_message
+                message=assistant_message,
+                error=str(e)
             )
             break
         

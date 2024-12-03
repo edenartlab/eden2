@@ -3,7 +3,7 @@
 # - label
 # - description : succinct description
 # - tip (optional) : additional or more verbose description
-# - example (optional) : a typical example of the field, not usually needed
+# - examples (optional) : a list of typical example of the field, not usually needed
 # - required (optional) : whether instance must specify the parameter value
 # - default (optional) : default value if field not specified
 # - choices (optional) : whether only certain choices are allowed for numbers or strings
@@ -29,7 +29,6 @@ parameters:
     type: string
     label: Name of the widget
     description: The name of a widget should tell you what it's called
-    example: Wompus
     required: true
   type:
     type: string
@@ -61,6 +60,7 @@ parameters:
     default: 1.01
     minimum: 0.55
     maximum: 2.34
+    hide_from_agent: true
   skills:
     type: array
     items:
@@ -77,12 +77,10 @@ parameters:
         type:
           type: string
           description: The contact method type
-          example: email
           choices: [email, phone, social_media]
         value:
           type: string
           description: The contact value
-          example: john@example.com
     description: A list of contact methods
   address:
     type: object
@@ -90,20 +88,18 @@ parameters:
       street:
         type: string
         description: The street address
-        example: 1234 Main St
       city:
         type: string
         description: The city name3
-        example: Somewhere
-        # required: true
+        required: true
       postal_code:
         type: integer
         description: Postal code for the address
-        example: 12345
         minimum: 10000
         maximum: 99999
     description: The person's address
-    example: {"street": "2123 Main St", "city": "Somewhere", "postal_code": 12345}
+    examples: 
+     - {"street": "2123 Main St", "city": "Somewhere", "postal_code": 12345}
   matrix:
     type: object
     parameters:
@@ -116,4 +112,8 @@ parameters:
         description: A row in the matrix
     description: A 2D array of integers (matrix)
     tip: Matrix is a 2D array of integers
-    example: {"data": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}
+    examples: 
+     - {"data": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}
+examples:
+  - {"name": "mike", "age": 5}
+  - {"name": "john", "age": 10}

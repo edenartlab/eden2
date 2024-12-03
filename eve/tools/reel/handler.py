@@ -57,6 +57,7 @@ def prompt_variations(prompt: str, n: int):
         prompts: List[str] = Field(..., description="A unique variation of the original prompt")
 
     user_message = f"You are given the following prompt for a short-form video: {prompt}. Generate EXACTLY {n} variations of this prompt. Don't get too fancy or creative, just state the same thing in different ways, using synonyms or different phrase constructions."
+    client = instructor.from_openai(OpenAI())
     prompts = client.chat.completions.create(
         model="gpt-4o-2024-08-06",
         response_model=PromptVariations,
@@ -152,7 +153,7 @@ class Reel(BaseModel):
 
 
 
-client = instructor.from_openai(OpenAI())
+
 
 
 def write_reel(
@@ -188,6 +189,7 @@ def write_reel(
     #     voiceover='In the heart of a hidden forest, Verdelis stumbled upon a realm where reality twisted into magic. Her eyes widened at the sight of a mystical creature, shimmering with ethereal elegance, its eyes holding ancient secrets and untold stories. In this moment, the ordinary paused, and an extraordinary bond was born.', music_prompt='A mystical, enchanting orchestral piece with soft strings and ethereal woodwinds, creating a sense of wonder and discovery. The music is gentle and flowing, capturing the magical atmosphere of the forest encounter.', visual_prompt="A serene, enchanted forest with dappled sunlight filtering through lush green leaves. The scene shows Verdelis, a young adventurer dressed in earth-toned attire, floating gracefully through the trees. She encounters a mystical creature—a unicorn-like being with shimmering iridescent skin and an elegant presence. The forest is vibrant with colors, and there's a magical aura surrounding the creature, creating an ethereal glow that illuminates the scene, capturing a moment of awe and wonder."
     # )
 
+    client = instructor.from_openai(OpenAI())
     reel = client.chat.completions.create(
         model="gpt-4o-2024-08-06",
         response_model=Reel,
@@ -222,6 +224,7 @@ def write_visual_prompts(
         """A sequence of visual prompts which retell the story of the Reel"""
         prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
 
+    client = instructor.from_openai(OpenAI())
     result = client.chat.completions.create(
         model="gpt-4o-2024-08-06",
         response_model=VisualPrompts,

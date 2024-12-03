@@ -287,14 +287,8 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
 
     return base_model
 
-
-
 # def create_enum(name: str, choices: List[str]):
 #     return Enum(name, {str(choice): choice for choice in choices})
-
-
-
-
 
 def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
     field_kwargs = {}
@@ -334,11 +328,21 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
         
     # Handle different types
     if props['type'] == 'object':
-        type_annotation = create_model(field, **parse_schema(props))
+        fields, model_config = parse_schema(props)
+        type_annotation = create_model(
+            field, 
+            __config__=model_config,
+            **fields
+        )
     elif props['type'] == 'array':
         json_schema_extra['is_array'] = True
         if props['items']['type'] == 'object':
-            item_type = create_model(f"{field}Item", **parse_schema(props['items']))
+            fields, model_config = parse_schema(props['items'])
+            item_type = create_model(
+                f"{field}Item", 
+                __config__=model_config,
+                **fields
+            )
         else:
             item_type = get_python_type(props['items'])
             if props['items']['type'] in ['image', 'video', 'audio', 'lora', 'zip']:
@@ -350,7 +354,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
     return type_annotation, field_kwargs, json_schema_extra
 
 
-def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
+def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
     fields = {}
     required_fields = schema.get('required', [])
     
@@ -377,12 +381,9 @@ def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
             type_annotation, field_kwargs, json_schema_extra = parse_props(field, props)
 
         # Handle additional metadata
-        for key in ['alias', 'hide_from_agent', 'hide_from_ui']:
+        for key in ['hide_from_agent', 'examples']:
             if key in props:
                 json_schema_extra[key] = props[key]
-
-        # if props.get('required'):
-        #     required_fields.append(field)
         
         if field not in required_fields:
             type_annotation = Optional[type_annotation]
@@ -392,13 +393,12 @@ def parse_schema(schema: dict) -> Dict[str, Tuple[Type, Any]]:
             json_schema_extra['randomize'] = True
             field_kwargs.pop('default')
 
-        # Make field optional if not required
-        # if not props.get('required') and field not in required_fields:
-        #     type_annotation = Optional[type_annotation]
-        #     field_kwargs['default'] = field_kwargs.get('default', None)
-
         fields[field] = (type_annotation, Field(**field_kwargs, json_schema_extra=json_schema_extra))
 
-    return fields
+    model_config = {}
+    if schema.get('examples'):
+        model_config['json_schema_extra'] = {'examples': schema['examples']}
+
+    return fields, model_config
 
 

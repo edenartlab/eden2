@@ -34,7 +34,6 @@ class ComfyUITool(Tool):
         """Create a new tool instance from a schema"""
 
         tool = super()._create_tool(key, schema, test_args, **kwargs)
-
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
                 tool.comfyui_map[field] = props['comfyui']
@@ -43,13 +42,13 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
-        cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui-{self.workspace}-{db}", "ComfyUI")
         result = await cls().run.remote.aio(self.parent_tool or self.key, args, db)
         return result
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        cls = modal.Cls.lookup(f"comfyuiNEW-{self.workspace}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui-{self.workspace}-{task.db}", "ComfyUI")
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
         

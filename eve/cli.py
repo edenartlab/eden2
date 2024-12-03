@@ -14,7 +14,11 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import save_test_results, prepare_result
+from .eden_utils import (
+    save_test_results, 
+    prepare_result, 
+    CLICK_COLORS
+)
 from .tool import (
     Tool,
     get_tool_dirs,
@@ -24,7 +28,7 @@ from .tool import (
 )
 from eve.clients.discord.client import start as start_discord
 
-api_tools = [
+api_tools_order = [
     "txt2img", "flux_dev", "flux_schnell", "layer_diffusion", "remix_flux_schnell", "remix",
     "inpaint", "flux_inpainting", "outpaint", "face_styler",
     "upscaler", "background_removal", "style_transfer", "storydiffusion",
@@ -36,7 +40,6 @@ api_tools = [
     "lora_trainer", "flux_trainer", "news", "moodmix",
     "stable_audio", "musicgen",     
 ]
-
 
 @click.group()
 def cli():
@@ -58,7 +61,7 @@ def update(db: str, tools: tuple):
     db = db.upper()
 
     tool_dirs = get_tool_dirs(include_inactive=True)
-    tools_order = {tool: index for index, tool in enumerate(api_tools)}
+    tools_order = {tool: index for index, tool in enumerate(api_tools_order)}
 
     if tools:
         tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
@@ -69,12 +72,12 @@ def update(db: str, tools: tuple):
         if not confirm:
             return
 
+    updated = 0
     for key, tool_dir in tool_dirs.items():
-        updated = 0
         try:
-            order = tools_order.get(key, len(api_tools))
+            order = tools_order.get(key, len(api_tools_order))
             save_tool_from_dir(tool_dir, order=order, db=db)
-            click.echo(click.style(f"Updated {db}:{key} with order {order}", fg="green"))
+            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
@@ -96,46 +99,6 @@ def create(ctx, tool: str, db: str):
 
     db = db.upper()
 
-    async def async_create(tool, run_args, db):
-        result = await tool.async_run(run_args, db=db)
-        color = random.choice(
-            [
-                "black",
-                "red",
-                "green",
-                "yellow",
-                "blue",
-                "magenta",
-                "cyan",
-                "white",
-                "bright_black",
-                "bright_red",
-                "bright_green",
-                "bright_yellow",
-                "bright_blue",
-                "bright_magenta",
-                "bright_cyan",
-                "bright_white",
-            ]
-        )
-        if result.get("error"):
-            click.echo(
-                click.style(
-                    f"\nFailed to test {tool.key}: {result['error']}",
-                    fg="red",
-                    bold=True,
-                )
-            )
-        else:
-            result = prepare_result(result, db=db)
-            click.echo(
-                click.style(
-                    f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
-                )
-            )
-
-        return result
-
     tool = Tool.load(tool, db=db)
 
     # Get args
@@ -145,8 +108,26 @@ def create(ctx, tool: str, db: str):
         value = ctx.args[i + 1] if i + 1 < len(ctx.args) else None
         args[key] = value
 
-    result = asyncio.run(async_create(tool, args, db))
+    result = tool.run(args, db=db)
+    color = random.choice(CLICK_COLORS)
+    if result.get("error"):
+        click.echo(
+            click.style(
+                f"\nFailed to test {tool.key}: {result['error']}",
+                fg="red",
+                bold=True,
+            )
+        )
+    else:
+        result = prepare_result(result, db=db)
+        click.echo(
+            click.style(
+                f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
+            )
+        )
+
     print(result)
+    return result
 
 
 @cli.command()
@@ -179,26 +160,7 @@ def test(
     db = db.upper()
 
     async def async_test_tool(tool, api, db):
-        color = random.choice(
-            [
-                "black",
-                "red",
-                "green",
-                "yellow",
-                "blue",
-                "magenta",
-                "cyan",
-                "white",
-                "bright_black",
-                "bright_red",
-                "bright_green",
-                "bright_yellow",
-                "bright_blue",
-                "bright_magenta",
-                "bright_cyan",
-                "bright_white",
-            ]
-        )
+        color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(
             click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color)
@@ -240,34 +202,31 @@ def test(
         return results
 
     if yaml:
-        all_tools = get_tools_from_dirs()
+        all_tools = get_tools_from_dirs(tools=tools)
     else:
-        all_tools = get_tools_from_mongo(db=db)
+        all_tools = get_tools_from_mongo(db=db, tools=tools)
 
-    if tools:
-        tools = {k: v for k, v in all_tools.items() if k in tools}
-    else:
-        tools = all_tools
-        confirm = click.confirm(f"Run tests for all {len(tools)} tools?", default=False)
+    if not tools:
+        confirm = click.confirm(f"Run tests for all {len(all_tools)} tools?", default=False)
         if not confirm:
             return
 
-    if "flux_trainer" in tools:
+    if "flux_trainer" in all_tools:
         confirm = click.confirm(
             "Include flux_trainer test? This will take a long time.", default=False
         )
         if not confirm:
-            tools.pop("flux_trainer")
+            all_tools.pop("flux_trainer")
 
-    results = asyncio.run(async_run_tests(tools, api, db, parallel))
+    results = asyncio.run(async_run_tests(all_tools, api, db, parallel))
 
     if save and results:
         # results = prepare_result(results, db=db)
-        save_test_results(tools, results)
+        save_test_results(all_tools, results)
 
     errors = [
         f"{tool}: {result['error']}"
-        for tool, result in zip(tools.keys(), results)
+        for tool, result in zip(all_tools.keys(), results)
         if result.get("error")
     ]
     error_list = "\n\t".join(errors)
@@ -293,6 +252,7 @@ def test(
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
     agent = "67069a27fa89a12910650755"
+    # "67069a27fa89a12910650755"
     asyncio.run(async_chat(db, agent, thread, debug))
 
 

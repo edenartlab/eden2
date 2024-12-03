@@ -6,16 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel
+from typing import Optional
 import json
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread
-from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
 
 # Config setup
-db = os.getenv("DB", "STAGE")
+db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools-new" if db == "PROD" else "tools-new-dev"
@@ -26,45 +26,54 @@ bearer_scheme = HTTPBearer(auto_error=False)
 background_tasks: BackgroundTasks = BackgroundTasks()
 
 
+
 class TaskRequest(BaseModel):
-    workflow: str
-    args: dict | None = None
-    user: str | None = None
+    tool: str
+    args: dict
+    user_id: str
 
 class ChatRequest(BaseModel):
-    user_id = str
-    agent_id = str
-    thread_id = str
-    user_message = dict
+    user_id: str
+    agent_id: str
+    thread_id: Optional[str] = None
+    user_message: dict
 
-def task_handler(
-    request: dict,
-    _: dict = Depends(auth.authenticate_admin)
-):
-    tool_name = request.get("tool")
-    user_id = request.get("user_id")
-    args = request.get("args")
+# FastAPI app setup
+web_app = FastAPI()
+web_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    async def submit_task():
-        tool = Tool.load(tool_name, db=db)
-        task = await tool.async_start_task(user_id, args, db=db)
-        return task
+# web_app.post("/create")(task_handler)
+# web_app.post("/chat")(chat_handler)
+# web_app.post("/chat/stream")(chat_stream)
 
+async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
+    tool = Tool.load(tool, db=db)
+    return await tool.async_start_task(user_id, args, db=db)
 
-async def handle_task(workflow: str, user: str, args: dict | None = None) -> dict:
-    tool = Tool.load(workflow, db=db)
-    return await tool.async_start_task(user, args or {}, db=db)
+@web_app.post("/create")
+async def task_admin(request: TaskRequest): #, _: dict = Depends(auth.authenticate_admin)):
+    return await handle_task(request.tool, request.user_id, request.args)
 
+# @web_app.post("/create")
+# async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
+#     return await handle_task(request.tool, auth.userId, request.args)
 
-async def chat_handler(
-    request: dict,
+@web_app.post("/chat")
+async def handle_chat(
+    request: ChatRequest,
     background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin)
+    # _: dict = Depends(auth.authenticate_admin)
 ):
-    user_id = request.get("user_id")
-    agent_id = request.get("agent_id")
-    thread_id = request.get("thread_id")
-    user_message = UserMessage(**request.get("user_message"))
+    user_id = request.user_id
+    agent_id = request.agent_id
+    thread_id = request.thread_id
+    user_message = UserMessage(**request.user_message)
 
     tools = get_tools_from_mongo(db=db)
     
@@ -96,32 +105,7 @@ async def chat_handler(
         return {"status": "error", "message": str(e)}
     
 
-
-# FastAPI app setup
-web_app = FastAPI()
-web_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-web_app.post("/create")(task_handler)
-web_app.post("/chat")(chat_handler)
-web_app.post("/chat/stream")(chat_stream)
-
-@web_app.post("/admin/create")
-async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    return await handle_task(request.workflow, request.user, request.args)
-
-
-@web_app.post("/create")
-async def task(request: TaskRequest, auth: dict = Depends(auth.authenticate)):
-    return await handle_task(request.workflow, auth.userId, request.args)
-
-
-@web_app.post("/chat")
+@web_app.post("/chat_and_wait")
 async def stream_chat(
     request: ChatRequest,
     auth: dict = Depends(auth.authenticate),
@@ -188,7 +172,6 @@ image = (
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
 )
-
 
 @app.function(
     image=image,

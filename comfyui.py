@@ -1,17 +1,16 @@
 """
-WORKSPACE=audio SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui.py
-WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=audio SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui.py
+DB=STAGE WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui.py
 """
 
 from urllib.error import URLError
 from bson import ObjectId
-from enum import Enum
 from pprint import pprint
 import os
 import re
@@ -41,8 +40,9 @@ GPUs = {
 if not os.getenv("WORKSPACE"):
     raise Exception("No workspace selected")
 
+db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
-app_name = f"comfyuiNEW-{workspace_name}"
+app_name = f"comfyui-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False

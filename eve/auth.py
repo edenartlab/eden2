@@ -97,8 +97,10 @@ def authenticate(
     """Authenticate using either API key or Clerk session"""
     if api_key:
         return verify_api_key(api_key)
+    
     if bearer_token:
         return get_clerk_session(bearer_token)
+    
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Either API key or valid auth token required",
@@ -142,3 +144,13 @@ def authenticate_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin access required"
         )
+
+
+# old version
+# def authenticate_admin(
+#     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+# ):
+#     if token.credentials != ADMIN_KEY:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+#         )
