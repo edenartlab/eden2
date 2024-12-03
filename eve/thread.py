@@ -1,14 +1,3 @@
-"""
-organize bin/downloads
-new discord/telegram channels
-eq grants
-advisory
-make eden wallet
-assert
-
-"""
-
-
 import os
 import json
 import magic
@@ -47,14 +36,15 @@ class UserMessage(ChatMessage):
     metadata: Optional[Dict[str, Any]] = {}
     attachments: Optional[List[str]] = []
 
-
-    # todo: anthropic consider names?
-    # todo: time string
     def _get_content(self, schema, truncate_images=False):
         """Assemble user message content block"""
 
         # start with original message content
         content = self.content or ""
+
+        # let claude see names
+        if self.name and schema == "anthropic":
+            content = f"<User>{self.name}</User>\n\n{content}"
         
         if self.attachments:        
             # append attachments info (url and type) to content
@@ -118,8 +108,8 @@ class UserMessage(ChatMessage):
             content = block
 
         # todo: can user messages be blank in anthropic?
-        elif not content and schema == "anthropic":
-            content = "..."
+        # elif not content and schema == "anthropic":
+        #     content = "..."
 
         return content
     
@@ -159,12 +149,68 @@ class ToolCall(BaseModel):
         arbitrary_types_allowed=True
     )
 
-    def get_result(self):
+    def get_result(self, schema, truncate_images=False):
         result = {"status": self.status}
+        
         if self.status == "completed":
             result["result"] = prepare_result(self.result, db=self.db)
+            outputs = [o.get('url') for r in result.get("result", []) for o in r.get("output", [])]
+            outputs = [o for o in outputs if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))]
+            try:
+                if schema == "openai":
+                    raise ValueError("OpenAI does not support image outputs in tool messages :(")
+                
+                files = [
+                    download_file(url, os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]), overwrite=False) 
+                    for url in outputs
+                ]
+
+                if schema == "anthropic":
+                    image_block = [{
+                        "type": "image", 
+                        "source": {
+                            "type": "base64", 
+                            "media_type": "image/jpeg",
+                            "data": image_to_base64(
+                                file_path, 
+                                max_size=512, 
+                                quality=95, 
+                                truncate=truncate_images
+                            )
+                        }
+                    } for file_path in files]
+                elif schema == "openai":
+                    image_block = [{
+                        "type": "image_url", 
+                        "image_url": {
+                            "url": f"""data:image/jpeg;base64,{image_to_base64(
+                                file_path, 
+                                max_size=512, 
+                                quality=95, 
+                                truncate=truncate_images
+                            )}"""
+                        }
+                    } for file_path in files]
+
+                if image_block:
+                    content = "Tool results follow. The attached images match the URLs in the order they appear below: "
+                    content += json.dumps(result["result"])
+                    text_block = [{"type": "text", "text": content}]
+                    result = text_block + image_block
+                else:
+                    result = json.dumps(result)
+
+            except Exception as e:
+                print("Error injecting image results:", e)
+                result = json.dumps(result)
+
         elif self.status == "failed":
             result["error"] = self.error
+            result = json.dumps(result)
+
+        else:
+            result = json.dumps(result)
+        
         return result
     
     def react(self, user: ObjectId, reaction: str):
@@ -206,18 +252,19 @@ class ToolCall(BaseModel):
             "input": self.args
         }
         
-    def anthropic_result_schema(self):        
+    def anthropic_result_schema(self, truncate_images=False):
+        # todo: add "is_error": true   
         return {
             "type": "tool_result",
             "tool_use_id": self.id,
-            "content": json.dumps(self.get_result())
+            "content": self.get_result(schema="anthropic", truncate_images=truncate_images)
         }
     
-    def openai_result_schema(self):
+    def openai_result_schema(self, truncate_images=False):
         return {
             "role": "tool",
             "name": self.tool,
-            "content": json.dumps(self.get_result()),
+            "content": self.get_result(schema="openai", truncate_images=truncate_images),
             "tool_call_id": self.id
         }
 
@@ -238,18 +285,21 @@ class AssistantMessage(ChatMessage):
         }]
         if self.tool_calls:
             schema[0]["tool_calls"] = [t.openai_call_schema() for t in self.tool_calls]
-            schema.extend([t.openai_result_schema() for t in self.tool_calls])        
+            schema.extend([t.openai_result_schema(
+                truncate_images=truncate_images
+            ) for t in self.tool_calls])
         return schema
     
     def anthropic_schema(self, truncate_images=False):
+        print("assistant", truncate_images)
         schema = [{
             "role": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": self.content or "..."
+                    "text": self.content # or "..."
                 }
-            ],
+            ] if self.content else [],
         }]
         if self.tool_calls:
             schema[0]["content"].extend([
@@ -257,7 +307,9 @@ class AssistantMessage(ChatMessage):
             ])
             schema.append({
                 "role": "user",
-                "content": [t.anthropic_result_schema() for t in self.tool_calls]
+                "content": [t.anthropic_result_schema(
+                    truncate_images=truncate_images
+                ) for t in self.tool_calls]
             })
         return schema
 

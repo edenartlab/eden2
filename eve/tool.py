@@ -147,9 +147,6 @@ class Tool(BaseModel, ABC):
         return schema
         
     def _remove_hidden_fields(self, parameters):
-        print("THE PARAMS")
-        from pprint import pprint
-        pprint(parameters)
         hidden_parameters = [k for k, v in parameters['properties'].items() if v.get('hide_from_agent')]
         for k in hidden_parameters:
             del parameters['properties'][k]

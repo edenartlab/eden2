@@ -1,13 +1,14 @@
 import os
-from fastapi.responses import StreamingResponse
+import json
+import asyncio
 import modal
-from fastapi import FastAPI, Depends, BackgroundTasks
+from fastapi import FastAPI, Depends #, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from openai import AsyncOpenAI
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel
+from openai import AsyncOpenAI
 from typing import Optional
-import json
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
@@ -20,25 +21,11 @@ if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools-new" if db == "PROD" else "tools-new-dev"
 
-client = AsyncOpenAI()
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
-background_tasks: BackgroundTasks = BackgroundTasks()
+#background_tasks: BackgroundTasks = BackgroundTasks()
 
 
-
-class TaskRequest(BaseModel):
-    tool: str
-    args: dict
-    user_id: str
-
-class ChatRequest(BaseModel):
-    user_id: str
-    agent_id: str
-    thread_id: Optional[str] = None
-    user_message: dict
-
-# FastAPI app setup
 web_app = FastAPI()
 web_app.add_middleware(
     CORSMiddleware,
@@ -52,6 +39,12 @@ web_app.add_middleware(
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
 
+
+class TaskRequest(BaseModel):
+    tool: str
+    args: dict
+    user_id: str
+
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
     tool = Tool.load(tool, db=db)
     return await tool.async_start_task(user_id, args, db=db)
@@ -64,10 +57,16 @@ async def task_admin(request: TaskRequest): #, _: dict = Depends(auth.authentica
 # async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
 #     return await handle_task(request.tool, auth.userId, request.args)
 
+class ChatRequest(BaseModel):
+    user_id: str
+    agent_id: str
+    thread_id: Optional[str] = None
+    user_message: dict
+
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
-    background_tasks: BackgroundTasks,
+    # background_tasks: BackgroundTasks,
     # _: dict = Depends(auth.authenticate_admin)
 ):
     user_id = request.user_id
@@ -97,7 +96,9 @@ async def handle_chat(
             ):
                 pass
         
-        background_tasks.add_task(run_prompt)        
+        # background_tasks.add_task(run_prompt)
+        background_task = asyncio.create_task(run_prompt())
+
         return {"status": "success", "thread_id": thread_id}
     
     except Exception as e:

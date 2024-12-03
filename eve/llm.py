@@ -17,6 +17,7 @@ import openai
 import anthropic
 import magic
 import instructor
+from instructor.function_calls import openai_schema
 
 from eve.mongo2 import Document, Collection, get_collection
 from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
@@ -28,9 +29,10 @@ from eve.models import User
 from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 
 
-async def async_anthropic_prompt(
+
+async def async_anthropic_prompt2(
     messages: List[Union[UserMessage, AssistantMessage]], 
-    system_message: str = "You are a helpful assistant.", 
+    system_message: Optional[str] = "You are a helpful assistant.", 
     response_model: Optional[BaseModel] = None, 
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
@@ -42,6 +44,75 @@ async def async_anthropic_prompt(
         item for msg in messages for item in msg.anthropic_schema()
     ]
 
+    # pprint(messages_json)
+    # print("MESSAGES JSON")
+    # pprint(messages_json)
+
+    prompt = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 8192,
+        "messages": messages_json,
+        "system": system_message,
+    }
+
+    if response_model:
+        # anthropic_tools = {"thought": openai_schema(response_model).anthropic_schema}
+        anthropic_tools = [{
+            "name": "thought",
+            "description": "An thought about the current state of the chat, along with a decision as to reply/post a new message or not.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "thought": {
+                        "type": "string",
+                        "description": "Briefly describe the relevance of the last message to you.",
+                    },
+                    "reply": {
+                        "type": "boolean",
+                        "description": "Whether to reply to the last message or not.",
+                    }
+                },
+                "required": ["thought", "reply"],
+            }
+        }]
+    
+        prompt["tools"] = anthropic_tools
+        prompt["tool_choice"] = {"type": "tool", "name": "thought"}
+        
+    elif tools:
+        anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
+        prompt["tools"] = anthropic_tools
+
+    print("PROMPT")
+    print(json.dumps(prompt, indent=4))
+
+    anthropic_client = anthropic.AsyncAnthropic()
+    response = await anthropic_client.messages.create(**prompt)
+
+    content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
+    tool_calls = [ToolCall.from_anthropic(r, db=db) for r in response.content if r.type == "tool_use"]
+    stop = response.stop_reason != "tool_use"
+
+    return content, tool_calls, stop
+
+
+
+
+async def async_anthropic_prompt(
+    messages: List[Union[UserMessage, AssistantMessage]], 
+    system_message: Optional[str] = "You are a helpful assistant.", 
+    response_model: Optional[BaseModel] = None, 
+    tools: Dict[str, Tool] = {},
+    db: str = "STAGE"
+):
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise ValueError("ANTHROPIC_API_KEY env is not set")
+        
+    messages_json = [
+        item for msg in messages for item in msg.anthropic_schema()
+    ]
+
+    # pprint(messages_json)
     # print("MESSAGES JSON")
     # pprint(messages_json)
 
@@ -74,7 +145,7 @@ async def async_anthropic_prompt(
 
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]], 
-    system_message: str = "You are a helpful assistant.", 
+    system_message: Optional[str] = "You are a helpful assistant.", 
     response_model: Optional[BaseModel] = None, 
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
@@ -82,18 +153,22 @@ async def async_openai_prompt(
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY env is not set")
 
+    
 
     messages_json = [
         item for msg in messages for item in msg.openai_schema()
     ]
+    messages_json = [{"role": "system", "content": system_message}] + messages_json if system_message else messages_json
 
     openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()] if tools else None
     
     openai_client = openai.AsyncOpenAI()
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        tools=openai_tools,
+    response = await openai_client.beta.chat.completions.parse(
+        # model="gpt-4o-2024-08-06",
+        model="gpt-4o-mini",
+        # tools=openai_tools,
         messages=messages_json,
+        response_format=response_model
     )
     response = response.choices[0]
 
@@ -103,11 +178,13 @@ async def async_openai_prompt(
     
     return content, tool_calls, stop
 
-# def anthropic_prompt(messages, system_message, response_model=None, tools={}):
-#     return asyncio.run(async_anthropic_prompt(messages, system_message, response_model, tools))
+def anthropic_prompt(messages, system_message, response_model=None, tools={}):
+    return asyncio.run(async_anthropic_prompt(messages, system_message, response_model, tools))
+def anthropic_prompt2(messages, system_message, response_model=None, tools={}):
+    return asyncio.run(async_anthropic_prompt2(messages, system_message, response_model, tools))
 
-# def openai_prompt(messages, system_message, tools={}):
-#     return asyncio.run(async_openai_prompt(messages, system_message, tools))
+def openai_prompt(messages, system_message, response_model=None, tools={}):
+    return asyncio.run(async_openai_prompt(messages, system_message, response_model, tools))
 
 
 
@@ -138,14 +215,18 @@ async def async_prompt_thread(
     db: str,
     user_id: str, 
     agent_id: str,
-    thread_id: str,
+    thread_id: Optional[str],
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user = User.load(user_id, db=db)
-    thread = Thread.load(thread_id, db=db)
+
+    if thread_id:
+        thread = Thread.load(thread_id, db=db)
+    else:
+        thread = Thread.create(db=db, user=user.id, agent=agent_id)
 
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
@@ -249,12 +330,13 @@ async def async_prompt_thread(
 def prompt_thread(
     db: str,
     user_id: str, 
-    thread_name: str,
+    agent_id: str,
+    thread_id: str,
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
-    async_gen = async_prompt_thread(db, user_id, thread_name, user_messages, tools, provider)
+    async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, provider)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
