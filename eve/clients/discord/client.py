@@ -3,7 +3,6 @@ import os
 import re
 import time
 import discord
-import json
 import logging
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -12,6 +11,10 @@ from eve.sdk.eden import EdenClient
 from eve.sdk.eden.client import EdenApiUrls
 from eve.clients import common
 from eve.clients.discord import config
+from eve.tool import get_tools_from_mongo
+from eve.llm import UserMessage, async_prompt_thread, UpdateType
+from eve.thread import Thread
+from eve.eden_utils import prepare_result
 
 # Add logger setup
 logger = logging.getLogger(__name__)
@@ -165,27 +168,57 @@ class Eden2Cog(commands.Cog):
         }
         logger.info(f"chat message {chat_message}")
 
+        user_id = "65284b18f8bbb9bff13ebe65"
+        agent_id = "67069a27fa89a12910650755"
+        thread_id = "67491a4ecc662e6ec2c7cd15"
+        db = "STAGE"
+        tools = get_tools_from_mongo(db=db)
+
+        if not thread_id:
+            thread_new = Thread.create(
+                db=db,
+                user=user_id,
+                agent=agent_id,
+            )
+            thread_id = str(thread_new.id)
+
+        user_message = UserMessage(content=content)
         ctx = await self.bot.get_context(message)
+
         async with ctx.channel.typing():
             answered = False
-            async for update in self.bot.eden_client.async_chat(chat_message, thread_name):
-                if update["type"] == "ASSISTANT_MESSAGE":
-                    content = update["content"]
+            async for msg in async_prompt_thread(
+                db=db,
+                user_id=user_id,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                user_messages=user_message,
+                tools=tools,
+            ):
+                if msg.type == UpdateType.ASSISTANT_MESSAGE:
+                    content = msg.message.content
                     if content:
                         if not answered:
                             await reply(message, content)
                         else:
                             await send(message, content)
                         answered = True
-                elif update["type"] == "TOOL_COMPLETE":
-                    tool_name = update["tool"]
+                elif msg.type == UpdateType.TOOL_COMPLETE:
+                    msg.result["result"] = prepare_result(
+                        msg.result["result"], db="STAGE"
+                    )
+                    url = msg.result["result"][0]["output"][0]["url"]
+                    tool_name = msg.tool_name
                     hour_timestamps[message.author.id].append(
                         {"time": time.time(), "tool": tool_name}
                     )
                     day_timestamps[message.author.id].append(
                         {"time": time.time(), "tool": tool_name}
                     )
+                    await send(message, url)
                     logger.info(f"tool called {tool_name}")
+                elif msg.type == UpdateType.ERROR:
+                    await reply(message, msg.error)
 
     @commands.Cog.listener()
     async def on_member_join(self, member):

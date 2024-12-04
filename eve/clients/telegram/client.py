@@ -1,6 +1,5 @@
 import os
 import argparse
-import json
 import re
 import time
 import logging
@@ -14,11 +13,9 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction
-from eve.sdk.eden import EdenClient
 
 
-from eve import auth
-from eve.tool import Tool, get_tools_from_mongo
+from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
 from eve.eden_utils import prepare_result
@@ -160,7 +157,7 @@ async def send_response(
     for item in response:
         if item.startswith("https://"):
             # Common video file extensions
-            video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+            video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
             if any(item.lower().endswith(ext) for ext in video_extensions):
                 logging.info(f"Sending video to {chat_id}")
                 await context.bot.send_video(chat_id=chat_id, video=item)
@@ -223,9 +220,9 @@ class EdenTG:
         agent_id = "67069a27fa89a12910650755"
         thread_id = "67491a4ecc662e6ec2c7cd15"
         user_message = UserMessage(content=cleaned_text)
-        db="STAGE"
+        db = "STAGE"
         tools = get_tools_from_mongo(db=db)
-        
+
         if not thread_id:
             thread_new = Thread.create(
                 db=db,
@@ -240,13 +237,15 @@ class EdenTG:
             agent_id=agent_id,
             thread_id=thread_id,
             user_messages=user_message,
-            tools=tools
+            tools=tools,
         ):
             if msg.type == UpdateType.ASSISTANT_MESSAGE:
-                await send_response(message_type, chat_id, [msg.message.content], context)
+                await send_response(
+                    message_type, chat_id, [msg.message.content], context
+                )
             elif msg.type == UpdateType.TOOL_COMPLETE:
-                msg.result['result'] = prepare_result(msg.result['result'], db="STAGE")
-                url = msg.result['result'][0]['output'][0]['url']
+                msg.result["result"] = prepare_result(msg.result["result"], db="STAGE")
+                url = msg.result["result"][0]["output"][0]["url"]
                 await send_response(message_type, chat_id, [url], context)
             elif msg.type == UpdateType.ERROR:
                 await send_response(message_type, chat_id, [msg.message.error], context)
