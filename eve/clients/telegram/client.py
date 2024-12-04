@@ -223,6 +223,11 @@ class EdenTG:
         db = "STAGE"
         tools = get_tools_from_mongo(db=db)
 
+        await context.bot.send_chat_action(
+            chat_id=chat_id, 
+            action=ChatAction.TYPING
+        )
+
         if not thread_id:
             thread_new = Thread.create(
                 db=db,
@@ -230,7 +235,7 @@ class EdenTG:
                 agent=agent_id,
             )
             thread_id = str(thread_new.id)
-        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
         async for msg in async_prompt_thread(
             db=db,
             user_id=user_id,

@@ -123,6 +123,8 @@ def download_file(url, local_filepath, overwrite=False):
     if local_filepath.exists() and not overwrite:
         # print(f"File {local_filepath} already exists. Skipping download.")
         return str(local_filepath)
+    else:
+        print(f"Downloading file from {url} to {local_filepath}")
 
     try:
         with httpx.stream("GET", url, follow_redirects=True) as response:

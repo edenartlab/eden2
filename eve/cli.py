@@ -26,6 +26,11 @@ from .tool import (
     get_tools_from_dirs,
     save_tool_from_dir,
 )
+from eve.agent import (
+    Agent,
+    save_agent_from_dir,
+    get_agent_dirs,
+)
 from eve.clients.discord.client import start as start_discord
 
 api_tools_order = [
@@ -39,6 +44,9 @@ api_tools_order = [
     "reel", "story", "texture_flow", "runway", "animate_3D_new", "mochi_preview",
     "lora_trainer", "flux_trainer", "news", "moodmix",
     "stable_audio", "musicgen",     
+]
+api_agents_order = [
+    "eve"
 ]
 
 @click.group()
@@ -83,6 +91,48 @@ def update(db: str, tools: tuple):
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
     click.echo(click.style(f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True))
+
+
+
+
+@cli.command()
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+@click.argument("agents", nargs=-1, required=False)
+def update2(db: str, agents: tuple):
+    """Upload agents to mongo"""
+
+    db = db.upper()
+
+    agent_dirs = get_agent_dirs(include_inactive=True)
+    agents_order = {agent: index for index, agent in enumerate(api_agents_order)}
+
+    if agents:
+        agent_dirs = {k: v for k, v in agent_dirs.items() if k in agents}
+    else:
+        confirm = click.confirm(
+            f"Update all {len(agent_dirs)} agents on {db}?", default=False
+        )
+        if not confirm:
+            return
+
+    updated = 0
+    for key, agent_dir in agent_dirs.items():
+        try:
+            order = agents_order.get(key, len(api_agents_order))
+            save_agent_from_dir(agent_dir, order=order, db=db)
+            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
+            updated += 1
+        except Exception as e:
+            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
+
+    click.echo(click.style(f"\nUpdated {updated} of {len(agent_dirs)} agents", fg="blue", bold=True))
+
+
 
 
 @cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
