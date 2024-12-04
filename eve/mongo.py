@@ -1,4 +1,3 @@
-print("MONGO!")
 import os
 import copy
 from pydantic import BaseModel, Field, ConfigDict, ValidationError

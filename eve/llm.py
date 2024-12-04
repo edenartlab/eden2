@@ -44,7 +44,6 @@ async def async_anthropic_prompt2(
         item for msg in messages for item in msg.anthropic_schema()
     ]
 
-    # pprint(messages_json)
     # print("MESSAGES JSON")
     # pprint(messages_json)
 
@@ -83,8 +82,8 @@ async def async_anthropic_prompt2(
         anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
         prompt["tools"] = anthropic_tools
 
-    print("PROMPT")
-    print(json.dumps(prompt, indent=4))
+    # print("PROMPT")
+    # print(json.dumps(prompt, indent=4))
 
     anthropic_client = anthropic.AsyncAnthropic()
     response = await anthropic_client.messages.create(**prompt)
@@ -196,6 +195,7 @@ class UpdateType(str, Enum):
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
 
+# todo: `msg.error` not `msg.message.error`
 class ThreadUpdate(BaseModel):
     type: UpdateType
     message: Optional[AssistantMessage] = None
@@ -210,7 +210,7 @@ class ThreadUpdate(BaseModel):
 
 async def async_think():
     pass
-
+from eve.agent import Agent
 async def async_prompt_thread(
     db: str,
     user_id: str, 
@@ -230,6 +230,14 @@ async def async_prompt_thread(
 
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
+    agent = Agent.load("eve", db=db)
+    
+    system_message = f"""Your name is {agent.name}.
+
+{agent.description}
+
+{agent.instructions}"""
+
     thread.push("messages", user_messages)
 
     # think = True
@@ -246,6 +254,7 @@ async def async_prompt_thread(
 
             content, tool_calls, stop = await async_prompt_provider(
                 thread.messages, 
+                system_message=system_message,
                 tools=tools
             )
             assistant_message = AssistantMessage(
