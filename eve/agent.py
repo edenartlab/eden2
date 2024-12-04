@@ -52,7 +52,7 @@ class Agent(BaseModel, ABC):
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
     
-    test_args: List[Dict[str, Any]]
+    test_args: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True
@@ -84,7 +84,7 @@ class Agent(BaseModel, ABC):
         """Load the tool class based on the handler in api.yaml"""
         
         key = schema.pop('key')
-        test_args = schema.pop('test_args')
+        test_args = [{}] #schema.pop('test_args')
         
         return cls._create_agent(key, schema, test_args, **kwargs)    
 
@@ -93,6 +93,7 @@ class Agent(BaseModel, ABC):
         """Create a new tool instance from a schema"""
 
         agent_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
+        agent_data['owner'] = ObjectId("666666666666666666666666")
         agent_data['test_args'] = test_args
         agent_data['owner'] = ObjectId(agent_data['owner'])
 

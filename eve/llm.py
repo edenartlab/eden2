@@ -24,6 +24,7 @@ from eve.eden_utils import pprint, download_file, image_to_base64, prepare_resul
 from eve.task import Task
 from eve.tool import Tool, get_tools_from_mongo
 from eve.models import User
+from eve.agent import Agent
 
 # from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
@@ -44,8 +45,8 @@ async def async_anthropic_prompt2(
         item for msg in messages for item in msg.anthropic_schema()
     ]
 
-    # print("MESSAGES JSON")
-    # pprint(messages_json)
+    print("MESSAGES JSON")
+    pprint(messages_json)
 
     prompt = {
         "model": "claude-3-5-sonnet-20241022",
@@ -111,9 +112,18 @@ async def async_anthropic_prompt(
         item for msg in messages for item in msg.anthropic_schema()
     ]
 
+    messages_json2 = [
+        item for msg in messages for item in msg.anthropic_schema(truncate_images=True)
+    ]
+
     # pprint(messages_json)
-    # print("MESSAGES JSON")
-    # pprint(messages_json)
+    
+    # print("MESSAGES JSON2")
+    # pprint(messages_json2)
+
+    # # save messages_json2 to file
+    # with open("messages_json2.json", "w") as f:
+    #     json.dump(messages_json2, f, indent=4)
 
     prompt = {
         "model": "claude-3-5-sonnet-20241022",
@@ -210,7 +220,7 @@ class ThreadUpdate(BaseModel):
 
 async def async_think():
     pass
-from eve.agent import Agent
+
 async def async_prompt_thread(
     db: str,
     user_id: str, 
@@ -218,6 +228,7 @@ async def async_prompt_thread(
     thread_id: Optional[str],
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
+    force_reply: bool = False,
     provider: Literal["anthropic", "openai"] = "anthropic"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
@@ -230,7 +241,7 @@ async def async_prompt_thread(
 
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
-    agent = Agent.load("eve", db=db)
+    agent = Agent.load("abraham", db=db)
     
     system_message = f"""Your name is {agent.name}.
 
@@ -239,6 +250,15 @@ async def async_prompt_thread(
 {agent.instructions}"""
 
     thread.push("messages", user_messages)
+
+    # Check if agent name appears in any user message content
+    agent_name_mentioned = any(
+        agent.name.lower() in (msg.content or "").lower() 
+        for msg in user_messages
+    )
+
+    if not agent_name_mentioned and not force_reply:
+        return
 
     # think = True
     # if think:
@@ -253,7 +273,7 @@ async def async_prompt_thread(
             }[provider]
 
             content, tool_calls, stop = await async_prompt_provider(
-                thread.messages, 
+                thread.get_messages(), 
                 system_message=system_message,
                 tools=tools
             )
