@@ -124,12 +124,6 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        current_time = time.time()
-        if current_time - self.bot.last_refresh_time > 300:
-            self.bot.last_refresh_time = current_time
-
-        logger.info(f"on... message ... {message.content}\n=============")
-
         if message.author.id == self.bot.user.id or message.author.bot:
             return
 
@@ -170,15 +164,24 @@ class Eden2Cog(commands.Cog):
 
         user_id = "65284b18f8bbb9bff13ebe65"
         agent_id = "67069a27fa89a12910650755"
-        thread_id = "67491a4ecc662e6ec2c7cd15"
         db = "STAGE"
         tools = get_tools_from_mongo(db=db)
 
-        if not thread_id:
+        thread = Thread.get_collection(db).find_one(
+            {
+                "name": thread_name,
+                "user": user_id,
+                "agent": agent_id,
+            }
+        )
+
+        if not thread:
+            logger.info("Creating new thread")
             thread_new = Thread.create(
                 db=db,
                 user=user_id,
                 agent=agent_id,
+                name=thread_name,
             )
             thread_id = str(thread_new.id)
 
@@ -247,32 +250,12 @@ class DiscordBot(commands.Bot):
             command_prefix="!",
             intents=intents,
         )
-        api_urls: EdenApiUrls = EdenApiUrls(
-            api_url=os.getenv("EDEN_API_URL") or "http://localhost:5050",
-            tools_api_url=os.getenv("EDEN_TOOLS_API_URL") or "http://127.0.0.1:8000",
-        )
-        self.eden_client = EdenClient(api_urls=api_urls)
-        self.last_refresh_time = time.time()
 
     def set_intents(self, intents: discord.Intents) -> None:
         intents.message_content = True
         intents.messages = True
         intents.presences = True
         intents.members = True
-
-    def get_commands(self) -> None:
-        bot_data = self.db["commands"].find_one({"bot": "eden"})
-        if bot_data:
-            return bot_data.get("commands", [])
-        else:
-            return []
-
-    def allowed_guilds(self, command_name) -> None:
-        command = self.bot_commands.get(command_name)
-        if command:
-            return command.get("guilds", None)
-        else:
-            return None
 
     async def on_ready(self) -> None:
         logger.info("Running bot...")
