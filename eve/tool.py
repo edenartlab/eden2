@@ -86,7 +86,7 @@ class Tool(BaseModel, ABC):
     def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
         """Create a new tool instance from a schema"""
 
-        fields, model_config = parse_schema(schema)        
+        fields, model_config = parse_schema(schema)
         model = create_model(key, __config__=model_config, **fields)    
         model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
 
