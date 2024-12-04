@@ -358,7 +358,7 @@ class AssistantMessage(ChatMessage):
 
 @Collection("threads2")
 class Thread(Document):
-    # name: str
+    name: str
     user: ObjectId
     agent: ObjectId
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)

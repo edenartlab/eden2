@@ -2,13 +2,14 @@ import argparse
 import os
 import re
 import time
+from typing import Optional
+from bson import ObjectId
 import discord
 import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from eve.sdk.eden import EdenClient
-from eve.sdk.eden.client import EdenApiUrls
+from eve.agent import Agent
 from eve.clients import common
 from eve.clients.discord import config
 from eve.tool import get_tools_from_mongo
@@ -119,8 +120,14 @@ class Eden2Cog(commands.Cog):
     def __init__(
         self,
         bot: commands.bot,
+        agent: Agent,
+        agent_id: Optional[str] = None,
+        db: str = "STAGE",
     ) -> None:
         self.bot = bot
+        self.agent = agent
+        self.agent_id = agent_id
+        self.db = db
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
@@ -133,10 +140,13 @@ class Eden2Cog(commands.Cog):
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
         else:
-            thread_name = f"discord9-{message.guild.name}-{message.channel.id}-{message.author.id}"
+            thread_name = (
+                f"discord9-{message.guild.id}-{message.channel.id}-{message.author.id}"
+            )
             trigger_reply = is_mentioned(message, self.bot.user)
             if not trigger_reply:
                 return
+        logger.info(f"thread_name: {thread_name}")
 
         if user_over_rate_limits(message.author.id):
             await reply(
@@ -162,28 +172,24 @@ class Eden2Cog(commands.Cog):
         }
         logger.info(f"chat message {chat_message}")
 
-        user_id = "65284b18f8bbb9bff13ebe65"
-        agent_id = "67069a27fa89a12910650755"
-        db = "STAGE"
-        tools = get_tools_from_mongo(db=db)
+        tools = get_tools_from_mongo(db=self.db)
 
-        thread = Thread.get_collection(db).find_one(
+        thread = Thread.get_collection(self.db).find_one(
             {
                 "name": thread_name,
-                "user": user_id,
-                "agent": agent_id,
             }
         )
-
+        thread_id = thread.get("_id") if thread else None
         if not thread:
             logger.info("Creating new thread")
-            thread_new = Thread.create(
-                db=db,
-                user=user_id,
-                agent=agent_id,
+            thread = Thread.create(
+                db=self.db,
+                user=self.agent.owner,
+                agent=self.agent_id,
                 name=thread_name,
             )
-            thread_id = str(thread_new.id)
+            thread_id = str(thread.id)
+        logger.info(f"thread: {thread_id}")
 
         user_message = UserMessage(content=content)
         ctx = await self.bot.get_context(message)
@@ -191,9 +197,9 @@ class Eden2Cog(commands.Cog):
         async with ctx.channel.typing():
             answered = False
             async for msg in async_prompt_thread(
-                db=db,
-                user_id=user_id,
-                agent_id=agent_id,
+                db=self.db,
+                user_id=self.agent.owner,
+                agent_id=self.agent_id,
                 thread_id=thread_id,
                 user_messages=user_message,
                 tools=tools,
@@ -269,6 +275,10 @@ class DiscordBot(commands.Bot):
 
 def start(
     env: str,
+    agent_path: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    db: str = "STAGE",
 ) -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -276,13 +286,19 @@ def start(
     )
     logger.info("Launching bot...")
     load_dotenv(env)
+    agent = common.get_agent(agent_path, agent_key, db=db)
+    logger.info(f"Using agent: {agent}")
     bot = DiscordBot()
-    bot.add_cog(Eden2Cog(bot))
+    bot.add_cog(Eden2Cog(bot, agent, db=db))
     bot.run(os.getenv("DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
+    parser.add_argument("--agent_path", help="Path to the agent directory")
+    parser.add_argument("--agent_key", help="Key of the agent")
+    parser.add_argument("--agent_id", help="ID of the agent")
+    parser.add_argument("--db", help="Database to use", default="STAGE")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     args = parser.parse_args()
-    start(args.env)
+    start(args.env, args.agent_path, args.agent_key, args.agent_id, args.db)
