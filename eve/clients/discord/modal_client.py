@@ -5,8 +5,8 @@ from eve.clients.discord.client import start as discord_start
 
 
 app = modal.App(
-    name="eve-client-discord",
-    secrets=[modal.Secret.from_name(s) for s in ["eve-stg", "eve-client-tokens"]],
+    name="client-discord",
+    secrets=[modal.Secret.from_name(s) for s in ["eve-secrets", "client-secrets"]],
 )
 
 image = (
@@ -14,7 +14,6 @@ image = (
     .env(
         {
             "DB": "STAGE",
-            "DISCORD_TOKEN": os.getenv("DISCORD_TOKEN"),
         }
     )
     .apt_install("libmagic1", "ffmpeg", "wget")
@@ -30,4 +29,4 @@ image = (
 )
 @modal.asgi_app()
 def modal_app() -> None:
-    discord_start(env=".env", agent_key="eve")
+    discord_start(env=".env", agent_key=os.getenv("CLIENT_AGENT_KEY"))

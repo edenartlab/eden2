@@ -288,7 +288,7 @@ def start(
     logger.info(f"Using agent: {agent}")
     bot = DiscordBot()
     bot.add_cog(Eden2Cog(bot, agent, db=db))
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    bot.run(os.getenv("CLIENT_DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":
