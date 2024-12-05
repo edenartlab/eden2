@@ -316,7 +316,7 @@ def test(
     error_list = "\n\t".join(errors)
     click.echo(
         click.style(
-            f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n{error_list}",
+            f"\n\nTested {len(all_tools)} tools with {len(errors)} errors:\n{error_list}",
             fg="blue",
             bold=True,
         )

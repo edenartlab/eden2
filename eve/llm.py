@@ -1,5 +1,3 @@
-
-
 from bson import ObjectId
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ValidationError
@@ -29,80 +27,16 @@ from eve.agent import Agent
 # from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
 
-
-
-async def async_anthropic_prompt2(
-    messages: List[Union[UserMessage, AssistantMessage]], 
-    system_message: Optional[str] = "You are a helpful assistant.", 
-    response_model: Optional[BaseModel] = None, 
-    tools: Dict[str, Tool] = {},
-    db: str = "STAGE"
-):
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise ValueError("ANTHROPIC_API_KEY env is not set")
-        
-    messages_json = [
-        item for msg in messages for item in msg.anthropic_schema()
-    ]
-
-    print("MESSAGES JSON")
-    pprint(messages_json)
-
-    prompt = {
-        "model": "claude-3-5-sonnet-20241022",
-        "max_tokens": 8192,
-        "messages": messages_json,
-        "system": system_message,
-    }
-
-    if response_model:
-        # anthropic_tools = {"thought": openai_schema(response_model).anthropic_schema}
-        anthropic_tools = [{
-            "name": "thought",
-            "description": "An thought about the current state of the chat, along with a decision as to reply/post a new message or not.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "thought": {
-                        "type": "string",
-                        "description": "Briefly describe the relevance of the last message to you.",
-                    },
-                    "reply": {
-                        "type": "boolean",
-                        "description": "Whether to reply to the last message or not.",
-                    }
-                },
-                "required": ["thought", "reply"],
-            }
-        }]
-    
-        prompt["tools"] = anthropic_tools
-        prompt["tool_choice"] = {"type": "tool", "name": "thought"}
-        
-    elif tools:
-        anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
-        prompt["tools"] = anthropic_tools
-
-    # print("PROMPT")
-    # print(json.dumps(prompt, indent=4))
-
-    anthropic_client = anthropic.AsyncAnthropic()
-    response = await anthropic_client.messages.create(**prompt)
-
-    content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
-    tool_calls = [ToolCall.from_anthropic(r, db=db) for r in response.content if r.type == "tool_use"]
-    stop = response.stop_reason != "tool_use"
-
-    return content, tool_calls, stop
-
+from jinja2 import Template
 
 
 
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]], 
     system_message: Optional[str] = "You are a helpful assistant.", 
-    response_model: Optional[BaseModel] = None, 
-    tools: Dict[str, Tool] = {},
+    model: str = "claude-3-5-sonnet-20241022",
+    response_model: Optional[type[BaseModel]] = None, 
+    tools: Dict[str, Tool] = None,
     db: str = "STAGE"
 ):
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -111,89 +45,119 @@ async def async_anthropic_prompt(
     messages_json = [
         item for msg in messages for item in msg.anthropic_schema()
     ]
-
-    messages_json2 = [
-        item for msg in messages for item in msg.anthropic_schema(truncate_images=True)
-    ]
-
-    # pprint(messages_json)
-    
-    # print("MESSAGES JSON2")
-    # pprint(messages_json2)
-
-    # # save messages_json2 to file
-    # with open("messages_json2.json", "w") as f:
-    #     json.dump(messages_json2, f, indent=4)
-
     prompt = {
-        "model": "claude-3-5-sonnet-20241022",
+        "model": model,
         "max_tokens": 8192,
         "messages": messages_json,
         "system": system_message,
     }
 
-    if response_model:
-        anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
-        prompt["tools"] = anthropic_tools
-        prompt["tool_choice"] = "required"
-        
-    elif tools:
-        anthropic_tools = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
-        prompt["tools"] = anthropic_tools
-
     anthropic_client = anthropic.AsyncAnthropic()
+    
+    if tools or response_model:
+        tools = [t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()]
+        if response_model:
+            tools.append(openai_schema(response_model).anthropic_schema)
+            prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
+        prompt["tools"] = tools
+
     response = await anthropic_client.messages.create(**prompt)
 
-    content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
-    tool_calls = [ToolCall.from_anthropic(r, db=db) for r in response.content if r.type == "tool_use"]
-    stop = response.stop_reason != "tool_use"
+    if response_model:
+        return response_model(**response.content[0].input)
 
-    return content, tool_calls, stop
-
+    else:
+        content = ". ".join([r.text for r in response.content if r.type == "text" and r.text])
+        tool_calls = [ToolCall.from_anthropic(r, db=db) for r in response.content if r.type == "tool_use"]
+        stop = response.stop_reason != "tool_use"
+        return content, tool_calls, stop
 
 
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]], 
     system_message: Optional[str] = "You are a helpful assistant.", 
-    response_model: Optional[BaseModel] = None, 
+    model: str = "gpt-4o-mini", # "gpt-4o-2024-08-06",
+    response_model: Optional[type[BaseModel]] = None, 
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
 ):
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY env is not set")
 
-    
-
     messages_json = [
         item for msg in messages for item in msg.openai_schema()
     ]
-    messages_json = [{"role": "system", "content": system_message}] + messages_json if system_message else messages_json
+    if system_message:
+        messages_json = [{"role": "system", "content": system_message}] + messages_json
 
-    openai_tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()] if tools else None
-    
     openai_client = openai.AsyncOpenAI()
-    response = await openai_client.beta.chat.completions.parse(
-        # model="gpt-4o-2024-08-06",
-        model="gpt-4o-mini",
-        # tools=openai_tools,
-        messages=messages_json,
-        response_format=response_model
-    )
-    response = response.choices[0]
-
-    content = response.message.content or ""
-    tool_calls = [ToolCall.from_openai(t, db=db) for t in response.message.tool_calls or []]
-    stop = response.finish_reason != "tool_calls"
     
-    return content, tool_calls, stop
+    if response_model:
+        response = await openai_client.beta.chat.completions.parse(
+            model=model,
+            messages=messages_json,
+            response_format=response_model
+        )
+        return response.choices[0].message.parsed
 
-def anthropic_prompt(messages, system_message, response_model=None, tools={}):
-    return asyncio.run(async_anthropic_prompt(messages, system_message, response_model, tools))
-def anthropic_prompt2(messages, system_message, response_model=None, tools={}):
-    return asyncio.run(async_anthropic_prompt2(messages, system_message, response_model, tools))
+    else:
+        tools = [t.openai_schema(exclude_hidden=True) for t in tools.values()] if tools else None
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages_json,
+            tools=tools
+        )
+        response = response.choices[0]
+        content = response.message.content or ""
+        tool_calls = [ToolCall.from_openai(t, db=db) for t in response.message.tool_calls or []]
+        stop = response.finish_reason != "tool_calls"
+        
+        return content, tool_calls, stop
 
-def openai_prompt(messages, system_message, response_model=None, tools={}):
-    return asyncio.run(async_openai_prompt(messages, system_message, response_model, tools))
+
+@retry(
+    retry=retry_if_exception(lambda e: isinstance(e, (
+        openai.RateLimitError, anthropic.RateLimitError
+    ))),
+    wait=wait_exponential(multiplier=5, max=60),
+    stop=stop_after_attempt(3),
+    reraise=True
+)
+@retry(
+    retry=retry_if_exception(lambda e: isinstance(e, (
+        openai.APIConnectionError, openai.InternalServerError, 
+        anthropic.APIConnectionError, anthropic.InternalServerError
+    ))),
+    wait=wait_exponential(multiplier=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True
+)
+async def async_prompt(
+    messages: List[Union[UserMessage, AssistantMessage]], 
+    system_message: Optional[str] = "You are a helpful assistant.", 
+    model: str = "claude-3-5-sonnet-20241022",
+    response_model: Optional[type[BaseModel]] = None, 
+    tools: Dict[str, Tool] = {},
+    db: str = "STAGE"
+):
+    
+    if model.startswith("claude"):
+        return await async_anthropic_prompt(
+            messages, system_message, model, response_model, tools, db
+        )
+    else:
+        return await async_openai_prompt(
+            messages, system_message, model, response_model, tools, db
+        )
+
+def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
+    return asyncio.run(async_anthropic_prompt(messages, system_message, model, response_model, tools))
+
+def openai_prompt(messages, system_message, model, response_model=None, tools=None):
+    return asyncio.run(async_openai_prompt(messages, system_message, model, response_model, tools))
+
+def prompt(messages, system_message, model, response_model=None, tools=None):
+    return asyncio.run(async_prompt(messages, system_message, model, response_model, tools))
 
 
 
@@ -204,6 +168,13 @@ class UpdateType(str, Enum):
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
+
+models = [
+    "claude-3-5-sonnet-20241022",
+    "gpt-4o-mini",
+    "gpt-4o-2024-08-06"
+]
+
 
 # todo: `msg.error` not `msg.message.error`
 class ThreadUpdate(BaseModel):
@@ -217,6 +188,15 @@ class ThreadUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+template = '''<Summary>You are roleplaying as {{ name }}.</Summary>
+<Description>
+This is a description of {{ name }}.
+
+{{ description }}
+</Description>
+<Instructions>
+{{ instructions }}
+</Instructions>'''
 
 async def async_think():
     pass
@@ -229,25 +209,24 @@ async def async_prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    provider: Literal["anthropic", "openai"] = "anthropic"
+    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user = User.load(user_id, db=db)
-
     if thread_id:
         thread = Thread.load(thread_id, db=db)
     else:
         thread = Thread.create(db=db, user=user.id, agent=agent_id)
-
+    
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
     agent = Agent.load("abraham", db=db)
     
-    system_message = f"""Your name is {agent.name}.
-
-{agent.description}
-
-{agent.instructions}"""
+    system_message = Template(template).render(
+        name=agent.name,
+        description=agent.description,
+        instructions=agent.instructions
+    )
 
     thread.push("messages", user_messages)
 
@@ -267,14 +246,10 @@ async def async_prompt_thread(
 
     while True:
         try:
-            async_prompt_provider = {
-                "anthropic": async_anthropic_prompt,
-                "openai": async_openai_prompt
-            }[provider]
-
-            content, tool_calls, stop = await async_prompt_provider(
+            content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
+                model=model,
                 tools=tools
             )
             assistant_message = AssistantMessage(
@@ -360,12 +335,13 @@ def prompt_thread(
     db: str,
     user_id: str, 
     agent_id: str,
-    thread_id: str,
+    thread_id: Optional[str],
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
-    provider: Literal["anthropic", "openai"] = "anthropic"
+    force_reply: bool = False,
+    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
-    async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, provider)
+    async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, force_reply, model)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -397,61 +373,6 @@ def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "op
     print(json_str)
 
 
-
-
-
-
-# @retry(
-#     retry=retry_if_exception(lambda e: isinstance(e, (
-#         openai.RateLimitError, anthropic.RateLimitError
-#     ))),
-#     wait=wait_exponential(multiplier=5, max=60),
-#     stop=stop_after_attempt(3),
-#     reraise=True
-# )
-# @retry(
-#     retry=retry_if_exception(lambda e: isinstance(e, (
-#         openai.APIConnectionError, openai.InternalServerError, 
-#         anthropic.APIConnectionError, anthropic.InternalServerError
-#     ))),
-#     wait=wait_exponential(multiplier=2, max=30),
-#     stop=stop_after_attempt(3),
-#     reraise=True
-# )
-# async def prompt_llm_and_validate(messages, system_message, provider, tools):
-#     num_attempts, max_attempts = 0, 3
-#     while num_attempts < max_attempts:
-#         num_attempts += 1 
-#         # pretty_print_messages(messages, schema=provider)
-
-#         # try:
-#         if 1:
-#             if provider == "anthropic":
-#                 content, tool_calls, stop = await async_anthropic_prompt(messages, system_message, tools)
-#             elif provider == "openai":
-#                 content, tool_calls, stop = await async_openai_prompt(messages, system_message, tools)
-            
-#             # check for hallucinated tools
-#             invalid_tools = [t.name for t in tool_calls if not t.name in tools]
-#             if invalid_tools:
-#                 add_breadcrumb(category="invalid_tools", data={"invalid": invalid_tools})
-#                 raise ToolNotFoundException(*invalid_tools)
-
-#             # check for hallucinated urls
-#             url_pattern = r'https://(?:eden|edenartlab-stage-(?:data|prod))\.s3\.amazonaws\.com/\S+\.(?:jpg|jpeg|png|gif|bmp|webp|mp4|mp3|wav|aiff|flac)'
-#             valid_urls  = [url for m in messages if type(m) == UserMessage and m.attachments for url in m.attachments]  # attachments
-#             valid_urls += [url for m in messages if type(m) == ToolResultMessage for result in m.tool_results if result and result.result for url in re.findall(url_pattern, result.result)]  # output results 
-#             tool_calls_urls = re.findall(url_pattern, ";".join([json.dumps(tool_call.input) for tool_call in tool_calls]))
-#             invalid_urls = [url for url in tool_calls_urls if url not in valid_urls]
-#             if invalid_urls:
-#                 add_breadcrumb(category="invalid_urls", data={"invalid": invalid_urls, "valid": valid_urls})
-#                 raise UrlNotFoundException(*invalid_urls)
-#             return content, tool_calls, stop
-
-#         # if there are still hallucinations after max_attempts, just let the LLM deal with it
-#         # except (ToolNotFoundException, UrlNotFoundException) as e:
-#         #     if num_attempts == max_attempts:
-#         #         return content, tool_calls, stop
 
 
 

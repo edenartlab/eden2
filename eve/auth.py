@@ -20,7 +20,7 @@ db = os.getenv("DB", "STAGE")
 api_keys = get_collection("apikeys", db=db)
 users = get_collection("users", db=db)
 
-ADMIN_KEY = os.getenv("ADMIN_KEY")
+EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")
 ISSUER_URL = os.getenv("CLERK_ISSUER_URL")
 
@@ -125,6 +125,17 @@ async def authenticate_ws(websocket: WebSocket):
 
 
 def authenticate_admin(
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    print("token is:", token.credentials)
+    print("admin key is:", EDEN_ADMIN_KEY)
+    if token.credentials != EDEN_ADMIN_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
+
+
+def authenticate_admin_api_key(
     api_key: str = Depends(api_key_header),
 ):
     """Authenticate admin users by checking their API key's admin status"""
@@ -144,13 +155,3 @@ def authenticate_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin access required"
         )
-
-
-# old version
-# def authenticate_admin(
-#     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-# ):
-#     if token.credentials != ADMIN_KEY:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
-#         )

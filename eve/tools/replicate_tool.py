@@ -160,7 +160,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
     elif status == "succeeded":
         if output_handler == "normal":
             output = {"output": output}
-            result = eden_utils.upload_result(output, db=task.db)
+            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True)
         
         elif output_handler in ["trainer", "eden"]: 
             result = replicate_process_eden(output, db=task.db)
