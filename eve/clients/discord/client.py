@@ -3,7 +3,6 @@ import os
 import re
 import time
 from typing import Optional
-from bson import ObjectId
 import discord
 import logging
 from discord.ext import commands
@@ -277,7 +276,6 @@ def start(
     env: str,
     agent_path: Optional[str] = None,
     agent_key: Optional[str] = None,
-    agent_id: Optional[str] = None,
     db: str = "STAGE",
 ) -> None:
     logging.basicConfig(
@@ -297,7 +295,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
     parser.add_argument("--agent_path", help="Path to the agent directory")
     parser.add_argument("--agent_key", help="Key of the agent")
-    parser.add_argument("--agent_id", help="ID of the agent")
     parser.add_argument("--db", help="Database to use", default="STAGE")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     args = parser.parse_args()
