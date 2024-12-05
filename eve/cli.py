@@ -14,11 +14,7 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import (
-    save_test_results, 
-    prepare_result, 
-    CLICK_COLORS
-)
+from .eden_utils import save_test_results, prepare_result, CLICK_COLORS
 from .tool import (
     Tool,
     get_tool_dirs,
@@ -34,20 +30,52 @@ from eve.agent import (
 from eve.clients.discord.client import start as start_discord
 
 api_tools_order = [
-    "txt2img", "flux_dev", "flux_schnell", "layer_diffusion", "remix_flux_schnell", "remix",
-    "inpaint", "flux_inpainting", "outpaint", "face_styler",
-    "upscaler", "background_removal", "style_transfer", "storydiffusion",
-    "xhibit_vton", "xhibit_remix", "beeple_ai", "txt2img_test", "sd3_txt2img", 
-    "HelloMeme_image", "HelloMeme_video", "flux_redux", "mars-id",
-    "background_removal_video", "animate_3D", "style_mixing", 
-    "txt2vid", "vid2vid_sdxl", "img2vid", "video_upscaler", "frame_interpolation",
-    "reel", "story", "texture_flow", "runway", "animate_3D_new", "mochi_preview",
-    "lora_trainer", "flux_trainer", "news", "moodmix",
-    "stable_audio", "musicgen",     
+    "txt2img",
+    "flux_dev",
+    "flux_schnell",
+    "layer_diffusion",
+    "remix_flux_schnell",
+    "remix",
+    "inpaint",
+    "flux_inpainting",
+    "outpaint",
+    "face_styler",
+    "upscaler",
+    "background_removal",
+    "style_transfer",
+    "storydiffusion",
+    "xhibit_vton",
+    "xhibit_remix",
+    "beeple_ai",
+    "txt2img_test",
+    "sd3_txt2img",
+    "HelloMeme_image",
+    "HelloMeme_video",
+    "flux_redux",
+    "mars-id",
+    "background_removal_video",
+    "animate_3D",
+    "style_mixing",
+    "txt2vid",
+    "vid2vid_sdxl",
+    "img2vid",
+    "video_upscaler",
+    "frame_interpolation",
+    "reel",
+    "story",
+    "texture_flow",
+    "runway",
+    "animate_3D_new",
+    "mochi_preview",
+    "lora_trainer",
+    "flux_trainer",
+    "news",
+    "moodmix",
+    "stable_audio",
+    "musicgen",
 ]
-api_agents_order = [
-    "eve"
-]
+api_agents_order = ["eve"]
+
 
 @click.group()
 def cli():
@@ -90,9 +118,11 @@ def update(db: str, tools: tuple):
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
-    click.echo(click.style(f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True))
-
-
+    click.echo(
+        click.style(
+            f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True
+        )
+    )
 
 
 @cli.command()
@@ -130,9 +160,11 @@ def update2(db: str, agents: tuple):
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
-    click.echo(click.style(f"\nUpdated {updated} of {len(agent_dirs)} agents", fg="blue", bold=True))
-
-
+    click.echo(
+        click.style(
+            f"\nUpdated {updated} of {len(agent_dirs)} agents", fg="blue", bold=True
+        )
+    )
 
 
 @cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
@@ -257,7 +289,9 @@ def test(
         all_tools = get_tools_from_mongo(db=db, tools=tools)
 
     if not tools:
-        confirm = click.confirm(f"Run tests for all {len(all_tools)} tools?", default=False)
+        confirm = click.confirm(
+            f"Run tests for all {len(all_tools)} tools?", default=False
+        )
         if not confirm:
             return
 
@@ -330,11 +364,13 @@ def start_local_chat(db: str, env_path: str):
     type=click.Path(exists=True, resolve_path=True),
     help="Path to environment file",
 )
-@click.argument(
-    "agents",
-    nargs=-1,
-    required=True,
-    type=click.Path(exists=True, resolve_path=True, path_type=str),
+@click.option(
+    "--agent_path",
+    help="Path to the agent directory",
+)
+@click.option(
+    "--agent_id",
+    help="ID of the agent",
 )
 def start(db: str, env: str, agents: tuple):
     """Start one or more clients from yaml files"""

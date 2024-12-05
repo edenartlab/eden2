@@ -1,6 +1,5 @@
 import os
 import argparse
-import json
 import re
 import time
 import logging
@@ -14,27 +13,24 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction
-from eve.sdk.eden import EdenClient
 
 
-from eve import auth
-from eve.tool import Tool, get_tools_from_mongo
+from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
 from eve.eden_utils import prepare_result
 
 
-
 user_id = "65284b18f8bbb9bff13ebe65"
 agent_id = "6732410592ff51c38f4e0aa1"
 thread_id = "67491a4ecc662e6ec2c7cd15"
-db="STAGE"
+db = "STAGE"
 
 from eve.agent import Agent
+
 agent = Agent.load(db="STAGE", key="abraham")
 name = agent.name
 print(agent)
-
 
 
 # Logging configuration
@@ -132,6 +128,7 @@ def remove_bot_mentions(message_text: str, bot_username: str) -> str:
         .replace("  ", " ")
     )
 
+
 def replace_bot_mentions(message_text: str, bot_username: str, replacement: str) -> str:
     """
     Replace bot mentions with a replacement string.
@@ -185,7 +182,7 @@ async def send_response(
     for item in response:
         if item.startswith("https://"):
             # Common video file extensions
-            video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+            video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
             if any(item.lower().endswith(ext) for ext in video_extensions):
                 logging.info(f"Sending video to {chat_id}")
                 await context.bot.send_video(chat_id=chat_id, video=item)
@@ -231,12 +228,11 @@ class EdenTG:
             else None
         )
         force_reply = message_type in ["dm", "reply", "mention"]
-        
+
         user_id = "65284b18f8bbb9bff13ebe65"
         agent_id = "6732410592ff51c38f4e0aa1"
         thread_id = "67491a4ecc662e6ec2c7cd15"
-        db="STAGE"
-
+        db = "STAGE"
 
         # if not message_type:
         #     return
@@ -259,19 +255,14 @@ class EdenTG:
         print("cleaned text", cleaned_text)
 
         user_message = UserMessage(
-            name=user_name,
-            content=cleaned_text, 
-            attachments=attachments
+            name=user_name, content=cleaned_text, attachments=attachments
         )
 
         print("user message", user_message)
 
         tools = get_tools_from_mongo(db=db)
 
-        await context.bot.send_chat_action(
-            chat_id=chat_id, 
-            action=ChatAction.TYPING
-        )
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
         if not thread_id:
             thread_new = Thread.create(
@@ -288,16 +279,19 @@ class EdenTG:
             thread_id=thread_id,
             user_messages=user_message,
             tools=tools,
-            force_reply=force_reply
+            force_reply=force_reply,
         ):
             if update.type == UpdateType.ASSISTANT_MESSAGE:
-                await send_response(message_type, chat_id, [update.message.content], context)
+                await send_response(
+                    message_type, chat_id, [update.message.content], context
+                )
             elif update.type == UpdateType.TOOL_COMPLETE:
-                update.result['result'] = prepare_result(update.result['result'], db="STAGE")
-                url = update.result['result'][0]['output'][0]['url']
+                update.result["result"] = prepare_result(
+                    update.result["result"], db="STAGE"
+                )
+                url = update.result["result"][0]["output"][0]["url"]
                 await send_response(message_type, chat_id, [url], context)
             elif update.type == UpdateType.ERROR:
-                
                 await send_response(message_type, chat_id, [update.error], context)
 
 
