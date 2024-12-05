@@ -25,7 +25,7 @@ class ChatMessage(BaseModel):
         if reaction not in self.reactions:
             self.reactions[reaction] = []
         self.reactions[reaction].append(user)
-
+    
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
@@ -114,26 +114,21 @@ class UserMessage(ChatMessage):
                 ]
 
             if content:
-                # todo: or maybe this needs to be "..." ?
                 block.extend([{"type": "text", "text": content.strip()}])
 
             content = block
 
-        # todo: can user messages be blank in anthropic?
-        # elif not content and schema == "anthropic":
-        #     content = "..."
-
         return content
 
     def anthropic_schema(self, truncate_images=False):
-        return [
-            {
-                "role": "user",
-                "content": self._get_content(
-                    "anthropic", truncate_images=truncate_images
-                ),
-            }
-        ]
+        content = self._get_content(
+            "anthropic", 
+            truncate_images=truncate_images
+        )
+        return [{
+            "role": "user",
+            "content": content
+        }] if content else []
 
     def openai_schema(self, truncate_images=False):
         return [
@@ -326,20 +321,15 @@ class AssistantMessage(ChatMessage):
         return schema
 
     def anthropic_schema(self, truncate_images=False):
-        print("assistant", truncate_images)
-        schema = [
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": self.content,  # or "..."
-                    }
-                ]
-                if self.content
-                else [],
-            }
-        ]
+        schema = [{
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": self.content
+                }
+            ] if self.content else [],
+        }]
         if self.tool_calls:
             schema[0]["content"].extend(
                 [t.anthropic_call_schema() for t in self.tool_calls]
@@ -397,12 +387,11 @@ class Thread(Document):
             filter={"messages.id": message_id},
         )
 
-    def get_messages(self, filters):
+    def get_messages(self, filters=None):
         # filter by time, number, or prompt
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
-
-        pass
+        return self.messages[-25:]
 
 
 @Collection("agents")

@@ -317,7 +317,7 @@ async def handler(args: dict, db: str):
 
         
         temp_file = tempfile.NamedTemporaryFile(delete=False)
-        music_file = eden_utils.download_file(music_audio['output']['url'], temp_file.name+".mp3")
+        music_file = eden_utils.download_file(music_audio['output'][0]['url'], temp_file.name+".mp3")
         print("MUSIC FILE 77", temp_file.name)
         with open(music_file, 'rb') as f:
             music_audio = AudioSegment.from_file(BytesIO(f.read()))
@@ -432,14 +432,14 @@ async def handler(args: dict, db: str):
         print("video!!", video)
         video = eden_utils.prepare_result(video, db=db)
         print("video", video)
-        video = video['output']['url']
+        video = video['output'][0]['url']
         videos.append(video)
 
 
     
     video = await video_concat.async_run({"videos": videos}, db=db)
     video = eden_utils.prepare_result(video, db=db)
-    video_url = video['output']['url']
+    video_url = video['output'][0]['url']
     
     if audio_url:
         output = await audio_video_combine.async_run({
@@ -450,7 +450,7 @@ async def handler(args: dict, db: str):
         print(output)
         final_video = eden_utils.prepare_result(output, db=db)
         print(final_video)
-        final_video_url = final_video['output']['url']
+        final_video_url = final_video['output'][0]['url']
         print("a 5")
         # output_url, _ = s3.upload_file(output)
         print("a 6")
