@@ -32,8 +32,6 @@ def create_secrets(env_name: str, secrets_dict: dict, group_name: str):
             cmd_parts.append(f"{key}={value}")
     cmd_parts.extend(["-e", env_name, "--force"])
 
-    # Print and execute the command
-    print(f"Creating {group_name}: {' '.join(cmd_parts[6:-3])}")
     subprocess.run(cmd_parts)
 
 
