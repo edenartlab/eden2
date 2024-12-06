@@ -297,7 +297,7 @@ class EdenTG:
 
 def main(env_path: str):
     load_dotenv(env_path)
-    bot_token = os.getenv("TELEGRAM_TOKEN")
+    bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
 
     application = ApplicationBuilder().token(bot_token).build()
     eden_bot = EdenTG(bot_token)
