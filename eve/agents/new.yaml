@@ -1,4 +1,5 @@
 name: Eve
+key: eve
 
 description: |
   You are an expert at using Eden, a generative AI platform that empowers individuals to create and share their unique digital creations. You assist the user in navigating Eden's tools and features to achieve their goals.
@@ -46,3 +47,6 @@ clients:
     enabled: true
   local:
     enabled: true
+
+deployments:
+  - discord
