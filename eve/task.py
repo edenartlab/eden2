@@ -1,5 +1,5 @@
 from bson import ObjectId
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional, Literal, List
 from functools import wraps
 from datetime import datetime, timezone
 import asyncio
@@ -10,12 +10,6 @@ from .mongo2 import Document, Collection, get_collection
 from . import eden_utils
 
 
-
-"""
-what are creation.samples?
-
-
-"""
 
 @Collection("creations3")
 class Creation(Document):
@@ -32,7 +26,7 @@ class Creation(Document):
     
 
 
-@Collection("tasks2")
+@Collection("tasks3")
 class Task(Document):
     tool: str
     parent_tool: Optional[str] = None
@@ -88,7 +82,7 @@ async def _task_handler(func, *args, **kwargs):
     task = kwargs.pop("task", args[-1])
     
     start_time = datetime.now(timezone.utc)
-    queue_time = (start_time - task.created_at).total_seconds()
+    queue_time = (start_time - task.createdAt).total_seconds()
 
     task.update(
         status="running",
@@ -109,13 +103,7 @@ async def _task_handler(func, *args, **kwargs):
             result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-            print("RESULT")
-            print(result)
             result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True)
-            print("RESULT UPLOADED")
-            print(result)
-            # RESULT UPLOADED
-            # {'output': [{'filename': 'ceed2d0bdc74d1de436217907073d9f150e9648a9e35130ae3bd79f2fe2abb23.png', 'mediaAttributes': {'mimeType': 'image/png', 'width': 1920, 'height': 1080, 'aspectRatio': 1.7777777777777777}}]}
             results.extend([result])
 
             for output in result["output"]:
@@ -128,8 +116,6 @@ async def _task_handler(func, *args, **kwargs):
                     mediaAttributes=output["mediaAttributes"],
                     name=name
                 )
-                print("CREATION")
-                print(creation)
                 creation.save()
 
             if i == n_samples - 1:
@@ -137,8 +123,6 @@ async def _task_handler(func, *args, **kwargs):
                     "status": "completed", 
                     "result": results
                 }
-                print("THE RESULTS")
-                print(results)
 
             else:
                 task_update = {

@@ -14,7 +14,7 @@ from .eden_utils import download_file, image_to_base64, prepare_result
 
 class ChatMessage(BaseModel):
     id: ObjectId = Field(default_factory=ObjectId)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
     reactions: Optional[Dict[str, List[ObjectId]]] = {}

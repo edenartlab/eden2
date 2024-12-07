@@ -68,7 +68,9 @@ class Tool(BaseModel, ABC):
         """Load the tool from an api.yaml and test.json"""
         
         schema = cls._get_schema_from_dir(tool_dir)
-        schema['key'] = tool_dir.split('/')[-1]
+        
+        if "key" not in schema:
+            schema['key'] = tool_dir.split('/')[-1]
         
         return cls.load_from_schema(schema, prefer_local, **kwargs)
 
@@ -267,7 +269,7 @@ class Tool(BaseModel, ABC):
                         handler_id=handler_id,
                         status="completed", 
                         result=result,
-                        performance={"waitTime": (datetime.now(timezone.utc) - task.created_at).total_seconds()}
+                        performance={"waitTime": (datetime.now(timezone.utc) - task.createdAt).total_seconds()}
                     )
                 else:
                     handler_id = await start_task_function(self, task)
@@ -347,7 +349,8 @@ def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> T
     """Upload tool from directory to mongo"""
 
     schema = Tool._get_schema_from_dir(tool_dir)
-    schema['key'] = tool_dir.split('/')[-1]
+    if "key" not in schema:
+        schema['key'] = tool_dir.split('/')[-1]
     
     # timestamps
     tools = get_collection("tools2", db=db)
@@ -432,7 +435,9 @@ def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[
                     schema = yaml.safe_load(f)
                 if schema.get("status") == "inactive" and not include_inactive:
                     continue
-                key = os.path.relpath(root).split("/")[-1]
+                if "key" not in schema:
+                    schema["key"] = os.path.relpath(root).split("/")[-1]
+                key = schema["key"]
                 if key in tool_dirs:
                     raise ValueError(f"Duplicate tool {key} found.")
                 tool_dirs[key] = os.path.relpath(root)

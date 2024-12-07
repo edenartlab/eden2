@@ -73,6 +73,7 @@ api_tools_order = [
     "moodmix",
     "stable_audio",
     "musicgen",
+    "legacy/create",
 ]
 api_agents_order = ["eve"]
 

@@ -95,9 +95,9 @@ class ReplicateTool(Tool):
             metadata = param.json_schema_extra or {}
             is_array = metadata.get('is_array')
             alias = metadata.get('alias')
-            if is_array:
+            if is_array and isinstance(args[key], list):
                 new_args[key] = "|".join([str(p) for p in args[key]])
-            if alias:
+            if alias and key in new_args:
                 new_args[alias] = new_args.pop(key)
         return new_args
 
@@ -152,7 +152,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "cancelled"}
     
     elif status == "processing":
-        task.performance["waitTime"] = (datetime.now(timezone.utc) - task.created_at).total_seconds()
+        task.performance["waitTime"] = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
         task.status = "running"
         task.save()
         return {"status": "running"}
@@ -181,7 +181,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
                 result[0]["model"] = model.id
         
-        run_time = (datetime.now(timezone.utc) - task.created_at).total_seconds()
+        run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time

@@ -311,7 +311,8 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
             field_kwargs['max_length'] = props['max_length']
 
     # Handle min and max for numeric types
-    if props['type'] in ['integer', 'float']:
+    if props['type'] in ['integer', 'float'] \
+        or props["type"] == "array" and props["items"]["type"] in ['integer', 'float']:
         if 'minimum' in props:
             field_kwargs['ge'] = props['minimum']
         if 'maximum' in props:
@@ -381,7 +382,7 @@ def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
             type_annotation, field_kwargs, json_schema_extra = parse_props(field, props)
 
         # Handle additional metadata
-        for key in ['hide_from_agent', 'examples']:
+        for key in ['hide_from_agent', 'examples', 'alias']:
             if key in props:
                 json_schema_extra[key] = props[key]
         
