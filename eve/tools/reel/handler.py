@@ -206,6 +206,7 @@ def write_reel(
 def write_visual_prompts(
     reel: Reel,
     num_clips: int,
+    instructions: str = None
 ):
     system_prompt = "You are a critically acclaimed video director and storyboard artist who writes incredibly captivating and original short-length single-scene reels of less than 1 minute in length which regularly go viral on social media."
     
@@ -220,6 +221,10 @@ def write_visual_prompts(
     ---
     Create {num_clips} visual prompts from this."""
 
+    if instructions:
+        prompt += f"\n\nAdditional instructions: {instructions}"
+
+    print("visual prompt", prompt)
     class VisualPrompts(BaseModel):
         """A sequence of visual prompts which retell the story of the Reel"""
         prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
@@ -233,7 +238,7 @@ def write_visual_prompts(
             {"role": "user", "content": prompt}
         ],
     )
-
+    print("result^^^", result)
     return result.prompts
     
 
@@ -248,11 +253,14 @@ def write_visual_prompts(
 # import asyncio
 # asyncio.run(go())
 
+from bson.objectid import ObjectId
+
 async def handler(args: dict, db: str):
     
     from ...tools import select_random_voice
     from ...tools.elevenlabs import handler as elevenlabs
     from ...tool import Tool
+    from ...mongo2 import get_collection
 
     musicgen = Tool.load("musicgen", db=db)
     flux = Tool.load("flux_dev", db=db)
@@ -260,10 +268,22 @@ async def handler(args: dict, db: str):
     video_concat = Tool.load("video_concat", db=db)
     audio_video_combine = Tool.load("audio_video_combine", db=db)
 
+    instructions = None
+
+    use_lora = args.get("use_lora", False)
+    if use_lora:
+        lora = args.get("lora")
+        loras = get_collection("models", db=db)
+        lora_doc = loras.find_one({"_id": ObjectId(lora)})
+        lora_name  = lora_doc.get("name")
+        caption_prefix = lora_doc["args"]["caption_prefix"]
+        lora_strength = args.get("lora_strength")
+        instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{caption_prefix}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {caption_prefix} on the beach".'
+        
     reel = write_reel(
         prompt=args.get("prompt"),
         voiceover=args.get("voiceover"),
-        music_prompt=args.get("music_prompt")
+        music_prompt=args.get("music_prompt"),
     )
     
     print("reel", reel)
@@ -361,7 +381,8 @@ async def handler(args: dict, db: str):
     # get visual prompt sequence
     print("==== get visual prompt sequence ====")
     print("reel.visual_prompt", reel.visual_prompt)
-    visual_prompts = write_visual_prompts(reel, num_clips)
+    print("THJE INSTRUCTIONS ARE", instructions)
+    visual_prompts = write_visual_prompts(reel, num_clips, instructions)
     pprint(visual_prompts)
 
 
@@ -373,15 +394,13 @@ async def handler(args: dict, db: str):
         "height": height
     }
 
-    use_lora = args.get("use_lora", False)
     if use_lora:
-        lora = args.get("lora")
-        lora_strength = args.get("lora_strength")
         flux_args.update({
             "use_lora": True,
             "lora": lora,
             "lora_strength": lora_strength
         })
+
 
     flux_args = [{**flux_args} for _ in range(num_clips)]
     for i in range(num_clips):
