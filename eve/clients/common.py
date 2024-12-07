@@ -1,3 +1,8 @@
+from typing import Optional
+
+from eve.agent import Agent
+
+
 LONG_RUNNING_TOOLS = [
     "txt2vid",
     "style_mixing",
@@ -39,3 +44,14 @@ DISCORD_DM_WHITELIST = [
     598627733576089681,
     551619012140990465,
 ]
+
+
+def get_agent(agent_path: Optional[str], agent_key: Optional[str], db: str = "STAGE"):
+    if agent_path and agent_key:
+        raise ValueError("Cannot specify both agent_path and agent_key")
+    if agent_path:
+        return Agent.load_from_dir(agent_path, db=db)
+    elif agent_key:
+        return Agent.load(agent_key, db=db)
+    else:
+        raise ValueError("Must specify either agent_path or agent_key")

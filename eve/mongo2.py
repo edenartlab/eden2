@@ -90,12 +90,12 @@ class Document(BaseModel):
         """
         db = db or self.db or "STAGE"
         self.validate_fields()
-        self.updated_at = datetime.now(timezone.utc)
+        self.updatedAt = datetime.now(timezone.utc)
         collection = self.get_collection(db)
         if self.id:
             collection.replace_one({"_id": self.id}, self.dict(by_alias=True, exclude={"db"}), upsert=True)
         else:
-            self.created_at = datetime.now(timezone.utc)
+            self.createdAt = datetime.now(timezone.utc)
             result = collection.insert_one(self.dict(by_alias=True, exclude={"db"}))
             self.id = result.inserted_id
         self.db = db
@@ -118,7 +118,7 @@ class Document(BaseModel):
             {"_id": self.id}, 
             {
                 "$set": kwargs,
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
@@ -134,11 +134,11 @@ class Document(BaseModel):
             {"_id": self.id, **filter},
             {
                 "$set": updates,
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updatedAt = datetime.now(timezone.utc)
 
     def push(self, field_name: str, value: Union[Any, List[Any]]):
         """
@@ -163,12 +163,12 @@ class Document(BaseModel):
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id},
-            {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updated_at": True}}
+            {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updatedAt": True}}
         )
         if update_result.modified_count > 0:
             if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
                 setattr(self, field_name, getattr(self, field_name) + values_original)
-                self.updated_at = datetime.now(timezone.utc)
+                self.updatedAt = datetime.now(timezone.utc)
 
     def update_nested_field(self, field_name: str, index: int, sub_field: str, value):
         """
@@ -192,7 +192,7 @@ class Document(BaseModel):
             {"_id": self.id},
             {"$set": {
                 f"{field_name}.{index}.{sub_field}": value}, 
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
@@ -201,7 +201,7 @@ class Document(BaseModel):
                 field_list = getattr(self, field_name)
                 if len(field_list) > index and isinstance(field_list[index], dict):
                     field_list[index][sub_field] = value
-                    self.updated_at = datetime.now(timezone.utc)
+                    self.updatedAt = datetime.now(timezone.utc)
 
     def reload(self):
         """

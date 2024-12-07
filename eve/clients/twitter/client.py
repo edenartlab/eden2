@@ -38,12 +38,12 @@ class EdenX:
 
     def _load_env_vars(self):
         """Loads environment variables."""
-        self.user_id = os.getenv("TWITTER_USER_ID")
-        self.bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
-        self.consumer_key = os.getenv("CONSUMER_KEY")
-        self.consumer_secret = os.getenv("CONSUMER_SECRET")
-        self.access_token = os.getenv("ACCESS_TOKEN")
-        self.access_token_secret = os.getenv("ACCESS_TOKEN_SECRET")
+        self.user_id = os.getenv("CLIENT_TWITTER_USER_ID")
+        self.bearer_token = os.getenv("CLIENT_TWITTER_BEARER_TOKEN")
+        self.consumer_key = os.getenv("CLIENT_TWITTER_CONSUMER_KEY")
+        self.consumer_secret = os.getenv("CLIENT_TWITTER_CONSUMER_SECRET")
+        self.access_token = os.getenv("CLIENT_TWITTER_ACCESS_TOKEN")
+        self.access_token_secret = os.getenv("CLIENT_TWITTER_ACCESS_TOKEN_SECRET")
 
     def _init_oauth_session(self):
         """Initializes OAuth1 session."""

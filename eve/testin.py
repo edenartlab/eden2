@@ -82,7 +82,7 @@ class Address(BaseModel):
     postal_code: int = Field(
         description="Postal code for the address",
         example=12345,
-        ge=10000, le=99999
+        # ge=10000, le=99999
     )
 
 class Matrix(BaseModel):
@@ -103,20 +103,20 @@ class Widget(BaseModel):
     )
     age: Optional[int] = Field(
         description="Age of the widget",
-        default="random",
+        # default="random",
         example=10,
-        ge=-16,
-        le=144
+        # ge=-16,
+        # le=144
     )
     price: float = Field(
         description="Price of the widget in dollars",
-        default=1.01,
-        ge=0.55,
-        le=2.34
+        # default=1.01,
+        # ge=0.55,
+        # le=2.34
     )
     skills: List[str] = Field(
         description="A list of skills the widget has",
-        default=["reading", "swimming", "cooking"]
+        # default=["reading", "swimming", "cooking"]
     )
     contacts: Optional[List[Contact]] = Field(
         description="A list of contact methods"
@@ -136,4 +136,22 @@ t2_schema = Tool.load_from_dir("eve/tools/example_tool").openai_schema()
 print(json.dumps(t1_schema, indent=2))
 print("------")
 print(json.dumps(t2_schema, indent=2))
+
+
+
+from eve.thread import Thread, UserMessage
+from eve.llm import anthropic_prompt, openai_prompt, prompt
+from eve.tool import get_tools_from_mongo
+
+system_message = "You are named Abraham. You are an autonomous artist"
+
+user_message = UserMessage(content="make a picture of a cat")
+
+messages = [user_message]
+
+tools = get_tools_from_mongo(db="STAGE")
+
+result = prompt(messages, system_message=system_message, model="claude-3-5-sonnet-20240620", response_model=None, tools=tools)
+
+print(result)
 

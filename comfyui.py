@@ -165,6 +165,7 @@ app = modal.App(
     volumes={"/data": downloads_vol},
     concurrency_limit=3,
     container_idle_timeout=60,
+    keep_warm=1,
     timeout=3600,
 )
 class ComfyUI:

@@ -1,7 +1,8 @@
 from bson import ObjectId
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional, Literal, List
 from functools import wraps
 from datetime import datetime, timezone
+import asyncio
 
 from .models import User
 #from .mongo import MongoModel, get_collection
@@ -9,7 +10,23 @@ from .mongo2 import Document, Collection, get_collection
 from . import eden_utils
 
 
-@Collection("tasks2")
+
+@Collection("creations3")
+class Creation(Document):
+    user: ObjectId
+    agent: Optional[ObjectId] = None
+    task: ObjectId
+    tool: str
+    filename: str
+    mediaAttributes: Optional[Dict[str, Any]] = None
+    name: Optional[str] = None
+    attributes: Optional[Dict[str, Any]] = None
+    private: bool = False
+    deleted: bool = False
+    
+
+
+@Collection("tasks3")
 class Task(Document):
     tool: str
     parent_tool: Optional[str] = None
@@ -56,6 +73,11 @@ def task_handler_method(func):
     return wrapper
 
 
+async def _preprocess_task(task: Task):
+    """Helper function that sleeps for 5 seconds"""
+    await asyncio.sleep(5)
+    return {"name": "this is the name"}
+
 async def _task_handler(func, *args, **kwargs):
     task = kwargs.pop("task", args[-1])
     
@@ -63,7 +85,6 @@ async def _task_handler(func, *args, **kwargs):
     queue_time = (start_time - task.createdAt).total_seconds()
     #boot_time = queue_time - self.launch_time if self.launch_time else 0
 
-    # print(task)
     task.update(
         status="running",
         performance={"waitTime": queue_time}
@@ -71,24 +92,39 @@ async def _task_handler(func, *args, **kwargs):
 
     results = []
     n_samples = task.args.get("n_samples", 1)
-    
     try:
         for i in range(n_samples):
             task_args = task.args.copy()
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i
 
-            result = await func(*args[:-1], task.parent_tool or task.tool, task_args, task.db)
+            # Run both functions concurrently
+            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, task.db)
+            preprocess_task = _preprocess_task(task)
+            result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-            result = eden_utils.upload_result(result, db=task.db)
+            result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True)
             results.extend([result])
+
+            for output in result["output"]:
+                name = preprocess_result.get("name") or task_args.get("prompt")
+                creation = Creation(
+                    user=task.user,
+                    task=task.id,
+                    tool=task.tool,
+                    filename=output['filename'],
+                    mediaAttributes=output["mediaAttributes"],
+                    name=name
+                )
+                creation.save()
 
             if i == n_samples - 1:
                 task_update = {
                     "status": "completed", 
                     "result": results
                 }
+
             else:
                 task_update = {
                     "status": "running", 

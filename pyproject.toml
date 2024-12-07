@@ -45,6 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 discord = ["py-cord>=2.4.1"]
 telegram = ["python-telegram-bot>=21.7"]
+twitter = ["requests-oauthlib>=1.3.1"]
 
 [build-system]
 requires = ["setuptools", "wheel"]

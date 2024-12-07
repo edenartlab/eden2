@@ -2,16 +2,19 @@ import argparse
 import os
 import re
 import time
+from typing import Optional
 import discord
-import json
 import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from eve.sdk.eden import EdenClient
-from eve.sdk.eden.client import EdenApiUrls
+from eve.agent import Agent
 from eve.clients import common
 from eve.clients.discord import config
+from eve.tool import get_tools_from_mongo
+from eve.llm import UserMessage, async_prompt_thread, UpdateType
+from eve.thread import Thread
+from eve.eden_utils import prepare_result
 
 # Add logger setup
 logger = logging.getLogger(__name__)
@@ -116,17 +119,17 @@ class Eden2Cog(commands.Cog):
     def __init__(
         self,
         bot: commands.bot,
+        agent: Agent,
+        agent_id: Optional[str] = None,
+        db: str = "STAGE",
     ) -> None:
         self.bot = bot
+        self.agent = agent
+        self.agent_id = agent_id
+        self.db = db
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        current_time = time.time()
-        if current_time - self.bot.last_refresh_time > 300:
-            self.bot.last_refresh_time = current_time
-
-        logger.info(f"on... message ... {message.content}\n=============")
-
         if message.author.id == self.bot.user.id or message.author.bot:
             return
 
@@ -136,10 +139,13 @@ class Eden2Cog(commands.Cog):
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
         else:
-            thread_name = f"discord9-{message.guild.name}-{message.channel.id}-{message.author.id}"
+            thread_name = (
+                f"discord9-{message.guild.id}-{message.channel.id}-{message.author.id}"
+            )
             trigger_reply = is_mentioned(message, self.bot.user)
             if not trigger_reply:
                 return
+        logger.info(f"thread_name: {thread_name}")
 
         if user_over_rate_limits(message.author.id):
             await reply(
@@ -165,27 +171,62 @@ class Eden2Cog(commands.Cog):
         }
         logger.info(f"chat message {chat_message}")
 
+        tools = get_tools_from_mongo(db=self.db)
+
+        thread = Thread.get_collection(self.db).find_one(
+            {
+                "name": thread_name,
+            }
+        )
+        thread_id = thread.get("_id") if thread else None
+        if not thread:
+            logger.info("Creating new thread")
+            thread = Thread.create(
+                db=self.db,
+                user=self.agent.owner,
+                agent=self.agent_id,
+                name=thread_name,
+            )
+            thread_id = str(thread.id)
+        logger.info(f"thread: {thread_id}")
+
+        user_message = UserMessage(content=content)
         ctx = await self.bot.get_context(message)
+
         async with ctx.channel.typing():
             answered = False
-            async for update in self.bot.eden_client.async_chat(chat_message, thread_name):
-                if update["type"] == "ASSISTANT_MESSAGE":
-                    content = update["content"]
+            async for msg in async_prompt_thread(
+                db=self.db,
+                user_id=self.agent.owner,
+                agent_id=self.agent_id,
+                thread_id=thread_id,
+                user_messages=user_message,
+                tools=tools,
+            ):
+                if msg.type == UpdateType.ASSISTANT_MESSAGE:
+                    content = msg.message.content
                     if content:
                         if not answered:
                             await reply(message, content)
                         else:
                             await send(message, content)
                         answered = True
-                elif update["type"] == "TOOL_COMPLETE":
-                    tool_name = update["tool"]
+                elif msg.type == UpdateType.TOOL_COMPLETE:
+                    msg.result["result"] = prepare_result(
+                        msg.result["result"], db="STAGE"
+                    )
+                    url = msg.result["result"][0]["output"][0]["url"]
+                    tool_name = msg.tool_name
                     hour_timestamps[message.author.id].append(
                         {"time": time.time(), "tool": tool_name}
                     )
                     day_timestamps[message.author.id].append(
                         {"time": time.time(), "tool": tool_name}
                     )
+                    await send(message, url)
                     logger.info(f"tool called {tool_name}")
+                elif msg.type == UpdateType.ERROR:
+                    await reply(message, msg.error)
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -214,32 +255,12 @@ class DiscordBot(commands.Bot):
             command_prefix="!",
             intents=intents,
         )
-        api_urls: EdenApiUrls = EdenApiUrls(
-            api_url=os.getenv("EDEN_API_URL") or "http://localhost:5050",
-            tools_api_url=os.getenv("EDEN_TOOLS_API_URL") or "http://127.0.0.1:8000",
-        )
-        self.eden_client = EdenClient(api_urls=api_urls)
-        self.last_refresh_time = time.time()
 
     def set_intents(self, intents: discord.Intents) -> None:
         intents.message_content = True
         intents.messages = True
         intents.presences = True
         intents.members = True
-
-    def get_commands(self) -> None:
-        bot_data = self.db["commands"].find_one({"bot": "eden"})
-        if bot_data:
-            return bot_data.get("commands", [])
-        else:
-            return []
-
-    def allowed_guilds(self, command_name) -> None:
-        command = self.bot_commands.get(command_name)
-        if command:
-            return command.get("guilds", None)
-        else:
-            return None
 
     async def on_ready(self) -> None:
         logger.info("Running bot...")
@@ -253,6 +274,9 @@ class DiscordBot(commands.Bot):
 
 def start(
     env: str,
+    agent_path: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    db: str = "STAGE",
 ) -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -260,13 +284,18 @@ def start(
     )
     logger.info("Launching bot...")
     load_dotenv(env)
+    agent = common.get_agent(agent_path, agent_key, db=db)
+    logger.info(f"Using agent: {agent}")
     bot = DiscordBot()
-    bot.add_cog(Eden2Cog(bot))
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    bot.add_cog(Eden2Cog(bot, agent, db=db))
+    bot.run(os.getenv("CLIENT_DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
+    parser.add_argument("--agent_path", help="Path to the agent directory")
+    parser.add_argument("--agent_key", help="Key of the agent")
+    parser.add_argument("--db", help="Database to use", default="STAGE")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     args = parser.parse_args()
-    start(args.env)
+    start(args.env, args.agent_path, args.agent_key, args.agent_id, args.db)

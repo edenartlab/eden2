@@ -45,9 +45,9 @@ def prepare_result(result, db: str, summarize=False):
 
 def upload_result(result, db: str, save_thumbnails=False):
     if isinstance(result, dict):
-        return {k: upload_result(v, db) for k, v in result.items()}
+        return {k: upload_result(v, db, save_thumbnails=save_thumbnails) for k, v in result.items()}
     elif isinstance(result, list):
-        return [upload_result(item, db) for item in result]
+        return [upload_result(item, db, save_thumbnails=save_thumbnails) for item in result]
     elif isinstance(result, str) and is_file(result):
         return upload_media(result, db, save_thumbnails=save_thumbnails)
     else:

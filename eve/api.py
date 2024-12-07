@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import modal
-from fastapi import FastAPI, Depends #, BackgroundTasks
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
@@ -23,7 +23,7 @@ app_name = "tools-new" if db == "PROD" else "tools-new-dev"
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
-#background_tasks: BackgroundTasks = BackgroundTasks()
+background_tasks: BackgroundTasks = BackgroundTasks()
 
 
 web_app = FastAPI()
@@ -50,7 +50,7 @@ async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
     return await tool.async_start_task(user_id, args, db=db)
 
 @web_app.post("/create")
-async def task_admin(request: TaskRequest): #, _: dict = Depends(auth.authenticate_admin)):
+async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
     return await handle_task(request.tool, request.user_id, request.args)
 
 # @web_app.post("/create")
@@ -66,8 +66,8 @@ class ChatRequest(BaseModel):
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
-    # background_tasks: BackgroundTasks,
-    # _: dict = Depends(auth.authenticate_admin)
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin)
 ):
     user_id = request.user_id
     agent_id = request.agent_id
@@ -86,18 +86,19 @@ async def handle_chat(
 
     try:
         async def run_prompt():
-            async for _ in async_prompt_thread(
+            async for msg in async_prompt_thread(
                 db=db,
                 user_id=user_id,
                 agent_id=agent_id,
                 thread_id=thread_id,
                 user_messages=user_message,
-                tools=tools
+                tools=tools,
+                force_reply=True,
+                model="claude-3-5-sonnet-20241022"
             ):
                 pass
         
-        # background_tasks.add_task(run_prompt)
-        background_task = asyncio.create_task(run_prompt())
+        background_tasks.add_task(run_prompt)
 
         return {"status": "success", "thread_id": thread_id}
     

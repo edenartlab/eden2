@@ -1,6 +1,5 @@
 import os
 import argparse
-import json
 import re
 import time
 import logging
@@ -14,14 +13,25 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction
-from eve.sdk.eden import EdenClient
 
 
-from eve import auth
-from eve.tool import Tool, get_tools_from_mongo
+from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
 from eve.eden_utils import prepare_result
+
+
+user_id = "65284b18f8bbb9bff13ebe65"
+agent_id = "6732410592ff51c38f4e0aa1"
+thread_id = "67491a4ecc662e6ec2c7cd15"
+db = "STAGE"
+
+from eve.agent import Agent
+
+agent = Agent.load(db="STAGE", key="abraham")
+name = agent.name
+print(agent)
+
 
 # Logging configuration
 logging.basicConfig(
@@ -119,6 +129,18 @@ def remove_bot_mentions(message_text: str, bot_username: str) -> str:
     )
 
 
+def replace_bot_mentions(message_text: str, bot_username: str, replacement: str) -> str:
+    """
+    Replace bot mentions with a replacement string.
+    """
+    pattern = rf"\s*@{re.escape(bot_username)}\b"
+    return (
+        re.sub(pattern, replacement, message_text, flags=re.IGNORECASE)
+        .strip()
+        .replace("  ", " ")
+    )
+
+
 def user_over_rate_limits(user_id):
     """
     Check if the user has exceeded the rate limits.
@@ -160,7 +182,7 @@ async def send_response(
     for item in response:
         if item.startswith("https://"):
             # Common video file extensions
-            video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+            video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
             if any(item.lower().endswith(ext) for ext in video_extensions):
                 logging.info(f"Sending video to {chat_id}")
                 await context.bot.send_video(chat_id=chat_id, video=item)
@@ -205,27 +227,43 @@ class EdenTG:
             if is_replied_to_bot
             else None
         )
-        if not message_type:
-            return
+        force_reply = message_type in ["dm", "reply", "mention"]
+
+        user_id = "65284b18f8bbb9bff13ebe65"
+        agent_id = "6732410592ff51c38f4e0aa1"
+        thread_id = "67491a4ecc662e6ec2c7cd15"
+        db = "STAGE"
+
+        # if not message_type:
+        #     return
+        # send back everything
 
         # Process text or photo messages
         message_text = update.message.text or ""
+
+        attachments = []
         if update.message.photo:
             photo_url = (await update.message.photo[-1].get_file()).file_path
             logging.info(f"Received photo from {user_name}: {photo_url}")
+            attachments.append(photo_url)
         else:
-            cleaned_text = remove_bot_mentions(
-                message_text, (await context.bot.get_me()).username
+            cleaned_text = replace_bot_mentions(
+                message_text, (await context.bot.get_me()).username, name
             )
             logging.info(f"Received message from {user_name}: {cleaned_text}")
 
-        user_id = "65284b18f8bbb9bff13ebe65"
-        agent_id = "67069a27fa89a12910650755"
-        thread_id = "67491a4ecc662e6ec2c7cd15"
-        user_message = UserMessage(content=cleaned_text)
-        db="STAGE"
+        print("cleaned text", cleaned_text)
+
+        user_message = UserMessage(
+            name=user_name, content=cleaned_text, attachments=attachments
+        )
+
+        print("user message", user_message)
+
         tools = get_tools_from_mongo(db=db)
-        
+
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
         if not thread_id:
             thread_new = Thread.create(
                 db=db,
@@ -233,28 +271,33 @@ class EdenTG:
                 agent=agent_id,
             )
             thread_id = str(thread_new.id)
-        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-        async for msg in async_prompt_thread(
+
+        async for update in async_prompt_thread(
             db=db,
             user_id=user_id,
             agent_id=agent_id,
             thread_id=thread_id,
             user_messages=user_message,
-            tools=tools
+            tools=tools,
+            force_reply=force_reply,
         ):
-            if msg.type == UpdateType.ASSISTANT_MESSAGE:
-                await send_response(message_type, chat_id, [msg.message.content], context)
-            elif msg.type == UpdateType.TOOL_COMPLETE:
-                msg.result['result'] = prepare_result(msg.result['result'], db="STAGE")
-                url = msg.result['result'][0]['output'][0]['url']
+            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                await send_response(
+                    message_type, chat_id, [update.message.content], context
+                )
+            elif update.type == UpdateType.TOOL_COMPLETE:
+                update.result["result"] = prepare_result(
+                    update.result["result"], db="STAGE"
+                )
+                url = update.result["result"][0]["output"][0]["url"]
                 await send_response(message_type, chat_id, [url], context)
-            elif msg.type == UpdateType.ERROR:
-                await send_response(message_type, chat_id, [msg.message.error], context)
+            elif update.type == UpdateType.ERROR:
+                await send_response(message_type, chat_id, [update.error], context)
 
 
 def main(env_path: str):
     load_dotenv(env_path)
-    bot_token = os.getenv("TELEGRAM_TOKEN")
+    bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
 
     application = ApplicationBuilder().token(bot_token).build()
     eden_bot = EdenTG(bot_token)

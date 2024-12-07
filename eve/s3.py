@@ -122,19 +122,23 @@ def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     # Upload file to S3
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
-    
     bucket_name = s3_buckets[db]
-
-    s3.upload_fileobj(
-        file_bytes, 
-        bucket_name, 
-        filename, 
-        ExtraArgs={'ContentType': mime_type, 'ContentDisposition': 'inline'}
-    )
-
-    # Generate and return file URL
     file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
-    # print(f"==> Uploaded: {file_url}")
+    
+    # if file doesn't exist, upload it
+    try:
+        s3.head_object(Bucket=bucket_name, Key=filename)
+        return file_url, name
+    except s3.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            s3.upload_fileobj(
+                file_bytes, 
+                bucket_name, 
+                filename, 
+                ExtraArgs={'ContentType': mime_type, 'ContentDisposition': 'inline'}
+            )
+        else:
+            raise e
 
     return file_url, name
 

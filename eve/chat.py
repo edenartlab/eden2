@@ -72,10 +72,12 @@ async def async_chat(db, agent_id, thread_id, debug=False):
                         agent_id=agent_id,
                         thread_id=thread_id,
                         user_messages=UserMessage(
-                            content=content, attachments=attachments
+                            content=content, 
+                            attachments=attachments
                         ),
                         tools=get_tools_from_mongo(db),
-                        provider="anthropic",
+                        force_reply=True,
+                        model="claude-3-5-sonnet-20241022"
                     ):
                         sys.stdout = original_stdout
 
