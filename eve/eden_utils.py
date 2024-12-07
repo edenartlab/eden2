@@ -688,8 +688,7 @@ def random_string(length=28):
 
 def save_test_results(tools, results):
     print("saving TBD")
-    return 
-
+    return
     if not results:
         return
     results_dir = os.path.join(

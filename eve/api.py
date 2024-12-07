@@ -46,7 +46,7 @@ class TaskRequest(BaseModel):
     user_id: str
 
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
-    tool = Tool.load(tool, db=db)
+    tool = Tool.load(key=tool, db=db)
     return await tool.async_start_task(user_id, args, db=db)
 
 @web_app.post("/create")

@@ -60,7 +60,7 @@ async def _task_handler(func, *args, **kwargs):
     task = kwargs.pop("task", args[-1])
     
     start_time = datetime.now(timezone.utc)
-    queue_time = (start_time - task.created_at).total_seconds()
+    queue_time = (start_time - task.createdAt).total_seconds()
     #boot_time = queue_time - self.launch_time if self.launch_time else 0
 
     # print(task)

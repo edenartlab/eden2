@@ -29,7 +29,7 @@ import subprocess
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
-from eve.mongo2 import get_collection
+from eve.mongo import get_collection
 from eve.task import task_handler_method
 
 GPUs = {
@@ -42,7 +42,7 @@ if not os.getenv("WORKSPACE"):
 
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
-app_name = f"comfyui-{workspace_name}-{db}"
+app_name = f"comfyui2-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
@@ -183,7 +183,7 @@ class ComfyUI:
     def _execute(self, workflow_name: str, args: dict, db: str):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
-            tool = Tool.load_from_dir(tool_path)
+            tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args, db=db)
@@ -255,7 +255,7 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print("Running tests: ", tests)
             for test in tests:
-                tool = Tool.load_from_dir(f"/root/workspace/workflows/{workflow}")
+                tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
                 if tool.status == "inactive":
                     print(f"{workflow} is inactive, skipping test")
                     continue
@@ -506,25 +506,25 @@ class ComfyUI:
 
     def _validate_comfyui_args(self, workflow, tool):
         for key, comfy_param in tool.comfyui_map.items():
-            node_id, field, subfield, remaps = str(comfy_param.get('node_id')), str(comfy_param.get('field')), str(comfy_param.get('subfield')), comfy_param.get('remap')
+            node_id, field, subfield, remaps = str(comfy_param.node_id), str(comfy_param.field), str(comfy_param.subfield), comfy_param.remap
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 if node_id not in workflow or field not in workflow[node_id] or subfield not in workflow[node_id][field]:
                     raise Exception(f"Node ID {node_id}, field {field}, subfield {subfield} not found in workflow")
             for remap in remaps or []:
-                subfields = [s.strip() for s in str(remap.get('subfield')).split(",")]
+                subfields = [s.strip() for s in str(remap.subfield).split(",")]
                 for subfield in subfields:
-                    if str(remap.get('node_id')) not in workflow or str(remap.get('field')) not in workflow[str(remap.get('node_id'))] or subfield not in workflow[str(remap.get('node_id'))][str(remap.get('field'))]:
-                        raise Exception(f"Node ID {remap.get('node_id')}, field {remap.get('field')}, subfield {subfield} not found in workflow")
+                    if str(remap.node_id) not in workflow or str(remap.field) not in workflow[str(remap.node_id)] or subfield not in workflow[str(remap.node_id)][str(remap.field)]:
+                        raise Exception(f"Node ID {remap.node_id}, field {remap.field}, subfield {subfield} not found in workflow")
                 param = tool.model.model_fields[key]
                 # has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
                 # if not has_choices:
                 #     raise Exception(f"Remap parameter {key} has no original choices")
                 # choices = [e.value for e in param.annotation]
                 choices = param.json_schema_extra.get("choices")
-                if not all(choice in choices for choice in remap['map'].keys()):
-                    raise Exception(f"Remap parameter {key} has invalid choices: {remap['map']}")
-                if not all(choice in remap['map'].keys() for choice in choices):
+                if not all(choice in choices for choice in remap.map.keys()):
+                    raise Exception(f"Remap parameter {key} has invalid choices: {remap.map}")
+                if not all(choice in remap.map.keys() for choice in choices):
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
     def _inject_args_into_workflow(self, workflow, tool, args, db="STAGE"):
@@ -606,9 +606,11 @@ class ComfyUI:
 
         for key, comfyui in tool.comfyui_map.items():
             
-        # for key, comfyui in comfyui_map.items():
             value = args.get(key)
-            if value is None or key == "no_token_prompt":
+            if value is None:
+                continue
+
+            if key == "no_token_prompt":
                 continue
 
             # if there's a lora, replace mentions with embedding name
@@ -623,18 +625,18 @@ class ComfyUI:
                         no_token_mapping = next((comfy_param for key, comfy_param in tool.comfyui_map.items() if key == "no_token_prompt"), None)
                         if no_token_mapping:
                             print("Updating no_token_prompt for SDXL: ", no_token_prompt)
-                            workflow[str(no_token_mapping.get('node_id'))][no_token_mapping.get('field')][no_token_mapping.get('subfield')] = no_token_prompt
+                            workflow[str(no_token_mapping.node_id)][no_token_mapping.field][no_token_mapping.subfield] = no_token_prompt
 
                 print("prompt updated:", value)
 
-            if comfyui.get('preprocessing') is not None:
-                if comfyui['preprocessing'] == "csv":
+            if comfyui.preprocessing is not None:
+                if comfyui.preprocessing == "csv":
                     value = ",".join(value)
 
-                elif comfyui['preprocessing'] == "concat":
+                elif comfyui.preprocessing == "concat":
                     value = ";\n".join(value)
 
-                elif comfyui['preprocessing'] == "folder":
+                elif comfyui.preprocessing == "folder":
                     temp_subfolder = tempfile.mkdtemp(dir="/root/input")
                     if isinstance(value, list):
                         for i, file in enumerate(value):
@@ -648,18 +650,18 @@ class ComfyUI:
             print("comfyui mapping")
             print(comfyui)
 
-            node_id, field, subfield = str(comfyui.get('node_id')), str(comfyui.get('field')), str(comfyui.get('subfield'))
+            node_id, field, subfield = str(comfyui.node_id), str(comfyui.field), str(comfyui.subfield)
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 print("inject", node_id, field, subfield, " = ", value)
                 workflow[node_id][field][subfield] = value  
 
-            for remap in comfyui.get('remap', []):
-                subfields = [s.strip() for s in str(remap.get('subfield', '')).split(",")]
+            for remap in comfyui.remap or []:
+                subfields = [s.strip() for s in str(remap.subfield).split(",")]
                 for subfield in subfields:
-                    output_value = remap.get('map').get(value)
-                    print("remap", str(remap['node_id']), remap['field'], subfield, " = ", output_value)
-                    workflow[str(remap['node_id'])][remap['field']][subfield] = output_value
+                    output_value = remap.map.get(value)
+                    print("remap", str(remap.node_id), remap.field, subfield, " = ", output_value)
+                    workflow[str(remap.node_id)][remap.field][subfield] = output_value
 
         return workflow
 

@@ -95,10 +95,11 @@ class ReplicateTool(Tool):
             metadata = param.json_schema_extra or {}
             is_array = metadata.get('is_array')
             alias = metadata.get('alias')
-            if is_array:
-                new_args[key] = "|".join([str(p) for p in args[key]])
-            if alias:
-                new_args[alias] = new_args.pop(key)
+            if key in new_args:
+                if is_array:
+                    new_args[key] = "|".join([str(p) for p in args[key]])
+                if alias:
+                    new_args[alias] = new_args.pop(key)
         return new_args
 
     def _create_prediction(self, args: dict, webhook=True):

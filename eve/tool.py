@@ -4,6 +4,7 @@ import yaml
 import json
 import random
 import asyncio
+import traceback
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
@@ -19,10 +20,11 @@ from . import eden_utils
 from .base import parse_schema
 from .models import User
 from .task import Task
-from .mongo2 import get_collection
+from .mongo import Document, Collection, get_collection
 
 
-class Tool(BaseModel, ABC):
+@Collection("tools3")
+class Tool(Document):
     """
     Base class for all tools.
     """
@@ -41,111 +43,120 @@ class Tool(BaseModel, ABC):
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
     
-    model: Type[BaseModel] = None
+    model: Type[BaseModel] #= None  # should this be optional?
     handler: Literal["local", "modal", "comfyui", "replicate", "gcp"] = "local"
     parent_tool: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None    
     test_args: Dict[str, Any]
 
-    @classmethod
-    def load(cls, key: str, db: str = "STAGE", prefer_local: bool = True, **kwargs):
-        """Load the tool class based on the handler in api.yaml"""
-        
-        tools = get_collection("tools2", db=db)
-        schema = tools.find_one({"key": key})      
-        if not schema:
-            raise ValueError(f"Tool with key {key} not found on db: {db}")
-        
-        schema["parameters"] = {
-            p["name"]: {**(p.pop("schema")), **p} for p in schema["parameters"]
-        }
-
-        return cls.load_from_schema(schema, prefer_local, **kwargs)
 
     @classmethod
-    def load_from_dir(cls, tool_dir: str, prefer_local: bool = True, **kwargs):
-        """Load the tool from an api.yaml and test.json"""
-        
-        schema = cls._get_schema_from_dir(tool_dir)
-        schema['key'] = tool_dir.split('/')[-1]
-        
-        return cls.load_from_schema(schema, prefer_local, **kwargs)
-
-    @classmethod
-    def load_from_schema(cls, schema: dict, prefer_local: bool = True, **kwargs):
-        """Load the tool class based on the handler in api.yaml"""
-        
-        key = schema.pop('key')
-        test_args = schema.pop('test_args')
-        tool_class = _get_tool_class(schema.get('handler'), prefer_local)
-        
-        return tool_class._create_tool(key, schema, test_args, **kwargs)    
-
-    @classmethod
-    def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
-        """Create a new tool instance from a schema"""
-
-        fields, model_config = parse_schema(schema)
-        model = create_model(key, __config__=model_config, **fields)    
-        model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
-
-        tool_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
-        tool_data['test_args'] = test_args
-        tool_data['model'] = model
-        if 'cost_estimate' in tool_data:
-            tool_data['cost_estimate'] = str(tool_data['cost_estimate'])
-
-        return cls(key=key, **tool_data, **kwargs)
-
-    @classmethod
-    def _get_schema_from_dir(cls, tool_dir: str):
-        if not os.path.exists(tool_dir):
-            raise ValueError(f"Tool directory {tool_dir} does not exist")
-
-        api_file = os.path.join(tool_dir, 'api.yaml')
-        test_file = os.path.join(tool_dir, 'test.json')
-
-        with open(api_file, 'r') as f:
-            schema = yaml.safe_load(f)
-                
-        with open(test_file, 'r') as f:
-            schema['test_args'] = json.load(f)
-
+    def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
+        if from_yaml:
+            api_files = get_api_files()
+            if key not in api_files:
+                raise ValueError(f"Tool {key} not found")            
+            parent_api_file = api_files[key]
+            with open(parent_api_file, 'r') as f:
+                schema = yaml.safe_load(f)  
+        else:
+            schema = get_collection("tools3", db=db).find_one({"key": key})
         if schema.get("handler") == "comfyui":
-            schema["workspace"] = tool_dir.split('/')[-3]
+            schema["workspace"] = parent_api_file.split('/')[-4]
+        return schema
+    
+    @classmethod
+    def get_sub_class(cls, schema: dict, from_yaml: bool = False, db: str = "STAGE") -> type:
+        from .tools.local_tool import LocalTool
+        from .tools.modal_tool import ModalTool
+        from .tools.comfyui_tool import ComfyUITool
+        from .tools.replicate_tool import ReplicateTool
+        from .tools.gcp_tool import GCPTool
+
+        parent_tool = schema.get('parent_tool')
+        if parent_tool:
+            parent_schema = cls._get_schema(parent_tool, from_yaml, db)
+            handler = parent_schema.get("handler")
+        else:
+            handler = schema.get('handler')
+
+        handler_map = {
+            "local": LocalTool,
+            "modal": ModalTool,
+            "comfyui": ComfyUITool,
+            "replicate": ReplicateTool,
+            "gcp": GCPTool,
+            None: LocalTool
+        }
+        
+        tool_class = handler_map.get(handler, Tool)
+        return tool_class
+
+    @classmethod
+    def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
+        """
+        Convert the schema into the format expected by the model.
+        """
 
         parent_tool = schema.get("parent_tool")
-        
         if parent_tool:
-            tool_dirs = get_tool_dirs()
-            if schema["parent_tool"] not in tool_dirs:
-                raise ValueError(f"Parent tool {schema['parent_tool']} not found in tool_dirs")            
-            parent_dir = tool_dirs[schema["parent_tool"]]
-            parent_api_file = os.path.join(parent_dir, 'api.yaml')
-            with open(parent_api_file, 'r') as f:
-                parent_schema = yaml.safe_load(f)
-
-            if parent_schema.get("handler") == "comfyui":
-                parent_schema["workspace"] = parent_dir.split('/')[-3]
-
+            parent_schema = cls._get_schema(parent_tool, from_yaml=True)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             parent_parameters = parent_schema.pop("parameters", {})
             for k, v in parent_schema["parameter_presets"].items():
-                parent_parameters[k].update(v)
-            
+                parent_parameters[k].update(v)            
             parent_schema.update(schema)
             parent_schema['parameters'] = parent_parameters
             schema = parent_schema
         
-        # collect required parameters
-        schema["required"] = schema.get("required", [])
-        for k, v in schema.get("parameters", {}).items():
-            if v.get("required"):
-                schema["required"].append(k)
+        fields, model_config = parse_schema(schema)
+        model = create_model(schema["key"], __config__=model_config, **fields)    
+        model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
+        schema["model"] = model
+
+        if 'cost_estimate' in schema:
+            schema['cost_estimate'] = str(schema['cost_estimate'])
+
+        test_file = file_path.replace("api.yaml", "test.json")
+        with open(test_file, 'r') as f:
+            schema["test_args"] = json.load(f)
 
         return schema
+
+    @classmethod
+    def convert_from_mongo(cls, schema: dict) -> dict:
+        schema["parameters"] = {
+            p.pop("name"): {**(p.pop("schema")), **p} 
+            for p in schema["parameters"]
+        }
+        fields, model_config = parse_schema(schema)
+        model = create_model(schema["key"], __config__=model_config, **fields)    
+        model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
+        schema["model"] = model
+
+        return schema
+
+    @classmethod
+    def convert_to_mongo(cls, schema: dict) -> dict:
+        parameters = []
+        for k, v in schema["parameters"].items():
+            v['schema'] = {
+                key: v.pop(key) 
+                for key in ['type', 'items', 'anyOf']
+                if key in v
+            }
+            parameters.append({"name": k, **v})
+
+        schema["parameters"] = parameters
+        schema.pop("model")
         
+        return schema
+
+    def save(self, db=None, **kwargs):
+        super().save(db, {"key": self.key}, **kwargs)
+
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [k for k, v in parameters['properties'].items() if v.get('hide_from_agent')]
         for k in hidden_parameters:
@@ -200,6 +211,7 @@ class Tool(BaseModel, ABC):
         try:
             self.model(**prepared_args)
         except ValidationError as e:
+            print(traceback.format_exc())
             error_str = eden_utils.get_human_readable_error(e.errors())
             raise ValueError(error_str)
 
@@ -222,6 +234,7 @@ class Tool(BaseModel, ABC):
                 add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
             except Exception as e:
+                print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
                 capture_exception(e)
             return result
@@ -241,6 +254,7 @@ class Tool(BaseModel, ABC):
                 user.verify_manna_balance(cost)
                 
             except Exception as e:
+                print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
 
             # create task and set to pending
@@ -267,7 +281,7 @@ class Tool(BaseModel, ABC):
                         handler_id=handler_id,
                         status="completed", 
                         result=result,
-                        performance={"waitTime": (datetime.now(timezone.utc) - task.created_at).total_seconds()}
+                        performance={"waitTime": (datetime.now(timezone.utc) - task.createdAt).total_seconds()}
                     )
                 else:
                     handler_id = await start_task_function(self, task)
@@ -276,6 +290,7 @@ class Tool(BaseModel, ABC):
                 user.spend_manna(task.cost)            
 
             except Exception as e:
+                print(traceback.format_exc())
                 task.update(status="failed", error=str(e))
                 capture_exception(e)
                 raise Exception(f"Task failed: {e}. No manna deducted.")
@@ -296,6 +311,7 @@ class Tool(BaseModel, ABC):
                 else:
                     result = await wait_function(self, task)
             except Exception as e:
+                print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
             return result
         
@@ -343,74 +359,45 @@ class Tool(BaseModel, ABC):
         return asyncio.run(self.async_cancel(task))
 
 
-def save_tool_from_dir(tool_dir: str, order: int = None, db: str = "STAGE") -> Tool:
-    """Upload tool from directory to mongo"""
-
-    schema = Tool._get_schema_from_dir(tool_dir)
-    schema['key'] = tool_dir.split('/')[-1]
-    
-    # timestamps
-    tools = get_collection("tools2", db=db)
-    tool = tools.find_one({"key": schema['key']})
-    time = datetime.now(timezone.utc)
-    schema['createdAt'] = tool.get('createdAt', time) if tool else time
-    schema['updatedAt'] = time
-    schema['order'] = order or schema.get('order', len(list(tools.find())))
-
-    # convert parameters to list with schema
-    parameters = []
-    for k, v in schema.get("parameters", {}).items():
-        v['schema'] = {
-            key: v.pop(key) 
-            for key in ['type', 'items', 'anyOf']
-            if key in v
-        }
-        parameters.append({"name": k, **v})
-    
-    schema["parameters"] = parameters
-    # schema.pop("required")
-
-    tools.replace_one(
-        {"key": schema['key']}, 
-        schema,
-        upsert=True
-    )
-
-
-def get_tools_from_dirs(root_dir: str = None, tools: List[str] = None,include_inactive: bool = False) -> Dict[str, Tool]:
+def get_tools_from_api_files(root_dir: str = None, tools: List[str] = None, include_inactive: bool = False) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
     
-    tool_dirs = get_tool_dirs(root_dir, include_inactive)
-    tools = {
-        key: Tool.load_from_dir(tool_dir) 
-        for key, tool_dir in tool_dirs.items()
-        if key in tools
+    api_files = get_api_files(root_dir, include_inactive)
+    
+    all_tools = {
+        key: Tool.from_yaml(api_file) 
+        for key, api_file in api_files.items()
     }
 
-    return tools
+    if tools:
+        tools = {k: v for k, v in all_tools.items() if k in tools}
+    else:
+        tools = all_tools
 
+    return tools
 
 def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: bool = False, prefer_local: bool = True) -> Dict[str, Tool]:
     """Get all tools from mongo"""
     
     filter = {"key": {"$in": tools}} if tools else {}
     tools = {}
-    tools_collection = get_collection("tools2", db=db)
+    tools_collection = get_collection(Tool.collection_name, db=db)
     for tool in tools_collection.find(filter):
         try:
             tool["parameters"] = {p["name"]: {**(p.pop("schema")), **p} for p in tool["parameters"]}
-            tool = Tool.load_from_schema(tool, prefer_local)
+            tool = Tool.from_schema(tool, db=db)
             if tool.status != "inactive" and not include_inactive:
                 if tool.key in tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 tools[tool.key] = tool
         except Exception as e:
+            print(traceback.format_exc())
             print(f"Error loading tool {tool['key']}: {e}")
 
     return tools
 
 
-def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[str]:
+def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""
     
     if root_dir:
@@ -422,8 +409,7 @@ def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[
             for tools_dir in ["tools", "../../workflows"]
         ]
 
-    tool_dirs = {}
-
+    api_files = {}
     for root_dir in root_dirs:
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
@@ -432,30 +418,9 @@ def get_tool_dirs(root_dir: str = None, include_inactive: bool = False) -> List[
                     schema = yaml.safe_load(f)
                 if schema.get("status") == "inactive" and not include_inactive:
                     continue
-                key = os.path.relpath(root).split("/")[-1]
-                if key in tool_dirs:
+                key = schema.get("key", os.path.relpath(root).split("/")[-1])
+                if key in api_files:
                     raise ValueError(f"Duplicate tool {key} found.")
-                tool_dirs[key] = os.path.relpath(root)
+                api_files[key] = os.path.join(os.path.relpath(root), "api.yaml")
             
-    return tool_dirs
-
-
-def _get_tool_class(handler: str, prefer_local: bool = True):
-    from .tools.local_tool import LocalTool
-    from .tools.modal_tool import ModalTool
-    from .tools.comfyui_tool import ComfyUITool
-    from .tools.replicate_tool import ReplicateTool
-    from .tools.gcp_tool import GCPTool
-
-    handler_map = {
-        "local": LocalTool,
-        "modal": ModalTool,
-        "comfyui": ComfyUITool,
-        "replicate": ReplicateTool,
-        "gcp": GCPTool,
-        None: LocalTool if prefer_local else ModalTool
-    }
-    
-    tool_class = handler_map.get(handler, Tool)
-    return tool_class
-    
+    return api_files

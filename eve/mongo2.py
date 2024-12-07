@@ -43,8 +43,8 @@ def Collection(name):
 
 class Document(BaseModel):
     id: Optional[ObjectId] = Field(default_factory=ObjectId, alias="_id")
-    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: Optional[datetime] = None
+    createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updatedAt: Optional[datetime] = None
     db: Optional[str] = None  # The name of the database to save to, not saved in MongoDB
 
     class Config:

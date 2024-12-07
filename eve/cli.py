@@ -21,10 +21,9 @@ from .eden_utils import (
 )
 from .tool import (
     Tool,
-    get_tool_dirs,
+    get_api_files,
     get_tools_from_mongo,
-    get_tools_from_dirs,
-    save_tool_from_dir,
+    get_tools_from_api_files
 )
 from eve.clients.discord.client import start as start_discord
 
@@ -60,29 +59,30 @@ def update(db: str, tools: tuple):
 
     db = db.upper()
 
-    tool_dirs = get_tool_dirs(include_inactive=True)
+    api_files = get_api_files(include_inactive=True)
     tools_order = {tool: index for index, tool in enumerate(api_tools_order)}
 
     if tools:
-        tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
+        api_files = {k: v for k, v in api_files.items() if k in tools}
     else:
         confirm = click.confirm(
-            f"Update all {len(tool_dirs)} tools on {db}?", default=False
+            f"Update all {len(api_files)} tools on {db}?", default=False
         )
         if not confirm:
             return
 
     updated = 0
-    for key, tool_dir in tool_dirs.items():
+    for key, api_file in api_files.items():
         try:
             order = tools_order.get(key, len(api_tools_order))
-            save_tool_from_dir(tool_dir, order=order, db=db)
+            tool = Tool.from_yaml(api_file)
+            tool.save(db=db, order=order)
             click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
-    click.echo(click.style(f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True))
+    click.echo(click.style(f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True))
 
 
 @cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
@@ -99,7 +99,7 @@ def create(ctx, tool: str, db: str):
 
     db = db.upper()
 
-    tool = Tool.load(tool, db=db)
+    tool = Tool.load(key=tool, db=db)
 
     # Get args
     args = dict()
@@ -202,7 +202,7 @@ def test(
         return results
 
     if yaml:
-        all_tools = get_tools_from_dirs(tools=tools)
+        all_tools = get_tools_from_api_files(tools=tools)
     else:
         all_tools = get_tools_from_mongo(db=db, tools=tools)
 
@@ -232,7 +232,7 @@ def test(
     error_list = "\n\t".join(errors)
     click.echo(
         click.style(
-            f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n{error_list}",
+            f"\n\nTested {len(tools)} tools with {len(errors)} errors:\n\t{error_list}",
             fg="blue",
             bold=True,
         )

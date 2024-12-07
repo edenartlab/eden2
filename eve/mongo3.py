@@ -20,7 +20,6 @@ from .base import generate_edit_model, recreate_base_model, VersionableBaseModel
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
 MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
-MONGO_DB_NAME_ABRAHAM = os.getenv("MONGO_DB_NAME_ABRAHAM")
 
 db_names = {
     "STAGE": MONGO_DB_NAME_STAGE,
@@ -45,8 +44,8 @@ def Collection(name):
 # change to createdAt, updatedAt
 class Document(BaseModel):
     id: Optional[ObjectId] = Field(default_factory=ObjectId, alias="_id")
-    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: Optional[datetime] = None
+    createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updatedAt: Optional[datetime] = None
     db: Optional[str] = None
 
     class Config:
@@ -66,7 +65,24 @@ class Document(BaseModel):
         collection_name = getattr(cls, "collection_name", cls.__name__.lower())
         return get_collection(collection_name, db)
 
+    @classmethod
+    def from_schema(cls, schema: dict, db="STAGE", from_yaml=True):
+        schema["db"] = db
+        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
+        schema = sub_cls.convert_from_mongo(schema)
+        return sub_cls.model_validate(schema)
 
+    @classmethod
+    def from_yaml(cls, file_path: str, db="STAGE"):
+        """
+        Load a document from a YAML file.
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File {file_path} not found")
+        with open(file_path, "r") as file:
+            schema = yaml.safe_load(file)
+        schema["key"] = schema.get("key") or file_path.split("/")[-2]
+        return cls.from_schema(schema, db=db, from_yaml=True)
 
     @classmethod
     def from_mongo(cls, document_id: ObjectId, db="STAGE"):
@@ -75,104 +91,73 @@ class Document(BaseModel):
         """
         document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
         schema = cls.get_collection(db).find_one({"_id": document_id})
-        
-        # if data:
-        #     instance = cls.model_validate(data)
-        #     instance.db = db
-        #     return instance
-        # return None
-        
         if not schema:
-            raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")
+            raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")        
+        return cls.from_schema(schema, db, from_yaml=False)
         
-        schema["db"] = db
-        schema = cls.convert_from_mongo(schema)
-
-        return cls.model_validate(schema)
-    
-    
     @classmethod
-    def from_yaml(cls, file_path: str):
-        """
-        Load a document from a YAML file.
-        """
-        with open(file_path, "r") as file:
-            schema = yaml.safe_load(file)
-        schema["key"] = file_path.split("/")[-2]
-        schema = cls.convert_from_yaml(schema)
-        return cls.model_validate(schema)
-
+    def get_sub_class(cls, from_yaml=True, db="STAGE", **kwargs) -> type:
+        return cls
 
     @classmethod
-    def convert_from_mongo(cls, schema: dict):
+    def convert_from_mongo(cls, schema: dict, **kwargs):
         return schema
 
     @classmethod
-    def convert_from_yaml(cls, schema: dict) -> dict:
-        return schema
-
-
-    @classmethod
-    def convert_to_mongo(cls, schema: dict):
+    def convert_from_yaml(cls, schema: dict, **kwargs) -> dict:
         return schema
 
     @classmethod
-    def convert_to_yaml(cls, schema: dict) -> dict:
+    def convert_to_mongo(cls, schema: dict, **kwargs):
         return schema
 
+    @classmethod
+    def convert_to_yaml(cls, schema: dict, **kwargs) -> dict:
+        return schema
 
-
-
-    def save(self, db=None, upsert_filter=None):
+    def save(self, db=None, upsert_filter=None, **kwargs):
         """
         Save the current state of the model to the database.
         """
-        db = db or self.db or "STAGE"
-        
-        schema = self.model_dump(by_alias=True, exclude={"db"})
-        schema = self.convert_to_mongo(schema)
-        schema.pop("_id")
-        print("THE SCHEMA AFTER SAVING", schema)
-        #self.validate_fields() #???
-
-
+        db = db or self.db or "STAGE"        
         filter = upsert_filter or {"_id": self.id}
 
+        schema = self.model_dump(by_alias=True, exclude={"db"})
+        schema = self.convert_to_mongo(schema)
+        schema.update(kwargs)
+        schema.pop("_id")
 
-        self.updated_at = datetime.now(timezone.utc)
+        self.model_validate(schema)
+
+        self.updatedAt = datetime.now(timezone.utc)
         collection = self.get_collection(db)
         if self.id:
             collection.replace_one(filter, schema, upsert=True)
         else:
-            self.created_at = datetime.now(timezone.utc)
+            self.createdAt = datetime.now(timezone.utc)
             result = collection.insert_one(schema)
             self.id = result.inserted_id
         self.db = db
 
     # todo: this method is probably superfluous, should remove
-    def validate_fields(self):
-        """
-        Validate fields using Pydantic's built-in validation.
-        """
-        return self.model_validate(self.model_dump())
-    
-
-
-
-
+    # def validate_fields(self):
+    #     """
+    #     Validate fields using Pydantic's built-in validation.
+    #     """
+    #     return self.model_validate(self.model_dump())
 
     def update(self, **kwargs):
         """
         Perform granular updates on specific fields.
         """
-        updated_data = self.model_copy(update=kwargs)
-        updated_data.validate_fields()  # todo: check this, it's probably unnecessary
+        # updated_data = self.model_copy(update=kwargs)
+        # updated_data.validate_fields()  # todo: check this, it's probably unnecessary
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id}, 
             {
                 "$set": kwargs,
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
@@ -188,11 +173,11 @@ class Document(BaseModel):
             {"_id": self.id, **filter},
             {
                 "$set": updates,
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updatedAt = datetime.now(timezone.utc)
 
     def push(self, field_name: str, value: Union[Any, List[Any]]):
         """
@@ -209,7 +194,7 @@ class Document(BaseModel):
         updated_data = copy.deepcopy(self)
         if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
             getattr(updated_data, field_name).extend(values_original)
-            updated_data.validate_fields()
+            # updated_data.validate_fields()
         else:
             raise ValidationError(f"Field '{field_name}' is not a valid list field.")
 
@@ -217,12 +202,12 @@ class Document(BaseModel):
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id},
-            {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updated_at": True}}
+            {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updatedAt": True}}
         )
         if update_result.modified_count > 0:
             if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
                 setattr(self, field_name, getattr(self, field_name) + values_original)
-                self.updated_at = datetime.now(timezone.utc)
+                self.updatedAt = datetime.now(timezone.utc)
 
     def update_nested_field(self, field_name: str, index: int, sub_field: str, value):
         """
@@ -234,7 +219,7 @@ class Document(BaseModel):
             field_list = getattr(updated_data, field_name)
             if len(field_list) > index and isinstance(field_list[index], dict):
                 field_list[index][sub_field] = value
-                updated_data.validate_fields()
+                # updated_data.validate_fields()
             else:
                 raise ValidationError(f"Field '{field_name}[{index}]' is not a valid dictionary field.")
         else:
@@ -246,7 +231,7 @@ class Document(BaseModel):
             {"_id": self.id},
             {"$set": {
                 f"{field_name}.{index}.{sub_field}": value}, 
-                "$currentDate": {"updated_at": True}
+                "$currentDate": {"updatedAt": True}
             }
         )
         if update_result.modified_count > 0:
@@ -255,7 +240,7 @@ class Document(BaseModel):
                 field_list = getattr(self, field_name)
                 if len(field_list) > index and isinstance(field_list[index], dict):
                     field_list[index][sub_field] = value
-                    self.updated_at = datetime.now(timezone.utc)
+                    self.updatedAt = datetime.now(timezone.utc)
 
     def reload(self):
         """
@@ -272,3 +257,273 @@ class Document(BaseModel):
         """
         collection = self.get_collection(self.db)
         collection.delete_one({"_id": self.id})
+
+
+
+
+
+
+##### Old, deprecated
+
+class MongoModel(BaseModel):
+    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
+    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    updatedAt: Optional[datetime] = None
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @classmethod
+    @abstractmethod
+    def get_collection_name(cls) -> str:
+        pass
+
+    def validate(self, **kwargs):
+        try:
+            super().model_validate({
+                **self.model_dump(), 
+                **{"env": self.env},
+                **kwargs
+            })
+        except ValidationError as e:
+            raise ValueError(get_human_readable_error(e.errors()))
+
+    @classmethod
+    def load(cls, document_id: str, env: str):
+        collection = get_collection(cls.get_collection_name(), env)
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if document is None:
+            raise ValueError(f"Document with id {document_id} not found in collection {cls.get_collection_name()}, env: {env}")
+        document['env'] = env
+        return cls.model_validate(document)
+
+    def reload(self): 
+        collection = get_collection(self.get_collection_name(), self.env)
+        document = collection.find_one({"_id": self.id})
+        if not document:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}, env: {self.env}")
+        for key, value in document.items():
+            setattr(self, key, value)
+        return self
+
+    def save(self, upsert_filter=None):
+        self.validate()
+
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        collection = get_collection(self.get_collection_name(), self.env)
+        
+        document_id = data.get('_id')
+        if upsert_filter:
+            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
+            if document_id_:
+                document_id = document_id_["_id"]
+        else:
+            upsert_filter = {"_id": document_id}
+
+        if document_id:
+            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            data.pop("updatedAt", None)
+            # collection.update_one(upsert_filter, {'$set': data}, upsert=True)
+            collection.update_one(
+                upsert_filter,
+                {
+                    "$set": data,
+                    "$currentDate": {"updatedAt": True}
+                },
+                upsert=True
+            )
+        else:
+            # now = datetime.utcnow().replace(microsecond=0)
+            # data["createdAt"] = self.createdAt
+            # data["updatedAt"] = self.createdAt
+            collection.insert_one(data)
+
+    def push(self, payload: dict):
+        self.validate()
+        collection = get_collection(self.get_collection_name(), self.env)
+        collection.update_one(
+            {"_id": self.id},
+            {
+                "$push": payload,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
+
+    def set(self, payload: dict, filter: dict = None):
+        self.validate()
+        collection = get_collection(self.get_collection_name(), self.env)
+        collection.update_one(
+            {"_id": self.id, **filter},
+            {
+                "$set": payload,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
+    
+    # todo: can this be merged with set? is it redundant?
+    # generalize update methods
+    def update2(self, **kwargs):
+        update_args = {}
+        for key, value in kwargs.items():
+            if hasattr(self, key) and getattr(self, key) != value:
+                update_args[key] = value
+        
+        if not update_args:
+            return self
+        
+        self.validate(**update_args)
+        
+        collection = get_collection(self.get_collection_name(), self.env)
+        result = collection.update_one(
+            {"_id": ObjectId(self.id)},
+            {
+                "$set": update_args,
+                "$currentDate": {"updatedAt": True}
+            }
+        )        
+        
+        if result.matched_count == 0:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
+        for key, value in update_args.items():
+            setattr(self, key, copy.deepcopy(value))
+            
+
+
+    def update(self, payload: dict = None, filter: dict = None, **kwargs):
+        """
+        Updates both the MongoDB document and instance variables.
+        
+        Args:
+            payload (dict): Nested updates using dot notation (e.g., {"messages.$.content": "new"})
+            filter (dict): Additional filter criteria for the update
+            **kwargs: Direct field updates (e.g., name="new_name")
+        """
+        # Combine payload and kwargs into a single update dictionary
+        updates = {}
+        
+        # Handle nested updates from payload (using dot notation)
+        if payload:
+            updates.update(payload)
+        
+        # Handle direct field updates from kwargs
+        for key, value in kwargs.items():
+            if hasattr(self, key) and getattr(self, key) != value:
+                updates[key] = value
+        
+        if not updates:
+            return self
+        
+        # Validate the updates
+        self.validate(**{k.split('.')[-1]: v for k, v in updates.items()})
+        
+        # Perform MongoDB update
+        collection = get_collection(self.get_collection_name(), self.env)
+        result = collection.update_one(
+            {"_id": self.id, **(filter or {})},
+            {
+                "$set": updates,
+                "$currentDate": {"updatedAt": True}
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}")
+        
+        # Update instance variables for non-nested fields
+        for key, value in updates.items():
+            if '.' not in key:  # Only update non-nested fields
+                setattr(self, key, copy.deepcopy(value))
+        
+        return self
+
+
+
+
+class VersionableMongoModel(VersionableBaseModel):
+    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
+    collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
+    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    # createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    # updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
+
+    def __init__(self, **data):
+        if 'instance' in data:
+            instance = data.pop('instance')
+            collection_name = data.pop('collection_name')
+            env = data.pop('env')
+            super().__init__(
+                schema=type(instance),
+                initial=instance,
+                current=instance,
+                collection_name=collection_name,
+                env=env,
+                **data
+            )
+        else:
+            super().__init__(**data)
+
+    @classmethod
+    def load(cls, document_id: str, collection_name: str, env: str):
+        collection = get_collection(collection_name, env)
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if document is None:
+            raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, env: {env}")
+        
+        print("---- 1-12-213-4 234 --")
+        schema = recreate_base_model(document['schema'])
+        from pprint import pprint
+        print("this is the schema")
+        pprint(schema.model_fields)
+        print("---- 1-12-213-4 234 --")
+        initial = schema(**document['initial'])
+        current = schema(**document['current'])
+        
+        edits = [
+            generate_edit_model(schema)(**edit) 
+            for edit in document['edits']
+        ]
+        
+        versionable_data = {
+            "id": document['_id'],
+            "collection_name": collection_name, 
+            "env": env,
+            # "createdAt": document['createdAt'],
+            # "updatedAt": document['updatedAt'],
+            "schema": schema,
+            "initial": initial,
+            "current": current,
+            "edits": edits
+        }
+        
+        return cls(**versionable_data)
+
+    def save(self, upsert_filter=None):
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        collection = get_collection(self.collection_name, self.env)
+
+        document_id = data.get('_id')
+        if upsert_filter:
+            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
+            if document_id_:
+                document_id = document_id_["_id"]
+
+        if document_id:
+            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
+        else:
+            collection.insert_one(data)
+
+
+def get_human_readable_error(error_list):
+    errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
+    error_str = "\n\t".join(errors)
+    error_str = f"Invalid args\n\t{error_str}"
+    return error_str

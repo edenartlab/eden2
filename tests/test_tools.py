@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from eve.tool import get_tools_from_mongo, get_tools_from_dirs
+from eve.tool import get_tools_from_mongo, get_tools_from_api_files
 
 
 def test_tools():
@@ -34,7 +34,7 @@ def test_tools():
             return results
 
         if yaml:
-            all_tools = get_tools_from_dirs()
+            all_tools = get_tools_from_api_files()
         else:
             all_tools = get_tools_from_mongo(db=db)
 
@@ -59,3 +59,6 @@ def test_tools():
         parallel=True,
         mock=True
     )
+
+
+test_tools()
