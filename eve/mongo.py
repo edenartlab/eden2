@@ -47,13 +47,14 @@ class Document(BaseModel):
     updatedAt: Optional[datetime] = None
     db: Optional[str] = None
 
-    class Config:
-        json_encoders = {
+    model_config = ConfigDict(
+        json_encoders={
             ObjectId: str,
             datetime: lambda v: v.isoformat(),
-        }
-        populate_by_name = True
-        arbitrary_types_allowed = True
+        },
+        populate_by_name=True,
+        arbitrary_types_allowed=True
+    )
 
     @classmethod
     def get_collection(cls, db=None):
@@ -528,3 +529,15 @@ class VersionableMongoModel(VersionableBaseModel):
             collection.update_one({'_id': document_id}, {'$set': data}, upsert=True)
         else:
             collection.insert_one(data)
+
+
+def serialize_document(obj):
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: serialize_document(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [serialize_document(item) for item in obj]
+    return obj

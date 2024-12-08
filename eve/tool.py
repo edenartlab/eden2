@@ -273,7 +273,6 @@ class Tool(Document, ABC):
                 cost=cost,
             )
             task.save(db=db)
-
             add_breadcrumb(category="handle_start_task", data=task.model_dump())
 
             # start task

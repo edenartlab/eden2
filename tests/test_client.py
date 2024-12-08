@@ -22,9 +22,9 @@ headers = {
 def run_create(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
-        "tool": "flux_dev",
+        "tool": "flux_schnell",
         "args": {
-            "prompt": "a picture of a fancy kangaroo in disco mode",
+            "prompt": "a picture of a kangaroo roller skating in venice beach",
         }
     }
     response = requests.post(server_url+"/create", json=request, headers=headers)
@@ -60,7 +60,7 @@ def test_client():
             server_url = "http://localhost:8000"
         else:
             server_url = "https://edenartlab--tools-new-dev-fastapi-app.modal.run"
-            # server_url = "http://localhost:8000"
+            server_url = "http://localhost:8000"
 
         # Run the tests
         print("server_url", server_url)
@@ -69,7 +69,7 @@ def test_client():
         run_create(server_url)
 
         print("\nRunning chat test...")
-        run_chat(server_url)
+        # run_chat(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

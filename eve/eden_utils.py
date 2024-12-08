@@ -56,12 +56,22 @@ def upload_result(result, db: str, save_thumbnails=False):
 
 def upload_media(output, db, save_thumbnails=True):
     file_url, sha = s3.upload_file(output, db=db)
+    print("got file url")
+    print("THE SHA!", sha)
     filename = file_url.split("/")[-1]
 
+    print("upload media")
     media_attributes, thumbnail = get_media_attributes(output)
+    print("get media attributes")
+    print(media_attributes)
+    print(thumbnail)
+    print("save thumbnails", save_thumbnails)
 
     if save_thumbnails and thumbnail:
+        print("save thumbnails")
         for width in [384, 768, 1024, 2560]:
+            continue
+            print("thumbnail", width)
             img = thumbnail.copy()
             img.thumbnail(
                 (width, 2560), Image.Resampling.LANCZOS

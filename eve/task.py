@@ -38,7 +38,7 @@ class Task(Document):
     handler_id: Optional[str] = None
     status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
     error: Optional[str] = None
-    result: Optional[Any] = None
+    result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
 
     def __init__(self, **data):
@@ -105,19 +105,14 @@ async def _task_handler(func, *args, **kwargs):
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
             result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True)
-            
 
-
-
-
-            for o in range(len(result["output"])):
-                output = result["output"][o]
+            for output in result["output"]:
                 name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
                 if not name:
                     name = args.get("interpolation_prompts") or args.get("interpolation_texts")
                     if name:
                         name = " to ".join(name)
-                
+
                 new_creation = Creation(
                     user=task.user,
                     agent=None,
@@ -131,18 +126,16 @@ async def _task_handler(func, *args, **kwargs):
                     deleted=False,
                 )
                 new_creation.save(db=task.db)
-                result["output"][o]["creation"] = new_creation.id
-                # print("NEW CREATION", new_creation)
-
+                output["creation"] = new_creation.id
 
             results.extend([result])
-
 
             if i == n_samples - 1:
                 task_update = {
                     "status": "completed", 
                     "result": results
                 }
+                print("THE TASK UPDATE IS FINSIHED", task_update)
 
             else:
                 task_update = {

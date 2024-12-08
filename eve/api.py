@@ -14,6 +14,7 @@ from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
+from eve.mongo import serialize_document
 
 # Config setup
 db = os.getenv("DB", "STAGE").upper()
@@ -39,7 +40,6 @@ web_app.add_middleware(
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
 
-
 class TaskRequest(BaseModel):
     tool: str
     args: dict
@@ -51,8 +51,9 @@ async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
 
 @web_app.post("/create")
 async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    return await handle_task(request.tool, request.user_id, request.args)
-
+    result = await handle_task(request.tool, request.user_id, request.args)
+    return serialize_document(result.model_dump())
+    
 # @web_app.post("/create")
 # async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
 #     return await handle_task(request.tool, auth.userId, request.args)

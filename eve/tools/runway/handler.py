@@ -1,7 +1,11 @@
 import time
 from runwayml import RunwayML
 
-
+"""
+Todo:
+- Error Unsafe content detected. Please try again with a different text, image, or seed.
+- 429
+"""
 
 
 async def handler(args: dict, db: str):
