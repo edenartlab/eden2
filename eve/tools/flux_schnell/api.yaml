@@ -19,7 +19,6 @@ parameters:
     type: string
     label: Aspect ratio
     description: Aspect ratio width/height
-    required: true
     default: "1:1"
     choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
   num_outputs:
@@ -28,7 +27,6 @@ parameters:
     description: Number of samples to generate
     tip: |-
       This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
-    required: true
     default: 1
     minimum: 1
     maximum: 4
@@ -72,6 +70,6 @@ parameters:
     description: Set random seed for reproducibility. If blank, will be set to a random value.
     tip: |-
       You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
-    default: random
     minimum: 0
     maximum: 2147483647
+    default: random

@@ -1,5 +1,4 @@
 import copy
-from enum import Enum
 from pydantic import BaseModel, Field, create_model
 from typing import Any, Optional, Type, List, Dict, Union, get_origin, get_args, Literal, Tuple
 
@@ -225,52 +224,6 @@ def apply_edit(
     return instance_copy.model_copy(update=updates)
 
 
-def get_python_type(field_info):
-    """
-    Retrieve the Python type from a field info object.
-    """
-
-    type_map = {
-        # 'str': str,
-        'string': str,
-        # 'int': int,
-        'integer': int,
-        'float': float,
-        # 'bool': bool,
-        'boolean': bool,
-        'array': List,
-        'object': Dict,
-        'image': str,
-        'video': str,
-        'audio': str,
-        'lora': str,
-        'zip': str
-    }
-    # print(field_info)
-    optional = 'anyOf' in field_info and {"type": "null"} in field_info['anyOf']
-
-    # if 'anyOf' in field_info:
-    #     types = field_info['anyOf']
-    #     print(types)
-    #     null_type = next((t for t in types if t.get('type') == 'null'), None)
-    #     types = [t for t in types if t != null_type]
-    #     assert len(types) == 1 and null_type is not None
-    #     field_info = types[0]
-    #     is_optional = True
-
-
-    field_type = field_info.get('type')
-    if field_type == 'array' and 'items' in field_info:
-        item_type = get_python_type(field_info['items'])
-        output_type = List[item_type]
-    elif field_type == 'object':
-        output_type = Dict[str, Any]
-    else:
-        output_type = type_map.get(field_type, Any)
-    return output_type
-
-
-
 def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
     """
     Build a BaseModel from a type model data object.
@@ -284,11 +237,37 @@ def recreate_base_model(schema: Dict[str, Any]) -> Type[BaseModel]:
         for field, info in model_schema['properties'].items()
     })
 
-
     return base_model
 
-# def create_enum(name: str, choices: List[str]):
-#     return Enum(name, {str(choice): choice for choice in choices})
+
+def get_python_type(field_info):
+    """
+    Retrieve the Python type from a field info object.
+    """
+
+    type_map = {
+        'string': str,
+        'integer': int,
+        'float': float,
+        'boolean': bool,
+        'array': List,
+        'object': Dict,
+        'image': str,
+        'video': str,
+        'audio': str,
+        'lora': str,
+        'zip': str
+    }
+    field_type = field_info.get('type')
+    if field_type == 'array' and 'items' in field_info:
+        item_type = get_python_type(field_info['items'])
+        output_type = List[item_type]
+    elif field_type == 'object':
+        output_type = Dict[str, Any]
+    else:
+        output_type = type_map.get(field_type, Any)
+    return output_type
+
 
 def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
     field_kwargs = {}
@@ -300,6 +279,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
             field_kwargs['description'] = eden_utils.concat_sentences(field_kwargs['description'], props['tip'])
     if 'example' in props:
         json_schema_extra['example'] = props['example']
+    
     if 'default' in props:
         field_kwargs['default'] = props['default']
 
@@ -311,8 +291,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
             field_kwargs['max_length'] = props['max_length']
 
     # Handle min and max for numeric types
-    if props['type'] in ['integer', 'float'] \
-        or props["type"] == "array" and props["items"]["type"] in ['integer', 'float']:
+    if props['type'] in ['integer', 'float']:
         if 'minimum' in props:
             field_kwargs['ge'] = props['minimum']
         if 'maximum' in props:
@@ -357,11 +336,11 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
 
 def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
     fields = {}
-    required_fields = schema.get('required', [])
+    # required_fields = schema.get('required', [])
     
     for field, props in schema.get('parameters', {}).items():
+        # anyOf makes a Union of its types
         if props.get('anyOf'):
-            # anyOf makes a Union of its types
             types = []
             field_kwargs = {}
             json_schema_extra = {}
@@ -381,18 +360,16 @@ def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
         else:
             type_annotation, field_kwargs, json_schema_extra = parse_props(field, props)
 
-        # Handle additional metadata
-        for key in ['hide_from_agent', 'examples', 'alias']:
-            if key in props:
-                json_schema_extra[key] = props[key]
-        
-        if field not in required_fields:
-            type_annotation = Optional[type_annotation]
-            field_kwargs['default'] = field_kwargs.get('default', None)
+        if 'examples' in props:
+            json_schema_extra['examples'] = props['examples']
+
+        if props.get('required'):
+            field_kwargs['default'] = ...
+        else:
+            field_kwargs['default'] = props.get("default", None)
 
         if field_kwargs.get('default') == "random":
-            json_schema_extra['randomize'] = True
-            field_kwargs.pop('default')
+            field_kwargs['default'] = None
 
         fields[field] = (type_annotation, Field(**field_kwargs, json_schema_extra=json_schema_extra))
 
@@ -401,5 +378,3 @@ def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
         model_config['json_schema_extra'] = {'examples': schema['examples']}
 
     return fields, model_config
-
-

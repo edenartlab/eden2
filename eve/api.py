@@ -86,7 +86,7 @@ async def handle_chat(
 
     try:
         async def run_prompt():
-            async for msg in async_prompt_thread(
+            async for _ in async_prompt_thread(
                 db=db,
                 user_id=user_id,
                 agent_id=agent_id,
@@ -113,13 +113,13 @@ async def stream_chat(
     auth: dict = Depends(auth.authenticate),
 ):
     user_messages = UserMessage(**request.user_message)
-
+    
     async def event_generator():
         async for update in async_prompt_thread(
             db=db,
             user_id=auth.userId,
             thread_name=request.thread_name,
-            user_messages=UserMessage(**request.user_message),
+            user_messages=user_messages,
             tools=get_tools_from_mongo(db=db),
             provider="anthropic",
         ):

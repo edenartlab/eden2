@@ -51,11 +51,10 @@ class Tool(Document):
     gpu: Optional[str] = None    
     test_args: Dict[str, Any]
 
-
     @classmethod
     def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
         if from_yaml:
-            api_files = get_api_files()
+            api_files = get_api_files(include_inactive=True)
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")            
             parent_api_file = api_files[key]
@@ -128,7 +127,7 @@ class Tool(Document):
     @classmethod
     def convert_from_mongo(cls, schema: dict) -> dict:
         schema["parameters"] = {
-            p.pop("name"): {**(p.pop("schema")), **p} 
+            p["name"]: {**(p.pop("schema")), **p} 
             for p in schema["parameters"]
         }
         fields, model_config = parse_schema(schema)
@@ -158,10 +157,13 @@ class Tool(Document):
         super().save(db, {"key": self.key}, **kwargs)
 
     def _remove_hidden_fields(self, parameters):
-        hidden_parameters = [k for k, v in parameters['properties'].items() if v.get('hide_from_agent')]
+        hidden_parameters = [
+            k for k, v in parameters['properties'].items() 
+            if self.parameters[k].get('hide_from_agent')
+        ]
         for k in hidden_parameters:
             del parameters['properties'][k]
-        parameters['required'] = [k for k in parameters['required'] if k not in hidden_parameters]
+        parameters['required'] = [k for k in parameters.get('required', []) if k not in hidden_parameters]
 
     def anthropic_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
         schema = openai_schema(self.model).anthropic_schema
@@ -196,18 +198,16 @@ class Tool(Document):
             raise ValueError(f"Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}")
 
         prepared_args = {}
-        for field, field_info in self.model.model_fields.items():
+        for field in self.model.model_fields.keys():
+            parameter = self.parameters[field]
             if field in args:
                 prepared_args[field] = args[field]
-            elif field_info.default is not None:
-                if field_info.json_schema_extra.get('randomize'):
-                    minimum, maximum = field_info.metadata[0].ge, field_info.metadata[1].le
-                    prepared_args[field] = random.randint(minimum, maximum)
-                else:
-                    prepared_args[field] = field_info.default
-            else:
-                prepared_args[field] = None
-        
+            elif parameter.get("default") == "random":
+                minimum, maximum = parameter["minimum"], parameter["maximum"]
+                prepared_args[field] = random.randint(minimum, maximum)
+            elif parameter.get("default") is not None:
+                prepared_args[field] = parameter["default"]
+            
         try:
             self.model(**prepared_args)
         except ValidationError as e:
@@ -384,7 +384,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools_collection = get_collection(Tool.collection_name, db=db)
     for tool in tools_collection.find(filter):
         try:
-            tool["parameters"] = {p["name"]: {**(p.pop("schema")), **p} for p in tool["parameters"]}
+            tool = Tool.convert_from_mongo(tool)
             tool = Tool.from_schema(tool, db=db)
             if tool.status != "inactive" and not include_inactive:
                 if tool.key in tools:
@@ -395,7 +395,6 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
             print(f"Error loading tool {tool['key']}: {e}")
 
     return tools
-
 
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""

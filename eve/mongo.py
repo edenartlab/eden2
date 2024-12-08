@@ -69,7 +69,6 @@ class Document(BaseModel):
     def from_schema(cls, schema: dict, db="STAGE", from_yaml=True):
         schema["db"] = db
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
-        schema = sub_cls.convert_from_mongo(schema)
         return sub_cls.model_validate(schema)
 
     @classmethod
@@ -82,6 +81,8 @@ class Document(BaseModel):
         with open(file_path, "r") as file:
             schema = yaml.safe_load(file)
         schema["key"] = schema.get("key") or file_path.split("/")[-2]
+        sub_cls = cls.get_sub_class(schema, from_yaml=True, db=db)
+        schema = sub_cls.convert_from_yaml(schema, file_path=file_path)
         return cls.from_schema(schema, db=db, from_yaml=True)
 
     @classmethod
@@ -93,10 +94,24 @@ class Document(BaseModel):
         schema = cls.get_collection(db).find_one({"_id": document_id})
         if not schema:
             raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")        
+        sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
+        schema = sub_cls.convert_from_mongo(schema)
         return cls.from_schema(schema, db, from_yaml=False)
         
     @classmethod
-    def get_sub_class(cls, from_yaml=True, db="STAGE", **kwargs) -> type:
+    def load(cls, key: str, db="STAGE"):
+        """
+        Load the document from the database and return an instance of the model.
+        """
+        schema = cls.get_collection(db).find_one({"key": key})
+        if not schema:
+            raise ValueError(f"Document with key {key} not found in {cls.collection_name}:{db}")        
+        sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
+        schema = sub_cls.convert_from_mongo(schema)
+        return cls.from_schema(schema, db, from_yaml=False)
+        
+    @classmethod
+    def get_sub_class(cls, schema: dict = None, db="STAGE", from_yaml=True) -> type:
         return cls
 
     @classmethod
@@ -267,7 +282,7 @@ class Document(BaseModel):
 
 class MongoModel(BaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
-    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    db: SkipJsonSchema[str] = Field(..., exclude=True)
     createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
     updatedAt: Optional[datetime] = None
 
@@ -285,26 +300,26 @@ class MongoModel(BaseModel):
         try:
             super().model_validate({
                 **self.model_dump(), 
-                **{"env": self.env},
+                **{"db": self.db},
                 **kwargs
             })
         except ValidationError as e:
             raise ValueError(get_human_readable_error(e.errors()))
 
     @classmethod
-    def load(cls, document_id: str, env: str):
-        collection = get_collection(cls.get_collection_name(), env)
+    def load(cls, document_id: str, db: str):
+        collection = get_collection(cls.get_collection_name(), db)
         document = collection.find_one({"_id": ObjectId(document_id)})
         if document is None:
-            raise ValueError(f"Document with id {document_id} not found in collection {cls.get_collection_name()}, env: {env}")
-        document['env'] = env
+            raise ValueError(f"Document with id {document_id} not found in collection {cls.get_collection_name()}, db: {db}")
+        document['db'] = db
         return cls.model_validate(document)
 
     def reload(self): 
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         document = collection.find_one({"_id": self.id})
         if not document:
-            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}, env: {self.env}")
+            raise ValueError(f"Document with id {self.id} not found in collection {self.get_collection_name()}, db: {self.db}")
         for key, value in document.items():
             setattr(self, key, value)
         return self
@@ -313,7 +328,7 @@ class MongoModel(BaseModel):
         self.validate()
 
         data = self.model_dump(by_alias=True, exclude_none=True)
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         
         document_id = data.get('_id')
         if upsert_filter:
@@ -343,7 +358,7 @@ class MongoModel(BaseModel):
 
     def push(self, payload: dict):
         self.validate()
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         collection.update_one(
             {"_id": self.id},
             {
@@ -354,7 +369,7 @@ class MongoModel(BaseModel):
 
     def set(self, payload: dict, filter: dict = None):
         self.validate()
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         collection.update_one(
             {"_id": self.id, **filter},
             {
@@ -376,7 +391,7 @@ class MongoModel(BaseModel):
         
         self.validate(**update_args)
         
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         result = collection.update_one(
             {"_id": ObjectId(self.id)},
             {
@@ -420,7 +435,7 @@ class MongoModel(BaseModel):
         self.validate(**{k.split('.')[-1]: v for k, v in updates.items()})
         
         # Perform MongoDB update
-        collection = get_collection(self.get_collection_name(), self.env)
+        collection = get_collection(self.get_collection_name(), self.db)
         result = collection.update_one(
             {"_id": self.id, **(filter or {})},
             {
@@ -445,7 +460,7 @@ class MongoModel(BaseModel):
 class VersionableMongoModel(VersionableBaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
     collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
-    env: SkipJsonSchema[str] = Field(..., exclude=True)
+    db: SkipJsonSchema[str] = Field(..., exclude=True)
     # createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
     # updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
 
@@ -458,24 +473,24 @@ class VersionableMongoModel(VersionableBaseModel):
         if 'instance' in data:
             instance = data.pop('instance')
             collection_name = data.pop('collection_name')
-            env = data.pop('env')
+            db = data.pop('db')
             super().__init__(
                 schema=type(instance),
                 initial=instance,
                 current=instance,
                 collection_name=collection_name,
-                env=env,
+                db=db,
                 **data
             )
         else:
             super().__init__(**data)
 
     @classmethod
-    def load(cls, document_id: str, collection_name: str, env: str):
-        collection = get_collection(collection_name, env)
+    def load(cls, document_id: str, collection_name: str, db: str):
+        collection = get_collection(collection_name, db)
         document = collection.find_one({"_id": ObjectId(document_id)})
         if document is None:
-            raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, env: {env}")
+            raise ValueError(f"Document with id {document_id} not found in collection {collection_name}, db: {db}")
         
         schema = recreate_base_model(document['schema'])
         initial = schema(**document['initial'])
@@ -489,7 +504,7 @@ class VersionableMongoModel(VersionableBaseModel):
         versionable_data = {
             "id": document['_id'],
             "collection_name": collection_name, 
-            "env": env,
+            "db": db,
             # "createdAt": document['createdAt'],
             # "updatedAt": document['updatedAt'],
             "schema": schema,
@@ -502,7 +517,7 @@ class VersionableMongoModel(VersionableBaseModel):
 
     def save(self, upsert_filter=None):
         data = self.model_dump(by_alias=True, exclude_none=True)
-        collection = get_collection(self.collection_name, self.env)
+        collection = get_collection(self.collection_name, self.db)
 
         document_id = data.get('_id')
         if upsert_filter:

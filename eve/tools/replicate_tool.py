@@ -91,15 +91,15 @@ class ReplicateTool(Tool):
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
-        for key, param in self.model.model_fields.items():
-            metadata = param.json_schema_extra or {}
-            is_array = metadata.get('is_array')
-            alias = metadata.get('alias')
-            if key in new_args:
+        for field in self.model.model_fields.keys():
+            parameter = self.parameters[field]
+            is_array = parameter.get('type') == 'array'
+            alias = parameter.get('alias')
+            if field in new_args:
                 if is_array:
-                    new_args[key] = "|".join([str(p) for p in args[key]])
+                    new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
-                    new_args[alias] = new_args.pop(key)
+                    new_args[alias] = new_args.pop(field)
         return new_args
 
     def _create_prediction(self, args: dict, webhook=True):

@@ -1,0 +1,232 @@
+key: legacy_remix
+name: Remix (Legacy)
+description: Generate a remix of an image (2022-2024)
+output_type: image
+parent_tool: legacy_sdxl_pipelines
+parameters:
+  mode:
+    default: remix
+    hide_from_agent: true
+    hide_from_ui: true
+  prompt:
+    required: false
+  interpolation_prompts:
+    hide_from_ui: true
+    hide_from_agent: true
+  text_inputs_to_interpolate:
+    hide_from_ui: true
+    hide_from_agent: true
+  interpolation_prompt_weights:
+    hide_from_ui: true
+    hide_from_agent: true
+  checkpoint:
+    hide_from_ui: true
+    hide_from_agent: true
+    
+  use_init_image:
+    default: true
+    hide_from_ui: true
+    hide_from_agent: true
+  init_image:
+    required: true
+    visible_if: ""
+  init_image_strength:
+    visible_if: ""
+  adopt_aspect_from_init_img:
+    visible_if: ""
+
+  use_controlnet:
+    hide_from_ui: true
+    hide_from_agent: true
+  controlnet_type:
+    hide_from_ui: true
+    hide_from_agent: true
+  control_image:
+    hide_from_ui: true
+    hide_from_agent: true
+  control_image_strength:
+    hide_from_ui: true
+    hide_from_agent: true
+  
+  use_audio_file:
+    type: boolean
+    label: Audioreactivity
+    description: Whether to use an audio file
+    default: false
+  audio_file:
+    type: audio
+    label: Audio File
+    description: An audio file to use for audioreactive real2real
+    visible_if: use_audio_file
+  
+  n_frames:
+    type: integer
+    label: Number of Frames
+    description: Total number of frames for video modes
+    default: 40
+    minimum: 3
+    maximum: 1000
+  loop:
+    type: boolean
+    label: Loop
+    description: Whether to loop the video
+    default: true
+  fps:
+    type: integer
+    label: FPS
+    description: Frames per second
+    default: 12
+    minimum: 1
+    maximum: 30  
+  
+  n_film:
+    type: integer
+    label: FILM passes
+    description: Number of times to smooth final frames with FILM (default is 0)
+    default: 1
+    minimum: 0
+    maximum: 3
+  smooth:
+    type: boolean
+    label: Smooth
+    description: Smooth with FILM
+    default: true
+  use_lcm:
+    type: boolean
+    label: LCM Smoothing
+    description: Use LCM smoothing
+    default: false
+  
+  use_interpolation_init_images:
+    type: boolean
+    label: Use Interpolation Init Images
+    description: Whether to use interpolation init images
+    default: false
+  interpolation_init_images:
+    type: array
+    items:
+      type: image
+    label: Interpolation Init Images
+    description: Interpolation init images, file paths or urls for video modes
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_power:
+    type: float
+    label: Interpolation Init Images Power
+    description: Power for interpolation_init_images prompts for video modes
+    default: 2.5
+    minimum: 0.5
+    maximum: 5
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_min_strength:
+    type: float
+    label: Interpolation Init Images Min Strength
+    description: Minimum init image strength for interpolation_init_images prompts for video modes
+    default: 0.05
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_max_strength:
+    type: float
+    label: Interpolation Init Images Max Strength
+    description: Maximum init image strength for interpolation_init_images prompts for video modes
+    default: 0.95
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  
+  use_latent_blending:
+    type: boolean
+    label: Latent Blending
+    description: Whether to use latent blending
+    default: false
+  n_anchor_imgs:
+    type: integer
+    label: N Anchor Imgs
+    description: Number of anchor frames to render (including keyframes) before activating latent blending
+    default: 3
+    minimum: 3
+    maximum: 6
+    visible_if: use_latent_blending
+  latent_blending_skip_f:
+    type: array
+    items:
+      type: float
+      min_length: 2
+      max_length: 2
+    label: Latent Blending Skip Fractions
+    description: What fraction of the denoising trajectory to skip at the start and end of each interpolation phase, two floats
+    default: [0.05, 0.6]
+    visible_if: use_latent_blending
+  
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed
+    default: random
+    minimum: 0
+    maximum: 4294967295
+  # interpolation_seeds:
+  #   type: array
+  #   items:
+  #     type: integer
+  #   label: Interpolation Seeds
+  #   description: Seeds for interpolated texts for video modes
+  #   minimum: 0
+  #   maximum: 4294967295
+  #   default: random
+  sampler:
+    type: string
+    label: Sampler
+    description: Which diffusion sampler to use
+    choices: [ddim, ddpm, klms, euler, euler_ancestral, dpm, kdpm2, kdpm2_ancestral, pndm]
+    choice_labels: [DDIM, DDPM, KLMS, Euler, Euler Ancestral, DPM, KDPM2, KDPM2 Ancestral, PNDM]
+    default: euler
+  steps:
+    type: integer
+    label: Steps
+    description: Number of diffusion steps
+    default: 35
+    minimum: 10
+    maximum: 70
+  guidance_scale:
+    type: float
+    label: Guidance Scale
+    description: Strength of text conditioning guidance
+    default: 7.5
+    minimum: 0
+    maximum: 20
+    step: 0.1
+  upscale_f:
+    type: integer
+    label: Upscale
+    description: Upscaling multiplier
+    default: 1
+    choices: [1, 2]
+
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+    default: 1
+    minimum: 1
+    maximum: 4
+
+  # stream:
+  #   type: boolean
+  #   label: Stream
+  #   description: yield individual results if True
+  #   default: false
+  # stream_every:
+  #   type: integer
+  #   label: Stream Every
+  #   description: for mode create, how many steps per update to stream (steam must be set to True)
+  #   default: 1
+  #   minimum: 1
+  #   maximum: 25
+
+  

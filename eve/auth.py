@@ -12,7 +12,6 @@ from .mongo2 import get_collection
 # Initialize Clerk SDK
 clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 
-
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -127,8 +126,6 @@ async def authenticate_ws(websocket: WebSocket):
 def authenticate_admin(
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
-    print("token is:", token.credentials)
-    print("admin key is:", EDEN_ADMIN_KEY)
     if token.credentials != EDEN_ADMIN_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"

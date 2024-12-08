@@ -1,0 +1,74 @@
+key: legacy_controlnet
+name: SDXL Controlnet (Legacy)
+description: Guide your creation with the shape of a control image (2022))
+parent_tool: legacy_sdxl_pipelines
+parameters:
+  mode:
+    default: controlnet
+    hide_from_agent: true
+    hide_from_ui: true
+
+  interpolation_prompts:
+    hide_from_ui: true
+  text_inputs_to_interpolate:
+    hide_from_ui: true
+  interpolation_prompt_weights:
+    hide_from_ui: true
+  
+  use_controlnet:
+    default: true
+    hide_from_ui: true
+    hide_from_agent: true
+  control_image:
+    required: true
+  controlnet_type:
+    default: canny-edge
+  control_image_strength:
+    default: 0.6
+  
+  use_ip_image:
+    hide_from_ui: true
+  ip_image:
+    hide_from_ui: true
+  ip_image_strength:
+    hide_from_ui: true
+    
+  use_audio_file:
+    hide_from_ui: true
+  audio_file:
+    hide_from_ui: true
+  
+  n_frames:
+    hide_from_ui: true
+  loop:
+    hide_from_ui: true
+  fps:
+    hide_from_ui: true
+  
+  n_film:
+    hide_from_ui: true
+  smooth:
+    hide_from_ui: true
+  use_lcm:
+    hide_from_ui: true
+  
+  use_interpolation_init_images:
+    hide_from_ui: true
+  interpolation_init_images:
+    hide_from_ui: true
+  interpolation_init_images_power:
+    hide_from_ui: true
+  interpolation_init_images_min_strength:
+    hide_from_ui: true
+  interpolation_init_images_max_strength:
+    hide_from_ui: true
+  
+  use_latent_blending:
+    hide_from_ui: true
+  n_anchor_imgs:
+    hide_from_ui: true
+  latent_blending_skip_f:
+    hide_from_ui: true
+  
+  upscale_f:
+    hide_from_ui: true

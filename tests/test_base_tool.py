@@ -2,7 +2,7 @@ from eve.tool import Tool
 
 
 def test_tool():
-    tool = Tool.load_from_dir('eve/tools/example_tool')
+    tool = Tool.from_yaml('eve/tools/example_tool/api.yaml')
 
     args = tool.prepare_args({
         'type': 'thingy',
@@ -28,7 +28,5 @@ def test_tool():
         'contacts': [
             {'type': 'email', 'value': 'widget@hotmail.com'}, 
             {'type': 'phone', 'value': '555-1234'}
-        ],
-        'address': None, 
-        'matrix': None
+        ]
     }

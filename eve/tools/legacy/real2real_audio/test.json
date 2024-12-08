@@ -1,0 +1,8 @@
+{
+    "interpolation_init_images": [
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg", 
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg"
+    ],
+    "audio_file": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e920df783faeff983d2b5d44e0b7eb8755df4be1f113959f2749b9c7017471a8.mp3",
+    "n_frames": 200
+}
