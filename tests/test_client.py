@@ -18,24 +18,13 @@ headers = {
     "Content-Type": "application/json",
 }
 
-def run_chat(server_url):
-    request = {
-        "user_id": "65284b18f8bbb9bff13ebe65",
-        "agent_id": "67069a27fa89a12910650755",
-        "user_message": {
-            "content": "make a picture of the best year ever",
-        }
-    }
-    response = requests.post(server_url+"/chat", json=request, headers=headers)
-    print("Status Code:", response.status_code)
-    print(json.dumps(response.json(), indent=2))
 
 def run_create(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
         "tool": "flux_dev",
         "args": {
-            "prompt": "a picture of a fancy dog",
+            "prompt": "a picture of a fancy kangaroo in disco mode",
         }
     }
     response = requests.post(server_url+"/create", json=request, headers=headers)
@@ -43,10 +32,25 @@ def run_create(server_url):
     print("Status Code:", response.status_code)
     print(json.dumps(response.json(), indent=2))
 
+
+def run_chat(server_url):
+    request = {
+        "user_id": "65284b18f8bbb9bff13ebe65",
+        "agent_id": "67069a27fa89a12910650755",
+        "user_message": {
+            "content": "make a piece of audio using stable_audio of some Jamaican ska music",
+        }
+    }
+    response = requests.post(server_url+"/chat", json=request, headers=headers)
+    print("Status Code:", response.status_code)
+    print(json.dumps(response.json(), indent=2))
+
+
 def test_client():    
-    run_server = True
+    run_server = False
     try:
         if run_server:
+            # uvicorn eve.api:web_app --host 0.0.0.0 --port 8000 --reload
             server = subprocess.Popen(
                 ["uvicorn", "eve.api:web_app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
                 stdout=subprocess.PIPE,
@@ -56,14 +60,16 @@ def test_client():
             server_url = "http://localhost:8000"
         else:
             server_url = "https://edenartlab--tools-new-dev-fastapi-app.modal.run"
+            # server_url = "http://localhost:8000"
 
         # Run the tests
         print("server_url", server_url)
-        print("\nRunning chat test...")
-        run_chat(server_url)
         
         print("\nRunning create test...")
         run_create(server_url)
+
+        print("\nRunning chat test...")
+        run_chat(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

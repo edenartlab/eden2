@@ -1,6 +1,28 @@
 # eve/cli.py
 
+
+
+import json
+from bson import ObjectId
+
+def default(o):
+    if isinstance(o, ObjectId):
+        return str(o)
+    return o
+
+
+def print_json(obj):
+    return json.dumps(obj, indent=2, default=default)
+
+
+
+
+
+
+
+
 import multiprocessing
+import traceback
 import os
 import random
 import json
@@ -117,6 +139,7 @@ def update(db: str, tools: tuple):
             click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
+            traceback.print_exc()
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
     click.echo(click.style(f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True))
@@ -160,6 +183,7 @@ def update2(db: str, agents: tuple):
             click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
+            traceback.print_exc()
             click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
 
     click.echo(
@@ -206,7 +230,7 @@ def create(ctx, tool: str, db: str):
         result = prepare_result(result, db=db)
         click.echo(
             click.style(
-                f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
+                f"\nResult for {tool.key}: {print_json(result)}", fg=color
             )
         )
 
@@ -247,7 +271,7 @@ def test(
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(
-            click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color)
+            click.style(f"Args: {print_json(tool.test_args)}", fg=color)
         )
 
         if api:
@@ -271,7 +295,7 @@ def test(
             result = prepare_result(result, db=db)
             click.echo(
                 click.style(
-                    f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
+                    f"\nResult for {tool.key}: {print_json(result)}", fg=color
                 )
             )
 

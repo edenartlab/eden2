@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .. import s3
 from .. import eden_utils
 from ..models import User, Model
-from ..task import Task
+from ..task import Task, Creation
 from ..tool import Tool
 
 
@@ -162,7 +162,20 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler == "normal":
             output = {"output": output}
             result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True)
-        
+
+            for output in result["output"]:
+            # name = preprocess_result.get("name") or task_args.get("prompt")
+                name = task.args.get("prompt")
+                creation = Creation(
+                    user=task.user,
+                    task=task.id,
+                    tool=task.tool,
+                    filename=output['filename'],
+                    mediaAttributes=output["mediaAttributes"],
+                    name=name
+                )
+                creation.save()
+    
         elif output_handler in ["trainer", "eden"]: 
             result = replicate_process_eden(output, db=task.db)
 

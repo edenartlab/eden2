@@ -70,8 +70,11 @@ async def handle_chat(
     _: dict = Depends(auth.authenticate_admin)
 ):
     user_id = request.user_id
+    print("USER ID !!", user_id)
     agent_id = request.agent_id
+    print("AGENT ID !!", agent_id)
     thread_id = request.thread_id
+    print("THREAD ID !!", thread_id)
     user_message = UserMessage(**request.user_message)
 
     tools = get_tools_from_mongo(db=db)

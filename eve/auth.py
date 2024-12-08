@@ -7,7 +7,7 @@ from bson import ObjectId
 import httpx
 from pydantic import BaseModel
 
-from .mongo2 import get_collection
+from .mongo import get_collection
 
 # Initialize Clerk SDK
 clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))

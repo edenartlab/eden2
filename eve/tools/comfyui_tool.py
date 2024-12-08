@@ -31,11 +31,11 @@ class ComfyUITool(Tool):
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
-        schema["workspace"] = file_path.replace("api.yaml", "test.json").split("/")[-4]
         schema["comfyui_map"] = {}
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
                 schema["comfyui_map"][field] = props['comfyui']
+        schema["workspace"] = schema.get("workspace") or file_path.replace("api.yaml", "test.json").split("/")[-4]
         return super().convert_from_yaml(schema, file_path)
     
     @Tool.handle_run

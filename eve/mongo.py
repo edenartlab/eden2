@@ -41,7 +41,6 @@ def Collection(name):
     return wrapper
 
 
-# change to createdAt, updatedAt
 class Document(BaseModel):
     id: Optional[ObjectId] = Field(default_factory=ObjectId, alias="_id")
     createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -138,11 +137,10 @@ class Document(BaseModel):
         filter = upsert_filter or {"_id": self.id}
 
         schema = self.model_dump(by_alias=True, exclude={"db"})
+        self.model_validate(schema)
         schema = self.convert_to_mongo(schema)
         schema.update(kwargs)
         schema.pop("_id")
-
-        self.model_validate(schema)
 
         self.updatedAt = datetime.now(timezone.utc)
         collection = self.get_collection(db)
@@ -261,7 +259,7 @@ class Document(BaseModel):
         """
         Reload the current document from the database to ensure the instance is up-to-date.
         """
-        updated_instance = self.load(self.id, self.db)
+        updated_instance = self.from_mongo(self.id, self.db)
         if updated_instance:
             for key, value in updated_instance.dict().items():
                 setattr(self, key, value)

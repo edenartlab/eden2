@@ -24,7 +24,7 @@ from .mongo import Document, Collection, get_collection
 
 
 @Collection("tools3")
-class Tool(Document):
+class Tool(Document, ABC):
     """
     Base class for all tools.
     """
@@ -57,13 +57,13 @@ class Tool(Document):
             api_files = get_api_files(include_inactive=True)
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")            
-            parent_api_file = api_files[key]
-            with open(parent_api_file, 'r') as f:
+            api_file = api_files[key]
+            with open(api_file, 'r') as f:
                 schema = yaml.safe_load(f)  
         else:
-            schema = get_collection("tools3", db=db).find_one({"key": key})
+            schema = get_collection(cls.collection_name, db=db).find_one({"key": key})
         if schema.get("handler") == "comfyui":
-            schema["workspace"] = parent_api_file.split('/')[-4]
+            schema["workspace"] = api_file.split('/')[-4]
         return schema
     
     @classmethod
@@ -122,6 +122,11 @@ class Tool(Document):
         with open(test_file, 'r') as f:
             schema["test_args"] = json.load(f)
 
+
+        # Todo: from_yaml schema["key"] should happen here
+        # also make load/from_mongo not know about "key"
+
+        
         return schema
 
     @classmethod
@@ -250,7 +255,7 @@ class Tool(Document):
                 args = self.prepare_args(args)
                 add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                user = User.load(user_id, db=db)
+                user = User.from_mongo(user_id, db=db)
                 user.verify_manna_balance(cost)
                 
             except Exception as e:
@@ -259,13 +264,13 @@ class Tool(Document):
 
             # create task and set to pending
             task = Task(
+                user=user_id, 
                 tool=self.key, 
                 parent_tool=self.parent_tool,
                 output_type=self.output_type, 
                 args=args, 
-                user=user_id, 
+                mock=mock,
                 cost=cost,
-                mock=mock
             )
             task.save(db=db)
 

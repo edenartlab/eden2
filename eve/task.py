@@ -6,7 +6,7 @@ import asyncio
 
 from .models import User
 #from .mongo import MongoModel, get_collection
-from .mongo2 import Document, Collection, get_collection
+from .mongo import Document, Collection, get_collection
 from . import eden_utils
 
 
@@ -28,14 +28,14 @@ class Creation(Document):
 
 @Collection("tasks3")
 class Task(Document):
+    user: ObjectId
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
     args: Dict[str, Any]
     mock: bool = False
-    user: ObjectId
-    handler_id: Optional[str] = None
     cost: float = None
+    handler_id: Optional[str] = None
     status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
     error: Optional[str] = None
     result: Optional[Any] = None
@@ -105,19 +105,38 @@ async def _task_handler(func, *args, **kwargs):
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
             result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True)
-            results.extend([result])
+            
 
-            for output in result["output"]:
-                name = preprocess_result.get("name") or task_args.get("prompt")
-                creation = Creation(
+
+
+
+            for o in range(len(result["output"])):
+                output = result["output"][o]
+                name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
+                if not name:
+                    name = args.get("interpolation_prompts") or args.get("interpolation_texts")
+                    if name:
+                        name = " to ".join(name)
+                
+                new_creation = Creation(
                     user=task.user,
+                    agent=None,
                     task=task.id,
                     tool=task.tool,
                     filename=output['filename'],
-                    mediaAttributes=output["mediaAttributes"],
-                    name=name
+                    mediaAttributes=output['mediaAttributes'],
+                    name=name,
+                    attributes={},
+                    private=True,
+                    deleted=False,
                 )
-                creation.save()
+                new_creation.save(db=task.db)
+                result["output"][o]["creation"] = new_creation.id
+                # print("NEW CREATION", new_creation)
+
+
+            results.extend([result])
+
 
             if i == n_samples - 1:
                 task_update = {

@@ -17,7 +17,7 @@ import magic
 import instructor
 from instructor.function_calls import openai_schema
 
-from eve.mongo2 import Document, Collection, get_collection
+from eve.mongo import Document, Collection, get_collection
 from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
 from eve.task import Task
 from eve.tool import Tool, get_tools_from_mongo
@@ -211,9 +211,9 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
-    user = User.load(user_id, db=db)
+    user = User.from_mongo(user_id, db=db)
     if thread_id:
-        thread = Thread.load(thread_id, db=db)
+        thread = Thread.from_mongo(thread_id, db=db)
     else:
         thread = Thread.create(db=db, user=user.id, agent=agent_id)
 
