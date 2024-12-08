@@ -164,7 +164,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True)
 
             for output in result["output"]:
-            # name = preprocess_result.get("name") or task_args.get("prompt")
+                # name = preprocess_result.get("name") or task_args.get("prompt")
                 name = task.args.get("prompt")
                 creation = Creation(
                     user=task.user,
@@ -174,7 +174,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     mediaAttributes=output["mediaAttributes"],
                     name=name
                 )
-                creation.save()
+                creation.save(db=task.db)
+                output['creation'] = creation.id
     
         elif output_handler in ["trainer", "eden"]: 
             result = replicate_process_eden(output, db=task.db)
@@ -199,9 +200,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time
-
         result = result if isinstance(result, list) else [result]
-
         task.status = "completed"
         task.result = result
         task.save()
