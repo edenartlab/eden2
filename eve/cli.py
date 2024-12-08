@@ -1,26 +1,5 @@
 # eve/cli.py
 
-
-
-import json
-from bson import ObjectId
-
-def default(o):
-    if isinstance(o, ObjectId):
-        return str(o)
-    return o
-
-
-def print_json(obj):
-    return json.dumps(obj, indent=2, default=default)
-
-
-
-
-
-
-
-
 import multiprocessing
 import traceback
 import os
@@ -36,7 +15,12 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import save_test_results, prepare_result, CLICK_COLORS
+from .eden_utils import (
+    save_test_results, 
+    prepare_result, 
+    print_json,
+    CLICK_COLORS
+)
 from .tool import (
     Tool,
     get_api_files,

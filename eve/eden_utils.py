@@ -1,19 +1,19 @@
 import os
 import re
-import random
 import json
 import time
 import math
 import magic
 import httpx
-import base64
 import random
+import base64
 import pathlib
 import textwrap
 import requests
 import tempfile
 import subprocess
 import numpy as np
+from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
 from moviepy.editor import VideoFileClip, ImageClip, AudioClip
@@ -727,6 +727,14 @@ def save_test_results(tools, results):
                     with open(file_path, "wb") as f:
                         f.write(response.content)
     print(f"Test results saved to {results_dir}")
+
+
+def print_json(obj):
+    def default(o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        return o
+    return json.dumps(obj, indent=2, default=default)
 
 
 CLICK_COLORS = [
