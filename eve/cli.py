@@ -354,6 +354,7 @@ def start_local_chat(db: str, env_path: str):
 
 
 @cli.command()
+@click.argument("agent_path", nargs=1, required=True)
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
@@ -365,15 +366,7 @@ def start_local_chat(db: str, env_path: str):
     type=click.Path(exists=True, resolve_path=True),
     help="Path to environment file",
 )
-@click.option(
-    "--agent_path",
-    help="Path to the agent directory",
-)
-@click.option(
-    "--agent_id",
-    help="ID of the agent",
-)
-def start(db: str, env: str, agents: tuple):
+def start(db: str, env: str, agent_path: str):
     """Start one or more clients from yaml files"""
 
     db = db.upper()
@@ -381,13 +374,12 @@ def start(db: str, env: str, agents: tuple):
     clients_to_start = {}
 
     # Load all yaml files and collect enabled clients
-    for yaml_path in agents:
-        with open(yaml_path) as f:
-            config = yaml.safe_load(f)
-            if "clients" in config:
-                for client_type, settings in config["clients"].items():
-                    if settings.get("enabled", False):
-                        clients_to_start[ClientType(client_type)] = yaml_path
+    with open(agent_path) as f:
+        config = yaml.safe_load(f)
+        if "clients" in config:
+            for client_type, settings in config["clients"].items():
+                if settings.get("enabled", False):
+                    clients_to_start[ClientType(client_type)] = agent_path
 
     if not clients_to_start:
         click.echo(click.style("No enabled clients found in yaml files", fg="red"))
@@ -401,7 +393,9 @@ def start(db: str, env: str, agents: tuple):
         if client_type != ClientType.LOCAL:
             try:
                 if client_type == ClientType.DISCORD:
-                    p = multiprocessing.Process(target=start_discord, args=(env_path,))
+                    p = multiprocessing.Process(
+                        target=start_discord, args=(env_path, yaml_path)
+                    )
                 # elif client_type == ClientType.TELEGRAM:
                 #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))
 
