@@ -58,8 +58,9 @@ class Agent(Document, ABC):
         with open(test_file, 'r') as f:
             schema["test_args"] = json.load(f)
 
-        owner = schema.get('owner')
-        schema['owner'] = ObjectId(owner) if isinstance(owner, str) else owner         = ObjectId(schema['owner']) if isinstance(schema['owner'], str) else schema.get('owner')
+        schema['owner'] = ObjectId("669dbb0613310df74fecde1d")
+        # owner = schema.get('owner')
+        # schema['owner'] = ObjectId(owner) if isinstance(owner, str) else owner         = ObjectId(schema['owner']) if isinstance(schema['owner'], str) else schema.get('owner')
 
         return schema
     

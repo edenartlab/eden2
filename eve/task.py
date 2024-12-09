@@ -21,7 +21,7 @@ class Creation(Document):
     mediaAttributes: Optional[Dict[str, Any]] = None
     name: Optional[str] = None
     attributes: Optional[Dict[str, Any]] = None
-    private: bool = False
+    public: bool = False
     deleted: bool = False
     
 

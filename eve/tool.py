@@ -33,6 +33,7 @@ class Tool(Document, ABC):
     name: str
     description: str
     tip: Optional[str] = None
+    thumbnail: Optional[str] = None
     
     output_type: Literal["boolean", "string", "integer", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
@@ -43,7 +44,7 @@ class Tool(Document, ABC):
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
     
-    model: Type[BaseModel] #= None  # should this be optional?
+    model: Type[BaseModel]
     handler: Literal["local", "modal", "comfyui", "replicate", "gcp"] = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
@@ -122,11 +123,6 @@ class Tool(Document, ABC):
         with open(test_file, 'r') as f:
             schema["test_args"] = json.load(f)
 
-
-        # Todo: from_yaml schema["key"] should happen here
-        # also make load/from_mongo not know about "key"
-
-        
         return schema
 
     @classmethod
@@ -146,9 +142,9 @@ class Tool(Document, ABC):
     def convert_to_mongo(cls, schema: dict) -> dict:
         parameters = []
         for k, v in schema["parameters"].items():
-            v['schema'] = {
+            v["schema"] = {
                 key: v.pop(key) 
-                for key in ['type', 'items', 'anyOf']
+                for key in ["type", "items", "anyOf"]
                 if key in v
             }
             parameters.append({"name": k, **v})
