@@ -27,4 +27,4 @@ image = (
 )
 @modal.asgi_app()
 def modal_app() -> None:
-    telegram_main(env=".env")
+    telegram_main(env_path=".env")

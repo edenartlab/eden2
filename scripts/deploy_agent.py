@@ -9,6 +9,8 @@ from dotenv import dotenv_values
 root_dir = Path(__file__).parent.parent
 root_env = root_dir / ".env"
 
+processed_environments = set()
+
 
 def check_environment_exists(env_name: str) -> bool:
     result = subprocess.run(
@@ -52,24 +54,24 @@ def process_agent(agent_path: Path):
         print(f"No deployments found in {agent_path}")
         return
 
+    agent_key = agent_config.get("key")
+    if not agent_key:
+        return
+
+    # Create environment and secrets once per agent
+    if not check_environment_exists(agent_key):
+        create_environment(agent_key)
+
+    eve_secrets = dotenv_values(root_env)
+    create_secrets(agent_key, eve_secrets, "eve-secrets")
+
+    env_file = agent_path.parent / ".env"
+    if env_file.exists():
+        client_secrets = dotenv_values(env_file)
+        create_secrets(agent_key, client_secrets, "client-secrets")
+
+    # Deploy each client
     for deployment in agent_config["deployments"]:
-        # Check for environment file
-        agent_key = agent_config.get("key")
-        env_file = agent_path.parent / f".env.{agent_key}"
-        if env_file.exists():
-            # Create environment if it doesn't exist
-            if not check_environment_exists(agent_key):
-                create_environment(agent_key)
-
-            # Load and create secrets
-            eve_secrets = dotenv_values(root_env)
-            client_secrets = dotenv_values(env_file)
-            create_secrets(agent_key, eve_secrets, "eve-secrets")
-            create_secrets(agent_key, client_secrets, "client-secrets")
-        else:
-            print(f"Warning: Environment file not found: {env_file}")
-
-        # Deploy the client
         deploy_client(deployment, agent_key)
 
 
@@ -85,20 +87,21 @@ def main():
     agents_dir = root_dir / "eve/agents"
 
     if args.agents:
-        # Process only specified agents
         agent_names = [name.strip() for name in args.agents.split(",")]
         for agent_name in agent_names:
-            agent_file = agents_dir / f"{agent_name}.yaml"
-            if agent_file.exists():
-                print(f"\nProcessing agent: {agent_file.name}")
-                process_agent(agent_file)
+            agent_path = agents_dir / agent_name / "api.yaml"
+            if agent_path.exists():
+                print(f"\nProcessing agent: {agent_path.name}")
+                process_agent(agent_path)
             else:
-                print(f"Warning: Agent file not found: {agent_file}")
+                print(f"Warning: Agent file not found: {agent_path}")
     else:
-        # Process all yaml files in the agents directory
-        for agent_file in agents_dir.glob("*.yaml"):
-            print(f"\nProcessing agent: {agent_file.name}")
-            process_agent(agent_file)
+        for agent_dir in agents_dir.iterdir():
+            if agent_dir.is_dir():
+                agent_file = agent_dir / "api.yaml"
+                if agent_file.exists():
+                    print(f"\nProcessing agent: {agent_file.name}")
+                    process_agent(agent_file)
 
 
 if __name__ == "__main__":

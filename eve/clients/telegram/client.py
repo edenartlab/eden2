@@ -21,17 +21,15 @@ from eve.thread import Thread
 from eve.eden_utils import prepare_result
 
 
+from eve.agent import Agent
+
 user_id = "65284b18f8bbb9bff13ebe65"
 agent_id = "6732410592ff51c38f4e0aa1"
 thread_id = "67491a4ecc662e6ec2c7cd15"
 db = "STAGE"
 
-from eve.agent import Agent
-
 agent = Agent.load(db="STAGE", key="abraham")
 name = agent.name
-print(agent)
-
 
 # Logging configuration
 logging.basicConfig(
@@ -252,13 +250,13 @@ class EdenTG:
             )
             logging.info(f"Received message from {user_name}: {cleaned_text}")
 
-        print("cleaned text", cleaned_text)
+        logging.info("cleaned text", cleaned_text)
 
         user_message = UserMessage(
             name=user_name, content=cleaned_text, attachments=attachments
         )
 
-        print("user message", user_message)
+        logging.info("user message", user_message)
 
         tools = get_tools_from_mongo(db=db)
 
