@@ -50,7 +50,7 @@ def get_agent(agent_path: Optional[str], agent_key: Optional[str], db: str = "ST
     if agent_path and agent_key:
         raise ValueError("Cannot specify both agent_path and agent_key")
     if agent_path:
-        return Agent.load_from_dir(agent_path, db=db)
+        return Agent.from_yaml(str(agent_path), db=db)
     elif agent_key:
         return Agent.load(agent_key, db=db)
     else:

@@ -6,6 +6,7 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import add_breadcrumb, capture_exception, capture_message
+import re
 import sentry_sdk
 import traceback
 import os
@@ -207,7 +208,7 @@ async def async_prompt_thread(
     thread_id: Optional[str],
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
-    force_reply: bool = False,
+    force_reply: bool = True,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     agent = Agent.from_mongo(agent_id, db=db)
@@ -230,13 +231,13 @@ async def async_prompt_thread(
     thread.push("messages", user_messages)
 
     # Check if agent name appears in any user message content
-    agent_name_mentioned = any(
-        agent.name.lower() in (msg.content or "").lower() 
+    agent_mentioned = any(
+        re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
     )
 
-    # if not agent_name_mentioned and not force_reply:
-    #     return
+    if not agent_mentioned and not force_reply:
+        return
 
     # think = True
     # if think:

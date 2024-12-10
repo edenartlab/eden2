@@ -29,7 +29,7 @@ generic_instructions = """Follow these additional guidelines:
 
 # todo: consolidate with Tool class
 @Collection("agents3")
-class Agent(Document, ABC):
+class Agent(Document):
     """
     Base class for all agents.
     """
