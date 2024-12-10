@@ -42,13 +42,13 @@ parameters:
   age:
     anyOf: 
       - type: integer
-        minimum: -16
-        maximum: 144
-        default: random
       - type: string
     label: Age
     description: Age of the widget
     tip: If you don't set this, it will be randomized between minimum and maximum
+    minimum: -16
+    maximum: 144
+    default: random
     comfyui:
       node_id: 162
       field: height

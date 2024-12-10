@@ -6,15 +6,15 @@ from ..tool import Tool
 from ..task import Task
 
 
-class ComfyUIParameterMap(BaseModel):
-    input: str
-    output: str
+# class ComfyUIParameterMap(BaseModel):
+#     input: str
+#     output: str
 
 class ComfyUIRemap(BaseModel):
     node_id: int
     field: str
     subfield: str
-    value: List[ComfyUIParameterMap]
+    map: Dict[str, str]
 
 class ComfyUIInfo(BaseModel):
     node_id: int
@@ -30,25 +30,23 @@ class ComfyUITool(Tool):
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
     @classmethod
-    def _create_tool(cls, key: str, schema: dict, test_args: dict, **kwargs):
-        """Create a new tool instance from a schema"""
-
-        tool = super()._create_tool(key, schema, test_args, **kwargs)
+    def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
+        schema["comfyui_map"] = {}
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
-                tool.comfyui_map[field] = props['comfyui']
-
-        return tool
-
+                schema["comfyui_map"][field] = props['comfyui']
+        schema["workspace"] = schema.get("workspace") or file_path.replace("api.yaml", "test.json").split("/")[-4]
+        return super().convert_from_yaml(schema, file_path)
+    
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
-        cls = modal.Cls.lookup(f"comfyui-{self.workspace}-{db}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui2-{self.workspace}-{db}", "ComfyUI")
         result = await cls().run.remote.aio(self.parent_tool or self.key, args, db)
         return result
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        cls = modal.Cls.lookup(f"comfyui-{self.workspace}-{task.db}", "ComfyUI")
+        cls = modal.Cls.lookup(f"comfyui2-{self.workspace}-{task.db}", "ComfyUI")
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
         

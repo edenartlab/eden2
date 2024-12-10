@@ -1,9 +1,9 @@
 from enum import Enum
 from bson import ObjectId
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 
 # from .mongo import MongoModel, get_collection
-from .mongo2 import Document, Collection, get_collection
+from .mongo import Document, Collection, get_collection
 
 
 @Collection("models")
@@ -71,30 +71,32 @@ class Model(Document):
         super().update(**kwargs)
 
 
+
 @Collection("users")
 class User(Document):
-    userId: str
-    isWeb2: bool
-    isAdmin: bool
-    username: str
-    userImage: str
+    # type of user    
+    type: Optional[Literal["user", "agent"]] = "user"
+    isAdmin: Optional[bool] = False
+    deleted: Optional[bool] = False
+
+    # auth settings
+    userId: Optional[str] = None
+    isWeb2: Optional[bool] = False
     email: Optional[str] = None
     normalizedEmail: Optional[str] = None
-    featureFlags: List[str]
+
+    # agent settings
+    agent: Optional[ObjectId] = None
+    owner: Optional[ObjectId] = None
+
+    # permissions
+    featureFlags: Optional[List[str]] = None
     subscriptionTier: Optional[int] = None
     highestMonthlySubscriptionTier: Optional[int] = None
-    deleted: bool
-    # mannas: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
-    # def __init__(self, env, **data):
-    #     super().__init__(env=env, **data)
-    #     self.mannas = get_collection("mannas", env=env)
-    #     if not self.mannas.find_one({"user": self.id}):
-    #         raise Exception("Mannas not found")
-
-    # @classmethod
-    # def get_collection_name(cls) -> str:
-    #     return "users"
+    # profile
+    username: str
+    userImage: str
 
     def verify_manna_balance(self, amount: float):
         mannas = get_collection("mannas", db=self.db)
@@ -110,12 +112,13 @@ class User(Document):
     def spend_manna(self, amount: float):
         if amount == 0:
             return
-        # manna = self.mannas.find_one({"user": self.id})
+
         mannas = get_collection("mannas", db=self.db)
         manna = mannas.find_one({"user": self.id})
         if not manna:
             raise Exception("Mannas not found")
         subscription_balance = manna.get("subscriptionBalance", 0)
+
         # Use subscription balance first
         if subscription_balance > 0:
             subscription_spend = min(subscription_balance, amount)
@@ -124,6 +127,7 @@ class User(Document):
                 {"$inc": {"subscriptionBalance": -subscription_spend}},
             )
             amount -= subscription_spend
+
         # If there's remaining amount, use regular balance
         if amount > 0:
             mannas.update_one({"user": self.id}, {"$inc": {"balance": -amount}})
@@ -131,6 +135,7 @@ class User(Document):
     def refund_manna(self, amount: float):
         if amount == 0:
             return
+
         # todo: make it refund to subscription balance first
         mannas = get_collection("mannas", db=self.db)
         mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})

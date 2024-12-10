@@ -14,6 +14,7 @@ from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
+from eve.mongo import serialize_document
 
 # Config setup
 db = os.getenv("DB", "STAGE").upper()
@@ -39,20 +40,20 @@ web_app.add_middleware(
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
 
-
 class TaskRequest(BaseModel):
     tool: str
     args: dict
     user_id: str
 
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
-    tool = Tool.load(tool, db=db)
+    tool = Tool.load(key=tool, db=db)
     return await tool.async_start_task(user_id, args, db=db)
 
 @web_app.post("/create")
 async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    return await handle_task(request.tool, request.user_id, request.args)
-
+    result = await handle_task(request.tool, request.user_id, request.args)
+    return serialize_document(result.model_dump())
+    
 # @web_app.post("/create")
 # async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
 #     return await handle_task(request.tool, auth.userId, request.args)
@@ -70,8 +71,11 @@ async def handle_chat(
     _: dict = Depends(auth.authenticate_admin)
 ):
     user_id = request.user_id
+    print("USER ID !!", user_id)
     agent_id = request.agent_id
+    print("AGENT ID !!", agent_id)
     thread_id = request.thread_id
+    print("THREAD ID !!", thread_id)
     user_message = UserMessage(**request.user_message)
 
     tools = get_tools_from_mongo(db=db)
@@ -86,7 +90,7 @@ async def handle_chat(
 
     try:
         async def run_prompt():
-            async for msg in async_prompt_thread(
+            async for _ in async_prompt_thread(
                 db=db,
                 user_id=user_id,
                 agent_id=agent_id,
@@ -113,13 +117,13 @@ async def stream_chat(
     auth: dict = Depends(auth.authenticate),
 ):
     user_messages = UserMessage(**request.user_message)
-
+    
     async def event_generator():
         async for update in async_prompt_thread(
             db=db,
             user_id=auth.userId,
             thread_name=request.thread_name,
-            user_messages=UserMessage(**request.user_message),
+            user_messages=user_messages,
             tools=get_tools_from_mongo(db=db),
             provider="anthropic",
         ):

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .. import s3
 from .. import eden_utils
 from ..models import User, Model
-from ..task import Task
+from ..task import Task, Creation
 from ..tool import Tool
 
 
@@ -91,14 +91,15 @@ class ReplicateTool(Tool):
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
-        for key, param in self.model.model_fields.items():
-            metadata = param.json_schema_extra or {}
-            is_array = metadata.get('is_array')
-            alias = metadata.get('alias')
-            if is_array and isinstance(args[key], list):
-                new_args[key] = "|".join([str(p) for p in args[key]])
-            if alias and key in new_args:
-                new_args[alias] = new_args.pop(key)
+        for field in self.model.model_fields.keys():
+            parameter = self.parameters[field]
+            is_array = parameter.get('type') == 'array'
+            alias = parameter.get('alias')
+            if field in new_args:
+                if is_array:
+                    new_args[field] = "|".join([str(p) for p in args[field]])
+                if alias:
+                    new_args[alias] = new_args.pop(field)
         return new_args
 
     def _create_prediction(self, args: dict, webhook=True):
@@ -161,7 +162,21 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler == "normal":
             output = {"output": output}
             result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True)
-        
+
+            for output in result["output"]:
+                # name = preprocess_result.get("name") or task_args.get("prompt")
+                name = task.args.get("prompt")
+                creation = Creation(
+                    user=task.user,
+                    task=task.id,
+                    tool=task.tool,
+                    filename=output['filename'],
+                    mediaAttributes=output["mediaAttributes"],
+                    name=name
+                )
+                creation.save(db=task.db)
+                output['creation'] = creation.id
+    
         elif output_handler in ["trainer", "eden"]: 
             result = replicate_process_eden(output, db=task.db)
 
@@ -185,9 +200,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time
-
         result = result if isinstance(result, list) else [result]
-
         task.status = "completed"
         task.result = result
         task.save()

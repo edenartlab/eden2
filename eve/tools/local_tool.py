@@ -1,5 +1,4 @@
 import uuid
-import modal
 from typing import Dict
 import asyncio
 

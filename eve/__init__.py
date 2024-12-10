@@ -13,7 +13,3 @@ if os.path.exists(eve_path):
 env_path = ".env"
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
-
-
-# if not os.getenv("OPENAI_API_KEY"):
-#     print("\033[93m⚠️  Warning!!! \033[91m OPENAI_API_KEY not set\033[0m")

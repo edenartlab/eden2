@@ -1,6 +1,7 @@
 # eve/cli.py
 
 import multiprocessing
+import traceback
 import os
 import random
 import json
@@ -14,19 +15,16 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import save_test_results, prepare_result, CLICK_COLORS
-from .tool import (
-    Tool,
-    get_tool_dirs,
-    get_tools_from_mongo,
-    get_tools_from_dirs,
-    save_tool_from_dir,
+from .eden_utils import (
+    save_test_results, 
+    prepare_result, 
+    print_json,
+    CLICK_COLORS
 )
-from eve.agent import (
-    Agent,
-    save_agent_from_dir,
-    get_agent_dirs,
-)
+from eve import tool as eve_tool
+from eve import agent as eve_agent
+from eve.tool import Tool
+from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
 
 api_tools_order = [
@@ -84,86 +82,99 @@ def cli():
     pass
 
 
-@cli.command()
+@cli.group()
+def tool():
+    """Tool management commands"""
+    pass
+
+
+@cli.group()
+def agent():
+    """Agent management commands"""
+    pass
+
+
+@tool.command()
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
-@click.argument("tools", nargs=-1, required=False)
-def update(db: str, tools: tuple):
+@click.argument("names", nargs=-1, required=False)
+def update(db: str, names: tuple):
     """Upload tools to mongo"""
-
     db = db.upper()
-
-    tool_dirs = get_tool_dirs(include_inactive=True)
+    api_files = eve_tool.get_api_files(include_inactive=True)
     tools_order = {tool: index for index, tool in enumerate(api_tools_order)}
 
-    if tools:
-        tool_dirs = {k: v for k, v in tool_dirs.items() if k in tools}
+    if names:
+        api_files = {k: v for k, v in api_files.items() if k in names}
     else:
         confirm = click.confirm(
-            f"Update all {len(tool_dirs)} tools on {db}?", default=False
+            f"Update all {len(api_files)} tools on {db}?", default=False
         )
         if not confirm:
             return
 
     updated = 0
-    for key, tool_dir in tool_dirs.items():
+    for key, api_file in api_files.items():
         try:
             order = tools_order.get(key, len(api_tools_order))
-            save_tool_from_dir(tool_dir, order=order, db=db)
-            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
+            tool = Tool.from_yaml(api_file)
+            tool.save(db=db, order=order)
+            click.echo(click.style(f"Updated tool {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
-            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
+            traceback.print_exc()
+            click.echo(click.style(f"Failed to update tool {db}:{key}: {e}", fg="red"))
 
+    click.echo(click.style(f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True))
     click.echo(
         click.style(
-            f"\nUpdated {updated} of {len(tool_dirs)} tools", fg="blue", bold=True
+            f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True
         )
     )
 
 
-@cli.command()
+@agent.command()
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
-@click.argument("agents", nargs=-1, required=False)
-def update2(db: str, agents: tuple):
+@click.argument("names", nargs=-1, required=False)
+def update(db: str, names: tuple):
     """Upload agents to mongo"""
-
     db = db.upper()
-
-    agent_dirs = get_agent_dirs(include_inactive=True)
+    api_files = eve_agent.get_api_files(include_inactive=True)
     agents_order = {agent: index for index, agent in enumerate(api_agents_order)}
 
-    if agents:
-        agent_dirs = {k: v for k, v in agent_dirs.items() if k in agents}
+    if names:
+        api_files = {k: v for k, v in api_files.items() if k in names}
     else:
         confirm = click.confirm(
-            f"Update all {len(agent_dirs)} agents on {db}?", default=False
+            f"Update all {len(api_files)} agents on {db}?", default=False
         )
         if not confirm:
             return
 
     updated = 0
-    for key, agent_dir in agent_dirs.items():
+    for key, api_file in api_files.items():
         try:
             order = agents_order.get(key, len(api_agents_order))
-            save_agent_from_dir(agent_dir, order=order, db=db)
-            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
+            agent = Agent.from_yaml(api_file)
+            agent.save(db=db, order=order)
+            click.echo(click.style(f"Updated agent {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
-            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
+            traceback.print_exc()
+            click.echo(click.style(f"Failed to update agent {db}:{key}: {e}", fg="red"))
 
     click.echo(
         click.style(
-            f"\nUpdated {updated} of {len(agent_dirs)} agents", fg="blue", bold=True
+            f"\nUpdated {updated} of {len(api_files)} agents", fg="blue", bold=True
         )
     )
 
@@ -182,7 +193,7 @@ def create(ctx, tool: str, db: str):
 
     db = db.upper()
 
-    tool = Tool.load(tool, db=db)
+    tool = Tool.load(key=tool, db=db)
 
     # Get args
     args = dict()
@@ -205,7 +216,7 @@ def create(ctx, tool: str, db: str):
         result = prepare_result(result, db=db)
         click.echo(
             click.style(
-                f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
+                f"\nResult for {tool.key}: {print_json(result)}", fg=color
             )
         )
 
@@ -246,7 +257,7 @@ def test(
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(
-            click.style(f"Args: {json.dumps(tool.test_args, indent=2)}", fg=color)
+            click.style(f"Args: {print_json(tool.test_args)}", fg=color)
         )
 
         if api:
@@ -270,7 +281,7 @@ def test(
             result = prepare_result(result, db=db)
             click.echo(
                 click.style(
-                    f"\nResult for {tool.key}: {json.dumps(result, indent=2)}", fg=color
+                    f"\nResult for {tool.key}: {print_json(result)}", fg=color
                 )
             )
 
@@ -285,7 +296,7 @@ def test(
         return results
 
     if yaml:
-        all_tools = get_tools_from_dirs(tools=tools)
+        all_tools = get_tools_from_api_files(tools=tools)
     else:
         all_tools = get_tools_from_mongo(db=db, tools=tools)
 
@@ -336,8 +347,6 @@ def test(
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
-    agent = "67069a27fa89a12910650755"
-    # "67069a27fa89a12910650755"
     asyncio.run(async_chat(db, agent, thread, debug))
 
 

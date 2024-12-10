@@ -1,19 +1,19 @@
 import os
 import re
-import random
 import json
 import time
 import math
 import magic
 import httpx
-import base64
 import random
+import base64
 import pathlib
 import textwrap
 import requests
 import tempfile
 import subprocess
 import numpy as np
+from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
 from moviepy.editor import VideoFileClip, ImageClip, AudioClip
@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def prepare_result(result, db: str, summarize=False):
+def prepare_result(result, db: str, summarize=False, json=True):
     if isinstance(result, dict):
         if "error" in result:
             return result
@@ -36,11 +36,11 @@ def prepare_result(result, db: str, summarize=False):
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, db, summarize) for k, v in result.items()}
+        return {k: prepare_result(v, db, summarize, json=json) for k, v in result.items()}
     elif isinstance(result, list):
-        return [prepare_result(item, db, summarize) for item in result]
+        return [prepare_result(item, db, summarize, json=json) for item in result]
     else:
-        return result
+        return print_json(result) if json else result
 
 
 def upload_result(result, db: str, save_thumbnails=False):
@@ -121,7 +121,7 @@ def download_file(url, local_filepath, overwrite=False):
     local_filepath.parent.mkdir(parents=True, exist_ok=True)
 
     if local_filepath.exists() and not overwrite:
-        # print(f"File {local_filepath} already exists. Skipping download.")
+        print(f"File {local_filepath} already exists. Skipping download.")
         return str(local_filepath)
     else:
         print(f"Downloading file from {url} to {local_filepath}")
@@ -687,61 +687,54 @@ def random_string(length=28):
 
 
 def save_test_results(tools, results):
-    print("saving TBD")
-    return 
-
     if not results:
         return
+    
     results_dir = os.path.join(
         "tests", "out", f"results_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     )
     os.makedirs(results_dir, exist_ok=True)
+    
     for tool, tool_result in zip(tools.keys(), results):
         if tool_result.get("error"):
             file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
             with open(file_path, "w") as f:
-                f.write(tool_result["error"])
+                f.write(tool_result["error"])        
         else:
-            for r, result in enumerate(tool_result["result"]):
-                outputs, intermediate_outputs = (
-                    result.get("output", []),
-                    result.get("intermediate_outputs", []),
-                )
-                outputs = outputs if isinstance(outputs, list) else [outputs]
-                intermediate_outputs = (
-                    intermediate_outputs
-                    if isinstance(intermediate_outputs, list)
-                    else [intermediate_outputs]
-                )
+            outputs = tool_result.get("output", [])
+            intermediate_outputs = tool_result.get("intermediate_outputs", {})
 
-                for o, output in enumerate(outputs):
-                    if isinstance(output, dict) and "url" in output:
-                        ext = output.get("url").split(".")[-1]
-                        filename = f"{tool}_{r}_{o}.{ext}" if len(result) > 1 else f"{tool}_{r}.{ext}"
-                        file_path = os.path.join(results_dir, filename)
-                        response = requests.get(output.get("url"))
-                        with open(file_path, "wb") as f:
-                            f.write(response.content)
-                    else:
-                        filename = f"{tool}_{r}_{o}.txt" if len(result) > 1 else f"{tool}_{r}.txt"
-                        file_path = os.path.join(results_dir, filename)
-                        with open(file_path, "w") as f:
-                            f.write(output)
+            for o, output in enumerate(outputs):
+                if "url" in output:
+                    ext = output.get("url").split(".")[-1]
+                    filename = f"{tool}_{o}.{ext}" if len(outputs) > 1 else f"{tool}.{ext}"
+                    file_path = os.path.join(results_dir, filename)
+                    response = requests.get(output.get("url"))
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+                else:
+                    filename = f"{tool}_{o}.txt" if len(outputs) > 1 else f"{tool}.txt"
+                    file_path = os.path.join(results_dir, filename)
+                    with open(file_path, "w") as f:
+                        f.write(output)
 
-                for intermediate_output in intermediate_outputs:
-                    if not isinstance(intermediate_output, dict):
-                        continue
-                    for k, v in intermediate_output.items():
-                        if "url" not in v:
-                            continue
-                        ext = v.get("url").split(".")[-1]
-                        filename = f"{tool}_{r}_{k}.{ext}"
-                        file_path = os.path.join(results_dir, filename)
-                        response = requests.get(v.get("url"))
-                        with open(file_path, "wb") as f:
-                            f.write(response.content)
-
+            for k, v in intermediate_outputs.items():
+                if "url" in v:
+                    ext = v.get("url").split(".")[-1]
+                    filename = f"{tool}_{k}.{ext}"
+                    file_path = os.path.join(results_dir, filename)
+                    response = requests.get(v.get("url"))
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
     print(f"Test results saved to {results_dir}")
+
+
+def print_json(obj):
+    def default(o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        return o
+    return json.dumps(obj, indent=2, default=default)
 
 
 CLICK_COLORS = [

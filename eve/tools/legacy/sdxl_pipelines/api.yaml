@@ -1,0 +1,350 @@
+key: legacy_sdxl_pipelines
+name: Eden SDXL Pipelines (Legacy)
+description: Base generation pipelines for Eden 1.0 SDXL (2022-2024)
+cost_estimate: n_samples * 2
+status: inactive
+visible: false
+resolutions: [21-9_1536x640, 16-9_1344x768, 3-2_1216x832, 4-3_1152x896, 1-1_1024x1024, 3-4_896x1152, 2-3_832x1216, 9-16_768x1344, 9-21_640x1536]
+base_model: sdxl
+output_type: image
+handler: replicate
+replicate_model: edenartlab/eden-sd-pipelines-sdxl-images
+version: deployment
+output_handler: eden
+parameters:
+  mode:
+    type: string
+    label: Mode
+    description: Mode (which generator to use)
+    choices: [create, remix, upscale, blend, controlnet, interpolate, real2real, real2real_audio, interrogate, kojii/huemin]
+    choice_labels: [Create, Remix, Upscale, Blend, Controlnet, Interpolate, Real2Real, Audioreactive Real2Real, CLIP Interrogator, Kojii:Huemin]
+    default: create
+  prompt:
+    type: string
+    label: Prompt
+    description: Input text prompt
+    alias: text_input
+    required: true
+  interpolation_prompts:
+    type: array
+    items:
+      type: string
+    label: Interpolation Texts
+    description: Interpolation texts for video modes
+    alias: interpolation_texts
+  text_inputs_to_interpolate:
+    type: array
+    items:
+      type: string
+    label: Text Inputs To Interpolate through
+    description: Text inputs to interpolate, separated by |
+  interpolation_prompt_weights:
+    type: array
+    items:
+      type: float
+    label: Text Inputs To Interpolate Weights
+    description: Text input weights to interpolate, separated by |
+    alias: text_inputs_to_interpolate_weights
+  negative_prompt:
+    type: string
+    label: Negative Prompt
+    description: Negative text input
+    default: "nude, naked, text, watermark, low-quality, signature, padding, margins, white borders, padded border, moiré pattern, downsampling, aliasing, distorted, blurry, blur, jpeg artifacts, compression artifacts, poorly drawn, low-resolution, bad, grainy, error, bad-contrast"
+    alias: uc_text
+  width:
+    type: integer
+    label: Width
+    description: Width in pixels
+    default: 1024
+    minimum: 512
+    maximum: 2048
+  height:
+    type: integer
+    label: Height
+    description: Height in pixels
+    default: 1024
+    minimum: 512
+    maximum: 2048
+  checkpoint:
+    type: string
+    label: Checkpoint
+    description: Which Stable Diffusion checkpoint to use
+    choices: [sdxl-v1.0, juggernaut_XL2]
+    choice_labels: [SDXL, Juggernaut XL2]
+    default: juggernaut_XL2
+  
+  # use_lora:
+  #   type: boolean
+  #   label: Use LoRA
+  #   description: Whether to use a LoRA finetuning
+  #   default: false
+  # lora:
+  #   type: lora
+  #   label: LoRA
+  #   description: (optional) URL of Lora finetuning
+  #   visible_if: use_lora
+  # lora_scale:
+  #   type: float
+  #   label: Lora Scale
+  #   description: Lora scale (how much of the Lora finetuning to apply)
+  #   default: 0.7
+  #   minimum: 0
+  #   maximum: 1.5
+  #   step: 0.01
+  #   visible_if: use_lora
+  
+  use_init_image:
+    type: boolean
+    label: Use Init Image
+    description: Whether to use an initial image
+    default: false
+  init_image:
+    type: image
+    label: Init Image
+    description: Load initial image from url
+    visible_if: use_init_image
+  init_image_strength:
+    type: float
+    label: Init Image Strength
+    description: Strength of initial image
+    default: 0
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    visible_if: use_init_image
+  adopt_aspect_from_init_img:
+    type: boolean
+    label: Adopt Aspect From Init Img
+    description: Adopt aspect ratio from init image
+    default: true
+    visible_if: use_init_image
+
+  use_controlnet:
+    type: boolean
+    label: Use Controlnet
+    description: Whether to use a controlnet
+    default: false
+  controlnet_type:
+    type: string
+    label: Controlnet Type
+    description: Controlnet type
+    choices: ["off", canny-edge, depth, luminance]
+    default: "off"
+    visible_if: use_controlnet
+  control_image:
+    type: image
+    label: Control Image
+    description: image for controlnet guidance
+    visible_if: use_controlnet
+  control_image_strength:
+    type: float
+    label: Control Image Strength
+    description: Strength of control image
+    default: 0
+    minimum: 0
+    maximum: 1.5
+    step: 0.01
+    visible_if: use_controlnet  
+  
+  use_ip_image:
+    type: boolean
+    label: Use IP Adapter
+    description: Whether to use an IP Adapter image
+    default: false
+  ip_image:
+    type: image
+    label: IP Adapter Image
+    description: Load ip_adapter image from file, url, or base64 string
+    visible_if: use_ip_image
+  ip_image_strength:
+    type: float
+    label: IP Adapter Image Strength
+    description: Strength of image conditioning from ip_adapter (vs txt conditioning from clip-interrogator or prompt) (used in remix, upscale, blend and real2real)
+    default: 0.65
+    minimum: 0
+    maximum: 1.25
+    step: 0.01
+    visible_if: use_ip_image
+
+  use_audio_file:
+    type: boolean
+    label: Audioreactivity
+    description: Whether to use an audio file
+    default: false
+  audio_file:
+    type: audio
+    label: Audio File
+    description: An audio file to use for audioreactive real2real
+    visible_if: use_audio_file
+  
+  n_frames:
+    type: integer
+    label: Number of Frames
+    description: Total number of frames for video modes
+    default: 40
+    minimum: 3
+    maximum: 1000
+  loop:
+    type: boolean
+    label: Loop
+    description: Whether to loop the video
+    default: true
+  fps:
+    type: integer
+    label: FPS
+    description: Frames per second
+    default: 12
+    minimum: 1
+    maximum: 30  
+  
+  n_film:
+    type: integer
+    label: FILM passes
+    description: Number of times to smooth final frames with FILM (default is 0)
+    default: 1
+    minimum: 0
+    maximum: 3
+  smooth:
+    type: boolean
+    label: Smooth
+    description: Smooth with FILM
+    default: true
+  use_lcm:
+    type: boolean
+    label: LCM Smoothing
+    description: Use LCM smoothing
+    default: false
+  
+  use_interpolation_init_images:
+    type: boolean
+    label: Use Interpolation Init Images
+    description: Whether to use interpolation init images
+    default: false
+  interpolation_init_images:
+    type: array
+    items:
+      type: image
+    label: Interpolation Init Images
+    description: Interpolation init images, file paths or urls for video modes
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_power:
+    type: float
+    label: Interpolation Init Images Power
+    description: Power for interpolation_init_images prompts for video modes
+    default: 2.5
+    minimum: 0.5
+    maximum: 5
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_min_strength:
+    type: float
+    label: Interpolation Init Images Min Strength
+    description: Minimum init image strength for interpolation_init_images prompts for video modes
+    default: 0.05
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  interpolation_init_images_max_strength:
+    type: float
+    label: Interpolation Init Images Max Strength
+    description: Maximum init image strength for interpolation_init_images prompts for video modes
+    default: 0.95
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    visible_if: use_interpolation_init_images
+  
+  use_latent_blending:
+    type: boolean
+    label: Latent Blending
+    description: Whether to use latent blending
+    default: false
+  n_anchor_imgs:
+    type: integer
+    label: N Anchor Imgs
+    description: Number of anchor frames to render (including keyframes) before activating latent blending
+    default: 3
+    minimum: 3
+    maximum: 6
+    visible_if: use_latent_blending
+  latent_blending_skip_f:
+    type: array
+    items:
+      type: float
+      min_length: 2
+      max_length: 2
+    label: Latent Blending Skip Fractions
+    description: What fraction of the denoising trajectory to skip at the start and end of each interpolation phase, two floats
+    default: [0.05, 0.6]
+    visible_if: use_latent_blending
+  
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed
+    default: random
+    minimum: 0
+    maximum: 4294967295
+  # interpolation_seeds:
+  #   type: array
+  #   items:
+  #     type: integer
+  #   label: Interpolation Seeds
+  #   description: Seeds for interpolated texts for video modes
+  #   minimum: 0
+  #   maximum: 4294967295
+  #   default: random
+  sampler:
+    type: string
+    label: Sampler
+    description: Which diffusion sampler to use
+    choices: [ddim, ddpm, klms, euler, euler_ancestral, dpm, kdpm2, kdpm2_ancestral, pndm]
+    choice_labels: [DDIM, DDPM, KLMS, Euler, Euler Ancestral, DPM, KDPM2, KDPM2 Ancestral, PNDM]
+    default: euler
+  steps:
+    type: integer
+    label: Steps
+    description: Number of diffusion steps
+    default: 35
+    minimum: 10
+    maximum: 70
+  guidance_scale:
+    type: float
+    label: Guidance Scale
+    description: Strength of text conditioning guidance
+    default: 7.5
+    minimum: 0
+    maximum: 20
+    step: 0.1
+  upscale_f:
+    type: integer
+    label: Upscale
+    description: Upscaling multiplier
+    default: 1
+    choices: [1, 2]
+
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+    default: 1
+    minimum: 1
+    maximum: 4
+
+  # stream:
+  #   type: boolean
+  #   label: Stream
+  #   description: yield individual results if True
+  #   default: false
+  # stream_every:
+  #   type: integer
+  #   label: Stream Every
+  #   description: for mode create, how many steps per update to stream (steam must be set to True)
+  #   default: 1
+  #   minimum: 1
+  #   maximum: 25
+
+  

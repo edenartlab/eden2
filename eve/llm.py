@@ -17,7 +17,7 @@ import magic
 import instructor
 from instructor.function_calls import openai_schema
 
-from eve.mongo2 import Document, Collection, get_collection
+from eve.mongo import Document, Collection, get_collection
 from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
 from eve.task import Task
 from eve.tool import Tool, get_tools_from_mongo
@@ -139,8 +139,7 @@ async def async_prompt(
     response_model: Optional[type[BaseModel]] = None, 
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
-):
-    
+):    
     if model.startswith("claude"):
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools, db
@@ -211,17 +210,17 @@ async def async_prompt_thread(
     force_reply: bool = False,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
+    agent = Agent.from_mongo(agent_id, db=db)
+
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
-    user = User.load(user_id, db=db)
+    user = User.from_mongo(user_id, db=db)
     if thread_id:
-        thread = Thread.load(thread_id, db=db)
+        thread = Thread.from_mongo(thread_id, db=db)
     else:
         thread = Thread.create(db=db, user=user.id, agent=agent_id)
-    
+
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
-    agent = Agent.load("abraham", db=db)
-    
     system_message = Template(template).render(
         name=agent.name,
         description=agent.description,
@@ -236,13 +235,12 @@ async def async_prompt_thread(
         for msg in user_messages
     )
 
-    if not agent_name_mentioned and not force_reply:
-        return
+    # if not agent_name_mentioned and not force_reply:
+    #     return
 
     # think = True
     # if think:
     #     thought = await async_think(thread.messages, tools)
-
 
     while True:
         try:
@@ -344,7 +342,7 @@ def prompt_thread(
     async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, force_reply, model)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-
+    print("STARTING LOOP")
     try:
         while True:
             try:

@@ -1,0 +1,78 @@
+key: legacy_interpolate
+name: SDXL Interpolate (Legacy)
+description: Create a video interpolation between two prompts (2022-2024)
+cost_estimate: n_frames * 2
+output_type: video
+replicate_model: edenartlab/sdxl-pipelines
+version: 29ac229daa39d34209d4ba9b1a812beaa9e31ff5c138839051cc10aa54d6360e
+parent_tool: legacy_sdxl_pipelines
+parameters:
+  mode:
+    default: interpolate
+    hide_from_agent: true
+    hide_from_ui: true
+
+  prompt:
+    required: false
+    hide_from_agent: true
+    hide_from_ui: true
+  
+  init_image_strength:
+    default: 0.05
+  
+  use_ip_image:
+    hide_from_ui: true
+    hide_from_agent: true
+  ip_image:
+    hide_from_ui: true
+    hide_from_agent: true
+  ip_image_strength:
+    hide_from_ui: true
+    hide_from_agent: true
+
+  use_audio_file:
+    hide_from_ui: true
+    hide_from_agent: true
+  audio_file:
+    hide_from_ui: true
+    hide_from_agent: true
+  
+  use_lcm:
+    hide_from_ui: true
+    hide_from_agent: true
+  
+  use_interpolation_init_images:
+    hide_from_ui: true
+    hide_from_agent: true
+  interpolation_init_images:
+    hide_from_ui: true
+    hide_from_agent: true
+  interpolation_init_images_power:
+    hide_from_ui: true
+    hide_from_agent: true
+  interpolation_init_images_min_strength:
+    hide_from_ui: true
+    hide_from_agent: true
+  interpolation_init_images_max_strength:
+    hide_from_ui: true
+    hide_from_agent: true
+  
+  use_latent_blending:
+    hide_from_ui: true
+    hide_from_agent: true
+  n_anchor_imgs:
+    hide_from_ui: true
+    hide_from_agent: true
+  latent_blending_skip_f:
+    hide_from_ui: true
+    hide_from_agent: true
+  
+  seed:
+    hide_from_ui: true
+    hide_from_agent: true
+
+  steps:
+    minimum: 5
+  n_samples:
+    hide_from_ui: true
+    hide_from_agent: true

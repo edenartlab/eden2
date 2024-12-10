@@ -9,7 +9,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from eve.llm import async_prompt_thread, UserMessage, UpdateType
 from eve.thread import Thread
 from eve.tool import get_tools_from_mongo
-from eve.eden_utils import prepare_result
+from eve.eden_utils import prepare_result, print_json
 
 
 def preprocess_message(message):
@@ -21,15 +21,18 @@ def preprocess_message(message):
     clean_message = re.sub(attachments_pattern, "", clean_message).strip()
     return clean_message, attachments
 
-
-async def async_chat(db, agent_id, thread_id, debug=False):
+from eve.agent import Agent
+async def async_chat(db, agent, thread_id, debug=False):
     db = db.upper()
     user_id = os.getenv("EDEN_TEST_USER_STAGE")
 
+    agent = Agent.load(agent, db=db)
+    chat_string = f"Chat with {agent.name}".center(36)
+
     console = Console()
-    console.print("\n[bold blue]╭──────────────────────────────────╮")
-    console.print("[bold blue]│          Chat with Eve           │")
-    console.print("[bold blue]╰──────────────────────────────────╯\n")
+    console.print("\n[bold blue]╭────────────────────────────────────╮")
+    console.print(f"[bold blue]│{chat_string}│")
+    console.print("[bold blue]╰────────────────────────────────────╯\n")
     # console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
 
     while True:
@@ -62,14 +65,14 @@ async def async_chat(db, agent_id, thread_id, debug=False):
                         thread = Thread.create(
                             db=db,
                             user=user_id,
-                            agent=agent_id,
+                            agent=agent.id,
                         )
                         thread_id = str(thread.id)
 
                     async for update in async_prompt_thread(
                         db=db,
                         user_id=user_id,
-                        agent_id=agent_id,
+                        agent_id=agent.id,
                         thread_id=thread_id,
                         user_messages=UserMessage(
                             content=content, 
