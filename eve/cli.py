@@ -21,17 +21,10 @@ from .eden_utils import (
     print_json,
     CLICK_COLORS
 )
-from .tool import (
-    Tool,
-    get_api_files,
-    get_tools_from_mongo,
-    get_tools_from_api_files
-)
-from eve.agent import (
-    Agent,
-    save_agent_from_dir,
-    get_agent_dirs,
-)
+from eve import tool as eve_tool
+from eve import agent as eve_agent
+from eve.tool import Tool
+from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
 
 api_tools_order = [
@@ -89,24 +82,34 @@ def cli():
     pass
 
 
-@cli.command()
+@cli.group()
+def tool():
+    """Tool management commands"""
+    pass
+
+
+@cli.group()
+def agent():
+    """Agent management commands"""
+    pass
+
+
+@tool.command()
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
-@click.argument("tools", nargs=-1, required=False)
-def update(db: str, tools: tuple):
+@click.argument("names", nargs=-1, required=False)
+def update(db: str, names: tuple):
     """Upload tools to mongo"""
-
     db = db.upper()
-
-    api_files = get_api_files(include_inactive=True)
+    api_files = eve_tool.get_api_files(include_inactive=True)
     tools_order = {tool: index for index, tool in enumerate(api_tools_order)}
 
-    if tools:
-        api_files = {k: v for k, v in api_files.items() if k in tools}
+    if names:
+        api_files = {k: v for k, v in api_files.items() if k in names}
     else:
         confirm = click.confirm(
             f"Update all {len(api_files)} tools on {db}?", default=False
@@ -120,11 +123,11 @@ def update(db: str, tools: tuple):
             order = tools_order.get(key, len(api_tools_order))
             tool = Tool.from_yaml(api_file)
             tool.save(db=db, order=order)
-            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
+            click.echo(click.style(f"Updated tool {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
             traceback.print_exc()
-            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
+            click.echo(click.style(f"Failed to update tool {db}:{key}: {e}", fg="red"))
 
     click.echo(click.style(f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True))
     click.echo(
@@ -134,45 +137,44 @@ def update(db: str, tools: tuple):
     )
 
 
-@cli.command()
+@agent.command()
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
-@click.argument("agents", nargs=-1, required=False)
-def update2(db: str, agents: tuple):
+@click.argument("names", nargs=-1, required=False)
+def update(db: str, names: tuple):
     """Upload agents to mongo"""
-
     db = db.upper()
-
-    agent_dirs = get_agent_dirs(include_inactive=True)
+    api_files = eve_agent.get_api_files(include_inactive=True)
     agents_order = {agent: index for index, agent in enumerate(api_agents_order)}
 
-    if agents:
-        agent_dirs = {k: v for k, v in agent_dirs.items() if k in agents}
+    if names:
+        api_files = {k: v for k, v in api_files.items() if k in names}
     else:
         confirm = click.confirm(
-            f"Update all {len(agent_dirs)} agents on {db}?", default=False
+            f"Update all {len(api_files)} agents on {db}?", default=False
         )
         if not confirm:
             return
 
     updated = 0
-    for key, agent_dir in agent_dirs.items():
+    for key, api_file in api_files.items():
         try:
             order = agents_order.get(key, len(api_agents_order))
-            save_agent_from_dir(agent_dir, order=order, db=db)
-            click.echo(click.style(f"Updated {db}:{key} (order={order})", fg="green"))
+            agent = Agent.from_yaml(api_file)
+            agent.save(db=db, order=order)
+            click.echo(click.style(f"Updated agent {db}:{key} (order={order})", fg="green"))
             updated += 1
         except Exception as e:
             traceback.print_exc()
-            click.echo(click.style(f"Failed to update {db}:{key}: {e}", fg="red"))
+            click.echo(click.style(f"Failed to update agent {db}:{key}: {e}", fg="red"))
 
     click.echo(
         click.style(
-            f"\nUpdated {updated} of {len(agent_dirs)} agents", fg="blue", bold=True
+            f"\nUpdated {updated} of {len(api_files)} agents", fg="blue", bold=True
         )
     )
 

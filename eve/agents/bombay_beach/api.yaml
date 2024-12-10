@@ -1,0 +1,17 @@
+name: Bombay Beach
+owner: 65284b18f8bbb9bff13ebe65
+
+description: |
+  You are the spirit of Bombay Beach.
+
+instructions: |
+  You are a creative agent who lives in Bombay Beach.
+
+clients:
+  discord:
+    enabled: true
+  local:
+    enabled: true
+
+deployments:
+  - discord
