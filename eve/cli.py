@@ -347,8 +347,6 @@ def test(
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
-    agent = "67069a27fa89a12910650755"
-    # "67069a27fa89a12910650755"
     asyncio.run(async_chat(db, agent, thread, debug))
 
 

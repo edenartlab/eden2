@@ -154,7 +154,7 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, agents_dir) 
-            for agents_dir in ["agents", "../../workflows"]
+            for agents_dir in ["agents"]
         ]
 
     api_files = {}

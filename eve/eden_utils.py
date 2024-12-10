@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def prepare_result(result, db: str, summarize=False):
+def prepare_result(result, db: str, summarize=False, json=True):
     if isinstance(result, dict):
         if "error" in result:
             return result
@@ -36,11 +36,11 @@ def prepare_result(result, db: str, summarize=False):
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, db, summarize) for k, v in result.items()}
+        return {k: prepare_result(v, db, summarize, json=json) for k, v in result.items()}
     elif isinstance(result, list):
-        return [prepare_result(item, db, summarize) for item in result]
+        return [prepare_result(item, db, summarize, json=json) for item in result]
     else:
-        return result
+        return print_json(result) if json else result
 
 
 def upload_result(result, db: str, save_thumbnails=False):
@@ -56,22 +56,12 @@ def upload_result(result, db: str, save_thumbnails=False):
 
 def upload_media(output, db, save_thumbnails=True):
     file_url, sha = s3.upload_file(output, db=db)
-    print("got file url")
-    print("THE SHA!", sha)
     filename = file_url.split("/")[-1]
 
-    print("upload media")
     media_attributes, thumbnail = get_media_attributes(output)
-    print("get media attributes")
-    print(media_attributes)
-    print(thumbnail)
-    print("save thumbnails", save_thumbnails)
 
     if save_thumbnails and thumbnail:
-        print("save thumbnails")
         for width in [384, 768, 1024, 2560]:
-            continue
-            print("thumbnail", width)
             img = thumbnail.copy()
             img.thumbnail(
                 (width, 2560), Image.Resampling.LANCZOS

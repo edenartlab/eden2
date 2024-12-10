@@ -210,6 +210,8 @@ async def async_prompt_thread(
     force_reply: bool = False,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
+    agent = Agent.from_mongo(agent_id, db=db)
+
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user = User.from_mongo(user_id, db=db)
     if thread_id:
@@ -219,8 +221,6 @@ async def async_prompt_thread(
 
     assert thread.user == user.id, "User does not own thread {thread_id}"
 
-    agent = Agent.load("abraham", db=db)
-    
     system_message = Template(template).render(
         name=agent.name,
         description=agent.description,
