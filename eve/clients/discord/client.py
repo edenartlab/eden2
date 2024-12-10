@@ -298,4 +298,4 @@ if __name__ == "__main__":
     parser.add_argument("--db", help="Database to use", default="STAGE")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     args = parser.parse_args()
-    start(args.env, args.agent_path, args.agent_key, args.agent_id, args.db)
+    start(args.env, args.agent_path, args.agent_key, args.db)

@@ -1,6 +1,7 @@
 # eve/cli.py
 
 import multiprocessing
+from pathlib import Path
 import traceback
 import os
 import random
@@ -15,12 +16,7 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import (
-    save_test_results, 
-    prepare_result, 
-    print_json,
-    CLICK_COLORS
-)
+from .eden_utils import save_test_results, prepare_result, print_json, CLICK_COLORS
 from eve import tool as eve_tool
 from eve import agent as eve_agent
 from eve.tool import Tool
@@ -123,13 +119,19 @@ def update(db: str, names: tuple):
             order = tools_order.get(key, len(api_tools_order))
             tool = Tool.from_yaml(api_file)
             tool.save(db=db, order=order)
-            click.echo(click.style(f"Updated tool {db}:{key} (order={order})", fg="green"))
+            click.echo(
+                click.style(f"Updated tool {db}:{key} (order={order})", fg="green")
+            )
             updated += 1
         except Exception as e:
             traceback.print_exc()
             click.echo(click.style(f"Failed to update tool {db}:{key}: {e}", fg="red"))
 
-    click.echo(click.style(f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True))
+    click.echo(
+        click.style(
+            f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True
+        )
+    )
     click.echo(
         click.style(
             f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True
@@ -166,7 +168,9 @@ def update(db: str, names: tuple):
             order = agents_order.get(key, len(api_agents_order))
             agent = Agent.from_yaml(api_file)
             agent.save(db=db, order=order)
-            click.echo(click.style(f"Updated agent {db}:{key} (order={order})", fg="green"))
+            click.echo(
+                click.style(f"Updated agent {db}:{key} (order={order})", fg="green")
+            )
             updated += 1
         except Exception as e:
             traceback.print_exc()
@@ -215,9 +219,7 @@ def create(ctx, tool: str, db: str):
     else:
         result = prepare_result(result, db=db)
         click.echo(
-            click.style(
-                f"\nResult for {tool.key}: {print_json(result)}", fg=color
-            )
+            click.style(f"\nResult for {tool.key}: {print_json(result)}", fg=color)
         )
 
     print(result)
@@ -256,9 +258,7 @@ def test(
     async def async_test_tool(tool, api, db):
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
-        click.echo(
-            click.style(f"Args: {print_json(tool.test_args)}", fg=color)
-        )
+        click.echo(click.style(f"Args: {print_json(tool.test_args)}", fg=color))
 
         if api:
             user_id = os.getenv("EDEN_TEST_USER_STAGE")
@@ -280,9 +280,7 @@ def test(
         else:
             result = prepare_result(result, db=db)
             click.echo(
-                click.style(
-                    f"\nResult for {tool.key}: {print_json(result)}", fg=color
-                )
+                click.style(f"\nResult for {tool.key}: {print_json(result)}", fg=color)
             )
 
         return result
@@ -350,11 +348,11 @@ def chat(db: str, thread: str, agent: str, debug: bool):
     asyncio.run(async_chat(db, agent, thread, debug))
 
 
-def start_local_chat(db: str, env_path: str):
+def start_local_chat(db: str, agent_dir: str):
     """Wrapper function for chat that can be pickled"""
-    load_dotenv(env_path)
+    load_dotenv(agent_dir / ".env")
     # Get the agent name from the yaml file
-    with open("eve/agents/new.yaml") as f:  # or pass this path as parameter
+    with open(agent_dir / "api.yaml") as f:  # or pass this path as parameter
         config = yaml.safe_load(f)
         agent = config.get("name", "eve").lower()
 
@@ -363,7 +361,7 @@ def start_local_chat(db: str, env_path: str):
 
 
 @cli.command()
-@click.argument("agent_path", nargs=1, required=True)
+@click.argument("agent", nargs=1, required=True)
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
@@ -375,20 +373,23 @@ def start_local_chat(db: str, env_path: str):
     type=click.Path(exists=True, resolve_path=True),
     help="Path to environment file",
 )
-def start(db: str, env: str, agent_path: str):
+def start(agent: str, db: str, env: str):
     """Start one or more clients from yaml files"""
+    agent_dir = Path(__file__).parent / "agents" / agent
+    env_path = agent_dir / ".env"
+    yaml_path = agent_dir / "api.yaml"
 
     db = db.upper()
-    env_path = env or ".env"
+    env_path = env or env_path
     clients_to_start = {}
 
     # Load all yaml files and collect enabled clients
-    with open(agent_path) as f:
+    with open(yaml_path) as f:
         config = yaml.safe_load(f)
         if "clients" in config:
             for client_type, settings in config["clients"].items():
                 if settings.get("enabled", False):
-                    clients_to_start[ClientType(client_type)] = agent_path
+                    clients_to_start[ClientType(client_type)] = yaml_path
 
     if not clients_to_start:
         click.echo(click.style("No enabled clients found in yaml files", fg="red"))
@@ -424,7 +425,7 @@ def start(db: str, env: str, agent_path: str):
     if ClientType.LOCAL in clients_to_start:
         try:
             click.echo(click.style("Starting local client...", fg="blue"))
-            start_local_chat(db, env_path)
+            start_local_chat(db, agent_dir)
         except Exception as e:
             click.echo(click.style(f"Failed to start local client: {e}", fg="red"))
 
