@@ -130,6 +130,7 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
+        print("on message 1")
         if message.author.id == self.bot.user.id or message.author.bot:
             return
 
@@ -268,9 +269,9 @@ class DiscordBot(commands.Bot):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return
-
+        print("process 1")
         await self.process_commands(message)
-
+        print("process 2")
 
 def start(
     env: str,
