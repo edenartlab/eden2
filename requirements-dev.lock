@@ -3,7 +3,7 @@
 #
 # last locked with the following flags:
 #   pre: false
-#   features: ["discord,telegram"]
+#   features: ["discord,telegram,twitter"]
 #   all-features: false
 #   with-sources: false
 #   generate-hashes: false
@@ -12,22 +12,19 @@
 -e file:.
 aiofiles==24.1.0
     # via eve
-aiohappyeyeballs==2.4.3
+aiohappyeyeballs==2.4.4
     # via aiohttp
-aiohttp==3.11.3
-    # via discord-py
+aiohttp==3.11.10
     # via instructor
     # via modal
     # via py-cord
 aiosignal==1.3.1
     # via aiohttp
-aiostream==0.5.2
-    # via modal
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.39.0
+anthropic==0.40.0
     # via eve
-anyio==4.6.2.post1
+anyio==4.7.0
     # via anthropic
     # via httpx
     # via openai
@@ -37,9 +34,9 @@ anyio==4.6.2.post1
 attrs==24.2.0
     # via aiohttp
     # via sigtools
-boto3==1.35.64
+boto3==1.35.77
     # via eve
-botocore==1.35.64
+botocore==1.35.77
     # via boto3
     # via s3transfer
 cachetools==5.5.0
@@ -56,7 +53,7 @@ cfgv==3.4.0
     # via pre-commit
 charset-normalizer==3.4.0
     # via requests
-clerk-backend-api==1.3.1
+clerk-backend-api==1.4.1
     # via eve
 click==8.1.7
     # via eve
@@ -67,10 +64,6 @@ cryptography==43.0.3
     # via clerk-backend-api
 decorator==4.4.2
     # via moviepy
-discord==2.3.2
-    # via eve
-discord-py==2.4.0
-    # via discord
 distlib==0.3.9
     # via virtualenv
 distro==1.9.0
@@ -82,11 +75,11 @@ dnspython==2.7.0
 docstring-parser==0.16
     # via google-cloud-aiplatform
     # via instructor
-elevenlabs==1.12.1
+elevenlabs==1.13.4
     # via eve
 eval-type-backport==0.2.0
     # via clerk-backend-api
-fastapi==0.115.5
+fastapi==0.115.6
     # via eve
     # via modal
 filelock==3.16.1
@@ -98,7 +91,7 @@ gitdb==4.0.11
     # via gitpython
 gitpython==3.1.43
     # via eve
-google-api-core==2.23.0
+google-api-core==2.24.0
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
     # via google-cloud-core
@@ -111,7 +104,7 @@ google-auth==2.36.0
     # via google-cloud-core
     # via google-cloud-resource-manager
     # via google-cloud-storage
-google-cloud-aiplatform==1.72.0
+google-cloud-aiplatform==1.74.0
     # via eve
 google-cloud-bigquery==3.27.0
     # via google-cloud-aiplatform
@@ -120,7 +113,7 @@ google-cloud-core==2.4.1
     # via google-cloud-storage
 google-cloud-resource-manager==1.13.1
     # via google-cloud-aiplatform
-google-cloud-storage==2.18.2
+google-cloud-storage==2.19.0
     # via google-cloud-aiplatform
 google-crc32c==1.6.0
     # via google-cloud-storage
@@ -134,12 +127,12 @@ googleapis-common-protos==1.66.0
     # via grpcio-status
 grpc-google-iam-v1==0.13.1
     # via google-cloud-resource-manager
-grpcio==1.68.0
+grpcio==1.68.1
     # via google-api-core
     # via googleapis-common-protos
     # via grpc-google-iam-v1
     # via grpcio-status
-grpcio-status==1.68.0
+grpcio-status==1.68.1
     # via google-api-core
 grpclib==0.4.7
     # via modal
@@ -163,20 +156,20 @@ httpx==0.27.2
     # via runwayml
 hyperframe==6.0.1
     # via h2
-identify==2.6.2
+identify==2.6.3
     # via pre-commit
 idna==3.10
     # via anyio
     # via httpx
     # via requests
     # via yarl
-imageio==2.36.0
+imageio==2.36.1
     # via moviepy
 imageio-ffmpeg==0.5.1
     # via moviepy
 iniconfig==2.0.0
     # via pytest
-instructor==1.6.4
+instructor==1.7.0
     # via eve
 jinja2==3.1.4
     # via instructor
@@ -197,7 +190,7 @@ markupsafe==3.0.2
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
-modal==0.66.11
+modal==0.67.41
     # via eve
 moviepy==1.0.3
     # via eve
@@ -209,7 +202,7 @@ mypy-extensions==1.0.0
     # via typing-inspect
 nodeenv==1.9.1
     # via pre-commit
-numpy==2.1.3
+numpy==2.2.0
     # via eve
     # via imageio
     # via moviepy
@@ -217,7 +210,7 @@ numpy==2.1.3
     # via shapely
 oauthlib==3.2.2
     # via requests-oauthlib
-openai==1.54.4
+openai==1.57.2
     # via eve
     # via instructor
 packaging==24.2
@@ -235,14 +228,14 @@ pluggy==1.5.0
 pre-commit==4.0.1
 proglog==0.1.10
     # via moviepy
-propcache==0.2.0
+propcache==0.2.1
     # via aiohttp
     # via yarl
 proto-plus==1.25.0
     # via google-api-core
     # via google-cloud-aiplatform
     # via google-cloud-resource-manager
-protobuf==5.28.3
+protobuf==5.29.1
     # via google-api-core
     # via google-cloud-aiplatform
     # via google-cloud-resource-manager
@@ -253,7 +246,7 @@ protobuf==5.28.3
     # via proto-plus
 py-cord==2.6.1
     # via eve
-pyarrow==18.0.0
+pyarrow==18.1.0
     # via pylance
 pyasn1==0.6.1
     # via pyasn1-modules
@@ -281,16 +274,16 @@ pydub==0.25.1
     # via eve
 pygments==2.18.0
     # via rich
-pyjwt==2.10.0
+pyjwt==2.10.1
     # via clerk-backend-api
     # via eve
-pylance==0.19.2
+pylance==0.20.0
 pymongo==4.6.1
     # via eve
-pytest==8.3.3
+pytest==8.3.4
     # via pytest-asyncio
 pytest-asyncio==0.24.0
-python-dateutil==2.8.2
+python-dateutil==2.9.0.post0
     # via botocore
     # via clerk-backend-api
     # via google-cloud-bigquery
@@ -298,7 +291,7 @@ python-dotenv==1.0.1
     # via eve
 python-magic==0.4.27
     # via eve
-python-telegram-bot==21.8
+python-telegram-bot==21.9
     # via eve
 pyyaml==6.0.2
     # via eve
@@ -322,14 +315,14 @@ rich==13.9.4
     # via typer
 rsa==4.9
     # via google-auth
-ruff==0.7.4
-runwayml==2.1.0
+ruff==0.8.2
+runwayml==2.1.4
     # via eve
-s3transfer==0.10.3
+s3transfer==0.10.4
     # via boto3
-sentry-sdk==2.18.0
+sentry-sdk==2.19.2
     # via eve
-setuptools==75.5.0
+setuptools==75.6.0
     # via imageio-ffmpeg
 shapely==2.0.6
     # via google-cloud-aiplatform
@@ -337,7 +330,7 @@ shellingham==1.5.4
     # via typer
 sigtools==4.0.1
     # via synchronicity
-six==1.16.0
+six==1.17.0
     # via python-dateutil
 smmap==5.0.1
     # via gitdb
@@ -350,19 +343,19 @@ sniffio==1.3.1
 starlette==0.41.3
     # via eve
     # via fastapi
-synchronicity==0.9.3
+synchronicity==0.9.5
     # via modal
 tenacity==9.0.0
     # via eve
     # via instructor
 toml==0.10.2
     # via modal
-tqdm==4.67.0
+tqdm==4.67.1
     # via eve
     # via moviepy
     # via openai
     # via proglog
-typer==0.13.1
+typer==0.15.1
     # via instructor
     # via modal
 types-certifi==2021.10.8.3
@@ -370,8 +363,8 @@ types-certifi==2021.10.8.3
 types-toml==0.10.8.20240310
     # via modal
 typing-extensions==4.12.2
-    # via aiostream
     # via anthropic
+    # via anyio
     # via elevenlabs
     # via fastapi
     # via modal
@@ -389,13 +382,13 @@ urllib3==2.2.3
     # via botocore
     # via requests
     # via sentry-sdk
-uvicorn==0.32.0
-virtualenv==20.27.1
+uvicorn==0.32.1
+virtualenv==20.28.0
     # via pre-commit
-watchfiles==0.24.0
+watchfiles==1.0.1
     # via modal
 websockets==14.1
     # via elevenlabs
     # via eve
-yarl==1.17.2
+yarl==1.18.3
     # via aiohttp
