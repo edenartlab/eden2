@@ -405,7 +405,8 @@ def start(agent: str, db: str, env: str):
             try:
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, yaml_path)
+                        target=start_discord,
+                        args=(env_path, agent)
                     )
                 # elif client_type == ClientType.TELEGRAM:
                 #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))

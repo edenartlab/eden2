@@ -217,7 +217,7 @@ class DiscordBot(commands.Bot):
 
 def start(
     env: str,
-    agent_key: Optional[str] = None,
+    agent: str,
     db: str = "STAGE",
 ) -> None:
     logging.basicConfig(
@@ -227,7 +227,7 @@ def start(
     logger.info("Launching bot...")
     load_dotenv(env)
 
-    agent = Agent.load(agent_key, db=db)
+    agent = Agent.load(agent, db=db)
 
     logger.info(f"Using agent: {agent.name}")
     bot = DiscordBot()
