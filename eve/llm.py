@@ -189,6 +189,12 @@ class ThreadUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+system_instructions = """In addition to the instructions above, follow these additional guidelines:
+* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
+* Do not apologize.
+* Try to be concise. Do not be verbose.
+"""
+
 template = '''<Summary>You are roleplaying as {{ name }}.</Summary>
 <Description>
 This is a description of {{ name }}.
@@ -197,7 +203,10 @@ This is a description of {{ name }}.
 </Description>
 <Instructions>
 {{ instructions }}
-</Instructions>'''
+</Instructions>
+<System Instructions>
+{{ system_instructions }}
+</System Instructions>'''
 
 async def async_think():
     # - think (gpt3)
@@ -230,9 +239,12 @@ async def async_prompt_thread(
     system_message = Template(template).render(
         name=agent.name,
         description=agent.description,
-        instructions=agent.instructions
+        instructions=agent.instructions,
+        system_instructions=system_instructions
     )
 
+    print("HERE IS THE SYSTEM MESSAGE!!!")
+    print(system_message)
     thread.push("messages", user_messages)
 
     agent_mentioned = any(
@@ -251,12 +263,15 @@ async def async_prompt_thread(
 
     while True:
         try:
+            print("lets go to", model)
             content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
                 model=model,
                 tools=tools
             )
+            print("HERE IS THE CONTENT!!!")
+            print(content)
             assistant_message = AssistantMessage(
                 content=content or "",
                 tool_calls=tool_calls,
@@ -344,7 +359,7 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
+    model: Literal[tuple(models)] = "gpt-4o-mini" # "claude-3-5-sonnet-20241022"
 ):
     async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, force_reply, model)
     loop = asyncio.new_event_loop()
