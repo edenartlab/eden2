@@ -18,7 +18,7 @@ from eve.user import User
 from eve.eden_utils import prepare_result
 
 
-users = {}
+known_users = {}
 
 
 
@@ -90,13 +90,13 @@ class Eden2Cog(commands.Cog):
         logger.info(f"key: {thread_key}")
 
         # Lookup user
-        if message.author.id not in users:
-            users[message.author.id] = User.from_discord(
+        if message.author.id not in known_users:
+            known_users[message.author.id] = User.from_discord(
                 message.author.id, 
                 message.author.name, 
                 db=self.db
             )
-        user = users[message.author.id]
+        user = known_users[message.author.id]
 
         # Check user rate limits
         if common.user_over_rate_limits(user):
@@ -240,6 +240,6 @@ if __name__ == "__main__":
     parser.add_argument("--agent_path", help="Path to the agent directory")
     parser.add_argument("--agent_key", help="Key of the agent")
     parser.add_argument("--db", help="Database to use", default="STAGE")
-    parser.add_argument("--env", help="Path to the .env file to load", default=".env")
+    parser.add_argument("--env", help="Path to a different .env file not in agent directory")
     args = parser.parse_args()
     start(args.env, args.agent_path, args.agent_key, args.db)
