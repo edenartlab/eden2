@@ -200,6 +200,12 @@ This is a description of {{ name }}.
 </Instructions>'''
 
 async def async_think():
+    # - think (gpt3)
+    # - choose tools
+    # - choose knowledge
+    # - which tools to make available
+    # - decide to reply
+    # - make intentions
     pass
 
 async def async_prompt_thread(

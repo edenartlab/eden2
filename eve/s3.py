@@ -84,8 +84,8 @@ def upload_file(file_path, name=None, file_type=None, db="STAGE"):
 def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
     
-    assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors'], \
-        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', 'mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
+    assert file_type in [None, '.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors'], \
+        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
 
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
@@ -143,11 +143,29 @@ def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     return file_url, name
 
 
+def upload_PIL_image(image: Image.Image, name=None, file_type=None, db="STAGE"):
+    format = file_type.split(".")[-1] or "webp"
+    buffer = io.BytesIO()
+    image.save(buffer, format=format)
+    return upload_buffer(buffer, name, file_type, db)
+
+
 def upload_audio_segment(audio: AudioSegment, db="STAGE"):
     buffer = io.BytesIO()
     audio.export(buffer, format="mp3")
     output = upload_buffer(buffer, db=db)
     return output
+
+
+def upload(data: any, name=None, file_type=None, db="STAGE"):
+    if isinstance(data, Image.Image):
+        return upload_PIL_image(data, name, file_type, db)
+    elif isinstance(data, AudioSegment):
+        return upload_audio_segment(data, db)
+    elif isinstance(data, bytes):
+        return upload_buffer(data, name, file_type, db)
+    else:
+        return upload_file(data, name, file_type, db)
 
 
 def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):

@@ -377,6 +377,11 @@ def get_tools_from_api_files(root_dir: str = None, tools: List[str] = None, incl
         for key, api_file in api_files.items()
     }
 
+    # warn if any of the requested tools not found
+    for tool in tools or []:
+        if tool not in all_tools:
+            print(f"Warning: Tool {tool} not found in api files.")
+    
     if tools:
         tools = {k: v for k, v in all_tools.items() if k in tools}
     else:
@@ -388,21 +393,26 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     """Get all tools from mongo"""
     
     filter = {"key": {"$in": tools}} if tools else {}
-    tools = {}
+    found_tools = {}
     tools_collection = get_collection(Tool.collection_name, db=db)
     for tool in tools_collection.find(filter):
         try:
             tool = Tool.convert_from_mongo(tool)
             tool = Tool.from_schema(tool, db=db)
             if tool.status != "inactive" and not include_inactive:
-                if tool.key in tools:
+                if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
-                tools[tool.key] = tool
+                found_tools[tool.key] = tool
         except Exception as e:
             print(traceback.format_exc())
             print(f"Error loading tool {tool['key']}: {e}")
 
-    return tools
+    # warn if any of the requested tools not found
+    for tool in tools or []:
+        if tool not in found_tools:
+            print(f"Warning: Tool {tool} not found in mongo.")
+
+    return found_tools
 
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""

@@ -11,6 +11,7 @@ import pathlib
 import textwrap
 import requests
 import tempfile
+import blurhash
 import subprocess
 import numpy as np
 from bson import ObjectId
@@ -32,6 +33,8 @@ def prepare_result(result, db: str, summarize=False):
     if isinstance(result, dict):
         if "error" in result:
             return result
+        if "mediaAttributes" in result:
+            result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
             url = get_full_url(filename, db)
@@ -46,18 +49,18 @@ def prepare_result(result, db: str, summarize=False):
         return result
 
 
-def upload_result(result, db: str, save_thumbnails=False):
+def upload_result(result, db: str, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
-        return {k: upload_result(v, db, save_thumbnails=save_thumbnails) for k, v in result.items()}
+        return {k: upload_result(v, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for k, v in result.items()}
     elif isinstance(result, list):
-        return [upload_result(item, db, save_thumbnails=save_thumbnails) for item in result]
+        return [upload_result(item, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
     elif isinstance(result, str) and is_file(result):
-        return upload_media(result, db, save_thumbnails=save_thumbnails)
+        return upload_media(result, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
     else:
         return result
 
 
-def upload_media(output, db, save_thumbnails=True):
+def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
     file_url, sha = s3.upload_file(output, db=db)
     filename = file_url.split("/")[-1]
 
@@ -72,6 +75,11 @@ def upload_media(output, db, save_thumbnails=True):
             img_bytes = PIL_to_bytes(img)
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp", db=db)
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg", db=db)
+
+    if save_blurhash and thumbnail:
+        img = thumbnail.copy()
+        img.thumbnail((100, 100), Image.LANCZOS)
+        media_attributes["blurhash"] = blurhash.encode(np.array(thumbnail), 4, 4)
 
     return {"filename": filename, "mediaAttributes": media_attributes}
 
@@ -705,8 +713,9 @@ def save_test_results(tools, results):
                 f.write(tool_result["error"])        
         else:
             outputs = tool_result.get("output", [])
+            outputs = outputs if isinstance(outputs, list) else [outputs]
             intermediate_outputs = tool_result.get("intermediate_outputs", {})
-
+            
             for o, output in enumerate(outputs):
                 if "url" in output:
                     ext = output.get("url").split(".")[-1]

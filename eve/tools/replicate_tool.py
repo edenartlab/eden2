@@ -160,14 +160,38 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "running"}
     
     elif status == "succeeded":
-        if output_handler == "normal":
+        
+        if output_handler in ["eden", "trainer"]:
+            thumbnails = output[-1]["thumbnails"]
+            output = output[-1]["files"]
             output = {"output": output}
-            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True)
+            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+        else:            
+            output = {"output": output}
+            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
 
-            for output in result["output"]:
-                # name = preprocess_result.get("name") or task_args.get("prompt")
+        for output in result["output"]:
+            if output_handler == "trainer":
+                filename = output["filename"]
+                thumbnail = eden_utils.upload_media(
+                    thumbnails[0], db=task.db, save_thumbnails=False, save_blurhash=False
+                ) if thumbnails else None
+                url = f"{s3.get_root_url(db=task.db)}/{filename}"
+                model = Model(
+                    name=task.args["name"],
+                    user=task.user,
+                    requester=task.requester,
+                    task=task.id,
+                    thumbnail=thumbnail.get("filename"),
+                    args=task.args,
+                    checkpoint=url, 
+                    base_model="sdxl",
+                )
+                model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
+                output["model"] = model.id
+            
+            else:
                 name = task.args.get("prompt")
-                
                 creation = Creation(
                     user=task.user,
                     requester=task.requester,
@@ -180,26 +204,31 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 creation.save(db=task.db)
                 output['creation'] = creation.id
     
-        elif output_handler in ["trainer", "eden"]: 
-            result = replicate_process_eden(output, db=task.db)
 
-            if output_handler == "trainer":
-                filename = result[0]["filename"]
-                thumbnail = result[0]["thumbnail"]
-                url = f"{s3.get_root_url(db=task.db)}/{filename}"
-                model = Model(
-                    name=task.args["name"],
-                    user=task.user,
-                    requester=task.requester,
-                    task=task.id,
-                    thumbnail=thumbnail,
-                    args=task.args,
-                    checkpoint=url, 
-                    base_model="sdxl",
-                )
-                model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
-                result[0]["model"] = model.id
+
+
+        # elif output_handler in ["trainer", "eden"]: 
+        #     result = replicate_process_eden(output, db=task.db)
+
+        #     if output_handler == "trainer":
+        #         filename = result[0]["filename"]
+        #         thumbnail = result[0]["thumbnail"]
+        #         url = f"{s3.get_root_url(db=task.db)}/{filename}"
+        #         model = Model(
+        #             name=task.args["name"],
+        #             user=task.user,
+        #             requester=task.requester,
+        #             task=task.id,
+        #             thumbnail=thumbnail,
+        #             args=task.args,
+        #             checkpoint=url, 
+        #             base_model="sdxl",
+        #         )
+        #         model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
+        #         result[0]["model"] = model.id
         
+
+
         run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
@@ -215,33 +244,33 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         }
 
 
-def replicate_process_eden(output, db):
-    output = output[-1]
-    if not output or "files" not in output:
-        raise Exception("No output found")         
+# def replicate_process_eden(output, db):
+#     output = output[-1]
+#     if not output or "files" not in output:
+#         raise Exception("No output found")         
 
-    results = []
+#     results = []
     
-    for file, thumb in zip(output["files"], output["thumbnails"]):
-        file_url, _ = s3.upload_file_from_url(file, db=db)
-        filename = file_url.split("/")[-1]
-        metadata = output.get("attributes")
-        media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
+#     for file, thumb in zip(output["files"], output["thumbnails"]):
+#         file_url, _ = s3.upload_file_from_url(file, db=db)
+#         filename = file_url.split("/")[-1]
+#         metadata = output.get("attributes")
+#         media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
+        
+#         result = {
+#             "filename": filename,
+#             "metadata": metadata,
+#             "mediaAttributes": media_attributes
+#         }
 
-        result = {
-            "filename": filename,
-            "metadata": metadata,
-            "mediaAttributes": media_attributes
-        }
+#         thumbnail = thumbnail or thumb or None
+#         if thumbnail:
+#             thumbnail_url, _ = s3.upload(thumbnail, file_type='.webp', db=db)
+#             result["thumbnail"] = thumbnail_url
 
-        thumbnail = thumbnail or thumb or None
-        if thumbnail:
-            thumbnail_url, _ = s3.upload_file_from_url(thumbnail, file_type='.webp', db=db)
-            result["thumbnail"] = thumbnail_url
+#         results.append(result)
 
-        results.append(result)
-
-    return {"output": results}
+#     return {"output": results}
     
 
 def check_replicate_api_token():

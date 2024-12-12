@@ -34,6 +34,8 @@ anyio==4.7.0
 attrs==24.2.0
     # via aiohttp
     # via sigtools
+blurhash==1.1.4
+    # via eve
 boto3==1.35.77
     # via eve
 botocore==1.35.77

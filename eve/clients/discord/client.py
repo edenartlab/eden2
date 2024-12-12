@@ -17,14 +17,9 @@ from eve.thread import Thread
 from eve.user import User
 from eve.eden_utils import prepare_result
 
-
-known_users = {}
-
-
-
-# Add logger setup
 logger = logging.getLogger(__name__)
 
+known_users = {}
 
 def is_mentioned(message: discord.Message, user: discord.User) -> bool:
     """

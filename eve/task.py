@@ -115,7 +115,7 @@ async def _task_handler(func, *args, **kwargs):
             result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
             
             result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-            result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True)
+            result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True, save_blurhash=True)
 
             for output in result["output"]:
                 name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")

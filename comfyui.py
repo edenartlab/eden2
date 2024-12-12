@@ -266,7 +266,7 @@ class ComfyUI:
                 print(f"Running test: {test_name}")
                 t1 = time.time()
                 result = self._execute(workflow, test_args, db="STAGE")
-                result = eden_utils.upload_result(result, db="STAGE", save_thumbnails=False)
+                result = eden_utils.upload_result(result, db="STAGE")
                 t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
