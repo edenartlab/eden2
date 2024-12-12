@@ -247,12 +247,18 @@ async def async_prompt_thread(
     print(system_message)
     thread.push("messages", user_messages)
 
+
+    print("looking for mentions of", agent.name)
+
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
     )
 
+    print("agent_mentioned", agent_mentioned)
+
     if not agent_mentioned and not force_reply:
+        print("agent not mentioned and force_reply is false")
         return
 
     # think = True
