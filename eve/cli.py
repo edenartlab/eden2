@@ -16,12 +16,13 @@ from dotenv import load_dotenv
 from eve.chat import async_chat
 from eve.models import ClientType
 
-from .eden_utils import save_test_results, prepare_result, print_json, CLICK_COLORS
+from .eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from eve import tool as eve_tool
 from eve import agent as eve_agent
-from eve.tool import Tool
+from eve.tool import Tool, get_tools_from_mongo, get_tools_from_api_files
 from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
+from eve.auth import get_eden_user_id
 
 api_tools_order = [
     "txt2img",
@@ -219,7 +220,7 @@ def create(ctx, tool: str, db: str):
     else:
         result = prepare_result(result, db=db)
         click.echo(
-            click.style(f"\nResult for {tool.key}: {print_json(result)}", fg=color)
+            click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
         )
 
     print(result)
@@ -258,12 +259,12 @@ def test(
     async def async_test_tool(tool, api, db):
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
-        click.echo(click.style(f"Args: {print_json(tool.test_args)}", fg=color))
+        click.echo(click.style(f"Args: {dump_json(tool.test_args)}", fg=color))
 
         if api:
-            user_id = os.getenv("EDEN_TEST_USER_STAGE")
+            user_id = get_eden_user_id(db=db)
             task = await tool.async_start_task(
-                user_id, tool.test_args, db=db, mock=mock
+                user_id, user_id, tool.test_args, db=db, mock=mock
             )
             result = await tool.async_wait(task)
         else:
@@ -280,7 +281,7 @@ def test(
         else:
             result = prepare_result(result, db=db)
             click.echo(
-                click.style(f"\nResult for {tool.key}: {print_json(result)}", fg=color)
+                click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
             )
 
         return result

@@ -9,7 +9,7 @@ async def handler(args: dict, db: str):
 
     # you can call other tools
     #from ...tool import Tool
-    #txt2img = Tool.load("txt2img", db=db)
+    #txt2img = Tool.load(key="txt2img", db=db)
     #result = await txt2img.run(args, db=db)
 
     result = {

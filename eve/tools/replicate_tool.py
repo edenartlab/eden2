@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 from .. import s3
 from .. import eden_utils
-from ..models import User, Model
+from ..models import Model
+from ..user import User
 from ..task import Task, Creation
 from ..tool import Tool
 
@@ -166,8 +167,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             for output in result["output"]:
                 # name = preprocess_result.get("name") or task_args.get("prompt")
                 name = task.args.get("prompt")
+                
                 creation = Creation(
                     user=task.user,
+                    requester=task.requester,
                     task=task.id,
                     tool=task.tool,
                     filename=output['filename'],
@@ -187,6 +190,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 model = Model(
                     name=task.args["name"],
                     user=task.user,
+                    requester=task.requester,
                     task=task.id,
                     thumbnail=thumbnail,
                     args=task.args,

@@ -47,7 +47,7 @@ class TaskRequest(BaseModel):
 
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
     tool = Tool.load(key=tool, db=db)
-    return await tool.async_start_task(user_id, args, db=db)
+    return await tool.async_start_task(requester_id=user_id, user_id=user_id, args=args, db=db)
 
 @web_app.post("/create")
 async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
@@ -71,11 +71,8 @@ async def handle_chat(
     _: dict = Depends(auth.authenticate_admin)
 ):
     user_id = request.user_id
-    print("USER ID !!", user_id)
     agent_id = request.agent_id
-    print("AGENT ID !!", agent_id)
     thread_id = request.thread_id
-    print("THREAD ID !!", thread_id)
     user_message = UserMessage(**request.user_message)
 
     tools = get_tools_from_mongo(db=db)
@@ -83,8 +80,8 @@ async def handle_chat(
     if not thread_id:
         thread_new = Thread.create(
             db=db,
-            user=user_id,
-            agent=agent_id,
+            owner=agent_id,
+            allowlist=[agent_id, user_id]
         )
         thread_id = str(thread_new.id)
 

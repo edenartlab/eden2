@@ -26,27 +26,39 @@ generic_instructions = """Follow these additional guidelines:
 
 # from eve.llm import async_prompt_thread
 
+from eve.user import User
 
 # todo: consolidate with Tool class
-@Collection("agents3")
-class Agent(Document):
+# @Collection("agents4")
+@Collection("users3")
+class Agent(User):
     """
     Base class for all agents.
     """
 
-    key: str
+    # key: str
+    type: Literal["agent"] = "agent"
     owner: ObjectId
 
-    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
-    visible: Optional[bool] = True
-    allowlist: Optional[str] = None
+    # status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    public: Optional[bool] = False
+    allowlist: Optional[List[str]] = None
 
     name: str
     description: str
     instructions: str
+    model: Optional[ObjectId] = None
     tools: Optional[List[dict]] = None
         
     test_args: Optional[List[Dict[str, Any]]] = None
+
+
+    def __init__(self, **data):
+        if isinstance(data.get('owner'), str):
+            data['owner'] = ObjectId(data['owner'])
+        if isinstance(data.get('model'), str):
+            data['model'] = ObjectId(data['model'])        
+        super().__init__(**data)
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -58,14 +70,37 @@ class Agent(Document):
         with open(test_file, 'r') as f:
             schema["test_args"] = json.load(f)
 
-        schema['owner'] = ObjectId("669dbb0613310df74fecde1d")
-        # owner = schema.get('owner')
-        # schema['owner'] = ObjectId(owner) if isinstance(owner, str) else owner         = ObjectId(schema['owner']) if isinstance(schema['owner'], str) else schema.get('owner')
+        owner = schema.get('owner')
+        schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
+        schema["username"] = schema.get("username") or file_path.split("/")[-2]
 
         return schema
     
     def save(self, db=None, **kwargs):
-        super().save(db, {"key": self.key}, **kwargs)
+        # do not overwrite any username if it already exists
+        users = get_collection(User.collection_name, db=db)
+        if users.find_one({"username": self.username, "type": "user"}):
+            raise ValueError(f"Username {self.username} already taken")
+
+        # save user
+        super().save(db, {"username": self.username}, **kwargs)
+
+        # create mannas record
+        mannas = get_collection("mannas", db=db)
+        mannas.update_one(
+            {"user": self.id},
+            {
+                "$setOnInsert": {
+                    "user": self.id,
+                    "balance": 0
+                }
+            },
+            upsert=True
+        )
+        
+    @classmethod
+    def load(cls, username, db=None):
+        return super().load(username=username, db=db)
 
 
     # old code: needs to be reintegrated

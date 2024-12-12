@@ -9,8 +9,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from eve.llm import async_prompt_thread, UserMessage, UpdateType
 from eve.thread import Thread
 from eve.tool import get_tools_from_mongo
-from eve.eden_utils import prepare_result, print_json
-
+from eve.eden_utils import prepare_result, dump_json
+from eve.agent import Agent
+from eve.auth import get_eden_user_id
 
 def preprocess_message(message):
     metadata_pattern = r"\{.*?\}"
@@ -21,10 +22,10 @@ def preprocess_message(message):
     clean_message = re.sub(attachments_pattern, "", clean_message).strip()
     return clean_message, attachments
 
-from eve.agent import Agent
+
 async def async_chat(db, agent, thread_id, debug=False):
     db = db.upper()
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
+    user_id = get_eden_user_id(db=db)
 
     agent = Agent.load(agent, db=db)
     chat_string = f"Chat with {agent.name}".center(36)
@@ -64,8 +65,7 @@ async def async_chat(db, agent, thread_id, debug=False):
                     if not thread_id:
                         thread = Thread.create(
                             db=db,
-                            user=user_id,
-                            agent=agent.id,
+                            allowlist=[user_id, agent.id]
                         )
                         thread_id = str(thread.id)
 
@@ -95,7 +95,8 @@ async def async_chat(db, agent, thread_id, debug=False):
                             console.print(
                                 "[bold cyan]🔧 [dim]" + update.tool_name + "[/dim]"
                             )
-                            formatted_result = json.dumps(result, indent=2)
+                            # formatted_result = json.dumps(result, indent=2)
+                            formatted_result = dump_json(result, indent=2)
                             formatted_result = re.sub(
                                 r'(https?://[^\s"]+)',
                                 lambda m: f"[link={m.group(1)}]{m.group(1)}[/link]",

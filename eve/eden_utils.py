@@ -25,22 +25,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def prepare_result(result, db: str, summarize=False, json=True):
+def get_full_url(filename, db: str):
+    return f"{s3.get_root_url(db=db)}/{filename}"
+
+def prepare_result(result, db: str, summarize=False):
     if isinstance(result, dict):
         if "error" in result:
             return result
         if "filename" in result:
             filename = result.pop("filename")
-            url = f"{s3.get_root_url(db=db)}/{filename}"
+            url = get_full_url(filename, db)
             if summarize:
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, db, summarize, json=json) for k, v in result.items()}
+        return {k: prepare_result(v, db, summarize) for k, v in result.items()}
     elif isinstance(result, list):
-        return [prepare_result(item, db, summarize, json=json) for item in result]
+        return [prepare_result(item, db, summarize) for item in result]
     else:
-        return print_json(result) if json else result
+        return result
 
 
 def upload_result(result, db: str, save_thumbnails=False):
@@ -729,12 +732,15 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def print_json(obj):
-    def default(o):
-        if isinstance(o, ObjectId):
-            return str(o)
-        return o
-    return json.dumps(obj, indent=2, default=default)
+def dump_json(obj, indent=None):
+    class CustomJSONEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, ObjectId):
+                return str(obj)
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            return super().default(obj)
+    return json.dumps(obj, cls=CustomJSONEncoder, indent=indent)
 
 
 CLICK_COLORS = [

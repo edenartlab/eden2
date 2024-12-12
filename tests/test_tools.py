@@ -2,12 +2,12 @@ import asyncio
 import os
 import json
 from eve.tool import get_tools_from_mongo, get_tools_from_api_files
-
+from eve.auth import get_eden_user_id
 async def async_run_tool(tool, api: bool, db: str, mock: bool):
     """Run a single tool test"""
     if api:
-        user_id = os.getenv("EDEN_TEST_USER_STAGE")
-        task = await tool.async_start_task(user_id, tool.test_args, db=db, mock=mock)
+        user_id = get_eden_user_id(db=db)
+        task = await tool.async_start_task(user_id, user_id, tool.test_args, db=db, mock=mock)
         return await tool.async_wait(task)
     return await tool.async_run(tool.test_args, db=db, mock=mock)
 

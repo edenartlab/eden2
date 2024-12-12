@@ -56,7 +56,7 @@ def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
 
     if f"{s3_buckets[db]}.s3." in url and ".amazonaws.com" in url:
         # print(f"File is already uploaded at {url}")
-        filename = url.split("/")[-1]
+        filename = url.split("/")[-1].split(".")[0]
         return url, filename
 
     with requests.get(url, stream=True) as r:
@@ -148,3 +148,38 @@ def upload_audio_segment(audio: AudioSegment, db="STAGE"):
     audio.export(buffer, format="mp3")
     output = upload_buffer(buffer, db=db)
     return output
+
+
+def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):
+    """
+    Efficiently copy a file from one S3 bucket to another using server-side copy.
+    
+    Args:
+        source_bucket (str): Source bucket name
+        dest_bucket (str): Destination bucket name
+        source_key (str): Source file key/path
+        dest_key (str): Destination file key/path (if None, uses source_key)
+    """
+    if dest_key is None:
+        dest_key = source_key
+        
+    copy_source = {
+        'Bucket': source_bucket,
+        'Key': source_key
+    }
+
+    file_url = f"https://{dest_bucket}.s3.amazonaws.com/{dest_key}"
+
+    try:
+        s3.head_object(Bucket=dest_bucket, Key=dest_key)
+    except s3.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            s3.copy_object(
+                CopySource=copy_source,
+                Bucket=dest_bucket,
+                Key=dest_key
+            )
+        else:
+            raise e
+
+    return file_url

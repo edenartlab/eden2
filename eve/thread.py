@@ -9,7 +9,7 @@ from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 
 from .mongo import Document, Collection, get_collection
-from .eden_utils import download_file, image_to_base64, prepare_result
+from .eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
 class ChatMessage(BaseModel):
@@ -221,22 +221,23 @@ class ToolCall(BaseModel):
 
                 if image_block:
                     content = "Tool results follow. The attached images match the URLs in the order they appear below: "
-                    content += json.dumps(result["result"])
+                    # content += json.dumps(result["result"])
+                    content += dump_json(result["result"])
                     text_block = [{"type": "text", "text": content}]
                     result = text_block + image_block
                 else:
-                    result = json.dumps(result)
+                    result = dump_json(result)
 
             except Exception as e:
                 print("Error injecting image results:", e)
-                result = json.dumps(result)
+                result = dump_json(result)
 
         elif self.status == "failed":
             result["error"] = self.error
-            result = json.dumps(result)
+            result = dump_json(result)
 
         else:
-            result = json.dumps(result)
+            result = dump_json(result)
 
         return result
 
@@ -346,30 +347,17 @@ class AssistantMessage(ChatMessage):
         return schema
 
 
-@Collection("threads2")
+@Collection("threads3")
 class Thread(Document):
-    name: str
-    user: ObjectId
-    agent: ObjectId
+    key: Optional[str] = None
+    allowlist: Optional[List[ObjectId]] = None
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
-    # @classmethod
-    # def from_name(cls, name, user, agent, create_if_missing=True, db="STAGE"):
-    #     threads = get_collection("threads2", db=db)
-    #     thread = threads.find_one({"name": name, "user": user, "agent": agent})
-    #     if not thread:
-    #         if create_if_missing:
-    #             return cls.create(cls, name, user, agent=agent, db=db)
-    #         else:
-    #             raise Exception(f"Thread {name} not found in {db}")
-    #     else:
-    #         return cls(**thread, db=db)
-
     @classmethod
-    def create(cls, user, agent, name=None, db="STAGE"):
-        user = user if isinstance(user, ObjectId) else ObjectId(user)
-        agent = agent if isinstance(agent, ObjectId) else ObjectId(agent)
-        new_thread = cls(db=db, user=user, agent=agent, name=name or "test")
+    def create(cls, allowlist=None, key=None, db="STAGE"):
+        if allowlist:
+            allowlist = [a if isinstance(a, ObjectId) else ObjectId(a) for a in allowlist]
+        new_thread = cls(db=db, allowlist=allowlist, key=key)
         new_thread.save()
         return new_thread
 
@@ -392,147 +380,3 @@ class Thread(Document):
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
         return self.messages[-25:]
-
-
-@Collection("agents")
-class Agent(Document):
-    key: str
-    name: str
-    owner: ObjectId
-    description: str
-    instructions: str
-    tools: Optional[List[dict]]  # default / null set
-
-    @classmethod
-    def load(cls, agent, db="STAGE"):
-        print("load", agent)
-        pass
-
-    def load_from_dir(
-        self,
-    ):
-        pass
-
-    def prompt_thread(thread: Thread):
-        #
-        pass
-
-    def think(thread: Thread):
-        # consider reply
-        pass
-
-    def moderate(thread: Thread):
-        # spam / nsfw / user abuse
-        pass
-
-    def stream_of_consciousness(think: Thread, act: Thread, prompt: str):
-        pass
-
-    @classmethod
-    def dialogue(cls, other):
-        pass
-
-
-from abc import ABC, abstractmethod
-import yaml
-# from eve.llm import async_prompt_thread
-
-
-class Agent2(BaseModel, ABC):
-    """
-    Base class for all agents.
-    """
-
-    key: str
-    owner: ObjectId
-    name: str
-    description: str
-    instructions: str
-    tools: Optional[List[dict]] = None
-
-    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
-    visible: Optional[bool] = True
-    allowlist: Optional[str] = None
-
-    test_args: List[Dict[str, Any]]
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @classmethod
-    def load(cls, key: str, db: str, prefer_local: bool = True, **kwargs):
-        """Load the tool class based on the handler in api.yaml"""
-
-        agents = get_collection("agents", db=db)
-        schema = agents.find_one({"key": key})
-
-        if not schema:
-            raise ValueError(f"Agent with key {key} not found on db: {db}")
-
-        return cls.load_from_schema(schema, prefer_local, **kwargs)
-
-    @classmethod
-    def load_from_dir(cls, agent_dir: str, prefer_local: bool = True, **kwargs):
-        """Load the tool from an api.yaml and test.json"""
-
-        schema = cls._get_schema_from_dir(agent_dir)
-        schema["key"] = agent_dir.split("/")[-1]
-
-        return cls.load_from_schema(schema, prefer_local, **kwargs)
-
-    @classmethod
-    def load_from_schema(cls, schema: dict, prefer_local: bool = True, **kwargs):
-        """Load the tool class based on the handler in api.yaml"""
-
-        key = schema.pop("key")
-        test_args = schema.pop("test_args")
-
-        return cls._create_agent(key, schema, test_args, **kwargs)
-
-    @classmethod
-    def _create_agent(cls, key: str, schema: dict, test_args: dict, **kwargs):
-        """Create a new tool instance from a schema"""
-
-        agent_data = {k: schema.pop(k) for k in cls.model_fields.keys() if k in schema}
-        agent_data["test_args"] = test_args
-        agent_data["owner"] = ObjectId(agent_data["owner"])
-
-        return cls(key=key, **agent_data, **kwargs)
-
-    @classmethod
-    def _get_schema_from_dir(cls, agent_dir: str):
-        if not os.path.exists(agent_dir):
-            raise ValueError(f"Agent directory {agent_dir} does not exist")
-
-        api_file = os.path.join(agent_dir, "api.yaml")
-        test_file = os.path.join(agent_dir, "test.json")
-
-        with open(api_file, "r") as f:
-            schema = yaml.safe_load(f)
-
-        with open(test_file, "r") as f:
-            schema["test_args"] = json.load(f)
-
-        return schema
-
-    async def async_prompt(
-        db: str,
-        user_id: str,
-        thread_name: str,
-        user_messages: Union[UserMessage, List[UserMessage]],
-    ):
-        tools = {}  # get self tools
-        await async_prompt_thread(
-            db=db,
-            user_id=user_id,
-            thread_name=thread_name,
-            user_messages=user_messages,
-            tools=tools,
-        )
-
-    async def async_stream(
-        db: str,
-        user_id: str,
-        thread_name: str,
-        user_messages: Union[UserMessage, List[UserMessage]],
-    ):
-        pass

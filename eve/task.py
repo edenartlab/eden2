@@ -4,7 +4,7 @@ from functools import wraps
 from datetime import datetime, timezone
 import asyncio
 
-from .models import User
+from .user import User
 #from .mongo import MongoModel, get_collection
 from .mongo import Document, Collection, get_collection
 from . import eden_utils
@@ -14,7 +14,7 @@ from . import eden_utils
 @Collection("creations3")
 class Creation(Document):
     user: ObjectId
-    agent: Optional[ObjectId] = None
+    requester: ObjectId
     task: ObjectId
     tool: str
     filename: str
@@ -23,12 +23,21 @@ class Creation(Document):
     attributes: Optional[Dict[str, Any]] = None
     public: bool = False
     deleted: bool = False
-    
+
+    def __init__(self, **data):
+        if isinstance(data.get('user'), str):
+            data['user'] = ObjectId(data['user'])
+        if isinstance(data.get('requesteder'), str):
+            data['requester'] = ObjectId(data['requester'])
+        if isinstance(data.get('task'), str):
+            data['task'] = ObjectId(data['task'])
+        super().__init__(**data)
 
 
 @Collection("tasks3")
 class Task(Document):
     user: ObjectId
+    requester: ObjectId
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
@@ -44,6 +53,8 @@ class Task(Document):
     def __init__(self, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
+        if isinstance(data.get('requester'), str):
+            data['requester'] = ObjectId(data['requester'])
         super().__init__(**data)
 
     # @classmethod
@@ -112,18 +123,15 @@ async def _task_handler(func, *args, **kwargs):
                     name = args.get("interpolation_prompts") or args.get("interpolation_texts")
                     if name:
                         name = " to ".join(name)
-
                 new_creation = Creation(
                     user=task.user,
+                    requester=task.requester,
                     agent=None,
                     task=task.id,
                     tool=task.tool,
                     filename=output['filename'],
                     mediaAttributes=output['mediaAttributes'],
-                    name=name,
-                    attributes={},
-                    private=True,
-                    deleted=False,
+                    name=name
                 )
                 new_creation.save(db=task.db)
                 output["creation"] = new_creation.id
@@ -135,7 +143,6 @@ async def _task_handler(func, *args, **kwargs):
                     "status": "completed", 
                     "result": results
                 }
-                print("THE TASK UPDATE IS FINSIHED", task_update)
 
             else:
                 task_update = {
@@ -157,7 +164,6 @@ async def _task_handler(func, *args, **kwargs):
         user = User.load(task.user, db=task.db)
         user.refund_manna(refund_amount)
         
-        # return task_update
         return task_update.copy()
 
     finally:

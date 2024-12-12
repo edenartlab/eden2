@@ -18,7 +18,7 @@ sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0
 
 from . import eden_utils
 from .base import parse_schema
-from .models import User
+from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
 
@@ -100,6 +100,8 @@ class Tool(Document, ABC):
         Convert the schema into the format expected by the model.
         """
 
+        key = schema.get("key") or file_path.split("/")[-2]
+
         parent_tool = schema.get("parent_tool")
         if parent_tool:
             parent_schema = cls._get_schema(parent_tool, from_yaml=True)
@@ -111,6 +113,7 @@ class Tool(Document, ABC):
             parent_schema['parameters'] = parent_parameters
             schema = parent_schema
         
+        schema["key"] = key
         fields, model_config = parse_schema(schema)
         model = create_model(schema["key"], __config__=model_config, **fields)    
         model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
@@ -155,7 +158,11 @@ class Tool(Document, ABC):
         return schema
 
     def save(self, db=None, **kwargs):
-        super().save(db, {"key": self.key}, **kwargs)
+        return super().save(db, {"key": self.key}, **kwargs)
+
+    @classmethod
+    def load(cls, key, db=None):
+        return super().load(key=key, db=db)
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
@@ -245,7 +252,7 @@ class Tool(Document, ABC):
     def handle_start_task(start_task_function):
         """Wrapper for starting a task process and returning a task"""
 
-        async def async_wrapper(self, user_id: str, args: Dict, db: str, mock: bool = False):
+        async def async_wrapper(self, requester_id: str, user_id: str, args: Dict, db: str, mock: bool = False):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
@@ -261,6 +268,7 @@ class Tool(Document, ABC):
             # create task and set to pending
             task = Task(
                 user=user_id, 
+                requester=requester_id,
                 tool=self.key, 
                 parent_tool=self.parent_tool,
                 output_type=self.output_type, 
@@ -349,8 +357,8 @@ class Tool(Document, ABC):
     def run(self, args: Dict, db: str, mock: bool = False):
         return asyncio.run(self.async_run(args, db, mock))
 
-    def start_task(self, user_id: str, args: Dict, db: str, mock: bool = False):
-        return asyncio.run(self.async_start_task(user_id, args, db, mock))
+    def start_task(self, requester_id: str, user_id: str, args: Dict, db: str, mock: bool = False):
+        return asyncio.run(self.async_start_task(requester_id, user_id, args, db, mock))
     
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))

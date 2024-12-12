@@ -14,7 +14,13 @@ from eve.clients.discord import config
 from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
+from eve.user import User
 from eve.eden_utils import prepare_result
+
+
+users = {}
+
+
 
 # Add logger setup
 logger = logging.getLogger(__name__)
@@ -35,22 +41,6 @@ def is_mentioned(message: discord.Message, user: discord.User) -> bool:
     return name_mentioned or user.id in [m.id for m in message.mentions]
 
 
-def replace_bot_mention(
-    message_text: str,
-    only_first: bool = True,
-    replacement_str: str = "",
-) -> str:
-    """
-    Removes all mentions from a message.
-    :param message: The message to remove mentions from.
-    :return: The message with all mentions removed.
-    """
-    if only_first:
-        return re.sub(r"<@\d+>", replacement_str, message_text, 1)
-    else:
-        return re.sub(r"<@\d+>", replacement_str, message_text)
-
-
 def replace_mentions_with_usernames(
     message_content: str,
     mentions,
@@ -64,55 +54,11 @@ def replace_mentions_with_usernames(
     """
     for mention in mentions:
         message_content = re.sub(
-            f"<@!?{mention.id}>",
+            f"<@[!&]?{mention.id}>",
             f"{prefix}{mention.display_name}{suffix}",
             message_content,
         )
     return message_content.strip()
-
-
-hour_timestamps = {}
-day_timestamps = {}
-
-
-def user_over_rate_limits(user_id):
-    if user_id not in hour_timestamps:
-        hour_timestamps[user_id] = []
-    if user_id not in day_timestamps:
-        day_timestamps[user_id] = []
-
-    hour_timestamps[user_id] = [
-        t for t in hour_timestamps[user_id] if time.time() - t["time"] < 3600
-    ]
-    day_timestamps[user_id] = [
-        t for t in day_timestamps[user_id] if time.time() - t["time"] < 86400
-    ]
-
-    hour_video_tool_calls = len(
-        [t for t in hour_timestamps[user_id] if t["tool"] in common.VIDEO_TOOLS]
-    )
-    hour_image_tool_calls = len(
-        [t for t in hour_timestamps[user_id] if t["tool"] not in common.VIDEO_TOOLS]
-    )
-
-    day_video_tool_calls = len(
-        [t for t in day_timestamps[user_id] if t["tool"] in common.VIDEO_TOOLS]
-    )
-    day_image_tool_calls = len(
-        [t for t in day_timestamps[user_id] if t["tool"] not in common.VIDEO_TOOLS]
-    )
-
-    if (
-        hour_video_tool_calls >= common.HOUR_VIDEO_LIMIT
-        or hour_image_tool_calls >= common.HOUR_IMAGE_LIMIT
-    ):
-        return True
-    if (
-        day_video_tool_calls >= common.DAY_VIDEO_LIMIT
-        or day_image_tool_calls >= common.DAY_IMAGE_LIMIT
-    ):
-        return True
-    return False
 
 
 class Eden2Cog(commands.Cog):
@@ -120,114 +66,116 @@ class Eden2Cog(commands.Cog):
         self,
         bot: commands.bot,
         agent: Agent,
-        agent_id: Optional[str] = None,
         db: str = "STAGE",
     ) -> None:
         self.bot = bot
         self.agent = agent
-        self.agent_id = agent_id
         self.db = db
+        self.tools = get_tools_from_mongo(db=self.db)
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        print("on message 1")
-        if message.author.id == self.bot.user.id or message.author.bot:
+        if message.author.id == self.bot.user.id: # or message.author.bot:
             return
-
-        is_dm = message.channel.type == discord.ChannelType.private
-        if is_dm:
-            thread_name = f"discord9-DM-{message.author.name}-{message.author.id}"
+        
+        dm = message.channel.type == discord.ChannelType.private
+        if dm:
+            thread_key = f"discord-dm-{message.author.name}-{message.author.id}"
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
         else:
-            thread_name = (
-                f"discord9-{message.guild.id}-{message.channel.id}-{message.author.id}"
+            thread_key = (
+                f"discord-{message.guild.id}-{message.channel.id}-{message.author.id}"
             )
-            trigger_reply = is_mentioned(message, self.bot.user)
-            if not trigger_reply:
-                return
-        logger.info(f"thread_name: {thread_name}")
+        logger.info(f"key: {thread_key}")
 
-        if user_over_rate_limits(message.author.id):
+        # Lookup user
+        if message.author.id not in users:
+            users[message.author.id] = User.from_discord(
+                message.author.id, 
+                message.author.name, 
+                db=self.db
+            )
+        user = users[message.author.id]
+
+        # Check user rate limits
+        if common.user_over_rate_limits(user):
             await reply(
                 message,
                 "I'm sorry, you've hit your rate limit. Please try again a bit later!",
             )
             return
 
-        content = replace_bot_mention(message.content, only_first=True)
-        content = replace_mentions_with_usernames(content, message.mentions)
+        # Replace mentions with usernames
+        content = replace_mentions_with_usernames(message.content, message.mentions)
 
+
+        # Prepend reply to message if it is a reply
+        force_reply = False
         if message.reference:
             source_message = await message.channel.fetch_message(
                 message.reference.message_id
             )
+            force_reply = source_message.author.id == self.bot.user.id
             content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
 
-        chat_message = {
-            "name": message.author.name,
-            "content": content,
-            "attachments": [attachment.url for attachment in message.attachments],
-            "settings": {},
-        }
-        logger.info(f"chat message {chat_message}")
-
-        tools = get_tools_from_mongo(db=self.db)
-
-        thread = Thread.get_collection(self.db).find_one(
-            {
-                "name": thread_name,
-            }
-        )
+        # Get thread
+        thread = Thread.get_collection(self.db).find_one({"key": thread_key})
         thread_id = thread.get("_id") if thread else None
         if not thread:
             logger.info("Creating new thread")
-            thread = Thread.create(
-                db=self.db,
-                user=self.agent.owner,
-                agent=self.agent_id,
-                name=thread_name,
-            )
-            thread_id = str(thread.id)
+            thread = Thread.create(key=thread_key, db=self.db)
+            thread_id = thread.id
         logger.info(f"thread: {thread_id}")
 
-        user_message = UserMessage(content=content)
+        # Create chat message
+        user_message = UserMessage(
+            content=content,
+            name=message.author.name,
+            attachments=[attachment.url for attachment in message.attachments],
+        )
+        logger.info(f"chat message {user_message}")
+
         ctx = await self.bot.get_context(message)
 
-        async with ctx.channel.typing():
-            answered = False
-            async for msg in async_prompt_thread(
-                db=self.db,
-                user_id=self.agent.owner,
-                agent_id=self.agent_id,
-                thread_id=thread_id,
-                user_messages=user_message,
-                tools=tools,
-            ):
-                if msg.type == UpdateType.ASSISTANT_MESSAGE:
-                    content = msg.message.content
-                    if content:
-                        if not answered:
-                            await reply(message, content)
-                        else:
-                            await send(message, content)
-                        answered = True
-                elif msg.type == UpdateType.TOOL_COMPLETE:
-                    msg.result["result"] = prepare_result(
-                        msg.result["result"], db="STAGE"
-                    )
-                    url = msg.result["result"][0]["output"][0]["url"]
-                    tool_name = msg.tool_name
-                    hour_timestamps[message.author.id].append(
-                        {"time": time.time(), "tool": tool_name}
-                    )
-                    day_timestamps[message.author.id].append(
-                        {"time": time.time(), "tool": tool_name}
-                    )
-                    await send(message, url)
-                    logger.info(f"tool called {tool_name}")
-                elif msg.type == UpdateType.ERROR:
-                    await reply(message, msg.error)
+        replied = False
+        typing = None
+
+        async for msg in async_prompt_thread(
+            db=self.db,
+            user_id=user.id,
+            agent_id=self.agent.id,
+            thread_id=thread_id,
+            user_messages=user_message,
+            force_reply=force_reply,
+            tools=self.tools,
+        ):
+            if msg.type == UpdateType.START_PROMPT:
+                print("I RECEIVED A START PROMPT")
+                await ctx.channel.trigger_typing()
+        
+            elif msg.type == UpdateType.ERROR:
+                await reply(message, msg.error)
+
+            elif msg.type == UpdateType.ASSISTANT_MESSAGE:
+                content = msg.message.content
+                if content:
+                    if not replied:
+                        await reply(message, content)
+                    else:
+                        await send(message, content)
+                    replied = True
+            
+            elif msg.type == UpdateType.TOOL_COMPLETE:
+                msg.result["result"] = prepare_result(
+                    msg.result["result"], db=self.db
+                )
+                url = msg.result["result"][0]["output"][0]["url"]
+                common.register_tool_call(user, msg.tool_name)
+                await send(message, url)
+                logger.info(f"tool called {msg.tool_name}")
+            
+
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -285,8 +233,17 @@ def start(
     )
     logger.info("Launching bot...")
     load_dotenv(env)
-    agent = common.get_agent(agent_path, agent_key, db=db)
-    logger.info(f"Using agent: {agent}")
+
+    # if agent_path:
+    #     agent = Agent.from_yaml(str(agent_path), db=db)
+    # elif agent_key:
+    #     agent = Agent.load(agent_key, db=db)
+    # else:
+    #     raise ValueError("Either agent_path or agent_key must be provided")
+
+    agent = Agent.load("verdelis", db=db)
+
+    logger.info(f"Using agent: {agent.name}")
     bot = DiscordBot()
     bot.add_cog(Eden2Cog(bot, agent, db=db))
     bot.run(os.getenv("CLIENT_DISCORD_TOKEN"))

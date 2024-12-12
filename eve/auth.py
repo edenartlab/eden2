@@ -8,7 +8,7 @@ import httpx
 from pydantic import BaseModel
 
 from .mongo import get_collection
-
+from .user import User
 # Initialize Clerk SDK
 clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 
@@ -17,7 +17,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 db = os.getenv("DB", "STAGE")
 api_keys = get_collection("apikeys", db=db)
-users = get_collection("users", db=db)
+users = get_collection("users2", db=db)
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")
@@ -29,6 +29,19 @@ class UserData(BaseModel):
     subscriptionTier: int = 0
     featureFlags: list = []
     isAdmin: bool = False
+
+
+def get_eden_user_id(db: str = "STAGE") -> str:
+    """Get the user id for the api key in your env file"""
+    api_keys = get_collection("apikeys", db=db)
+    api_key = os.getenv("EDEN_API_KEY_PROD") if db == "PROD" else os.getenv("EDEN_API_KEY_STAGE")
+    api_key = api_keys.find_one({"apiKey": api_key.get_secret_value()})
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API key not found")
+    user = User.from_mongo(api_key["user"], db=db)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return str(user.id)
 
 
 def get_user_data(user_id: str) -> UserData:

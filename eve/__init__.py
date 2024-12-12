@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 from pathlib import Path
+from pydantic import SecretStr
 import os
 
 home_dir = str(Path.home())
@@ -13,3 +14,7 @@ if os.path.exists(eve_path):
 env_path = ".env"
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
+
+# load api keys
+EDEN_API_KEY_STAGE = SecretStr(os.getenv("EDEN_API_KEY_STAGE", ""))
+EDEN_API_KEY_PROD = SecretStr(os.getenv("EDEN_API_KEY_PROD", ""))

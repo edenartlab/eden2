@@ -42,7 +42,7 @@ def Collection(name):
 
 
 class Document(BaseModel):
-    id: Optional[ObjectId] = Field(default_factory=ObjectId, alias="_id")
+    id: Optional[ObjectId] = Field(None, alias="_id") #= Field(default_factory=ObjectId, alias="_id")
     createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     updatedAt: Optional[datetime] = None
     db: Optional[str] = None
@@ -80,7 +80,6 @@ class Document(BaseModel):
             raise FileNotFoundError(f"File {file_path} not found")
         with open(file_path, "r") as file:
             schema = yaml.safe_load(file)
-        schema["key"] = schema.get("key") or file_path.split("/")[-2]
         sub_cls = cls.get_sub_class(schema, from_yaml=True, db=db)
         schema = sub_cls.convert_from_yaml(schema, file_path=file_path)
         return cls.from_schema(schema, db=db, from_yaml=True)
@@ -99,13 +98,13 @@ class Document(BaseModel):
         return cls.from_schema(schema, db, from_yaml=False)
         
     @classmethod
-    def load(cls, key: str, db="STAGE"):
+    def load(cls, db="STAGE", **kwargs):
         """
         Load the document from the database and return an instance of the model.
         """
-        schema = cls.get_collection(db).find_one({"key": key})
+        schema = cls.get_collection(db).find_one(kwargs)
         if not schema:
-            raise ValueError(f"Document with key {key} not found in {cls.collection_name}:{db}")        
+            raise ValueError(f"Document {kwargs} not found in {cls.collection_name}:{db}")
         sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
         schema = sub_cls.convert_from_mongo(schema)
         return cls.from_schema(schema, db, from_yaml=False)
@@ -135,23 +134,44 @@ class Document(BaseModel):
         Save the current state of the model to the database.
         """
         db = db or self.db or "STAGE"        
-        filter = upsert_filter or {"_id": self.id}
-
+        
         schema = self.model_dump(by_alias=True, exclude={"db"})
         self.model_validate(schema)
         schema = self.convert_to_mongo(schema)
         schema.update(kwargs)
-        schema.pop("_id")
-
         self.updatedAt = datetime.now(timezone.utc)
+        
+        filter = upsert_filter or {"_id": self.id or ObjectId()}
         collection = self.get_collection(db)
-        if self.id:
-            collection.replace_one(filter, schema, upsert=True)
+        if self.id or filter:
+            if filter:
+                schema.pop("_id", None)
+            result = collection.find_one_and_replace(
+                filter,
+                schema,
+                upsert=True,
+                return_document=True  # Returns the document after changes
+            )
+            self.id = result["_id"]            
         else:
+            schema["_id"] = ObjectId()
             self.createdAt = datetime.now(timezone.utc)
             result = collection.insert_one(schema)
-            self.id = result.inserted_id
+            self.id = schema["_id"]
         self.db = db
+
+    @classmethod
+    def save_many(cls, documents: List[BaseModel], db=None):
+        db = db or cls.db or "STAGE"
+        collection = cls.get_collection(db)
+        for d in range(len(documents)):
+            documents[d].id = documents[d].id or ObjectId()
+            documents[d] = documents[d].model_dump(by_alias=True, exclude={"db"})
+            cls.model_validate(documents[d])
+            documents[d] = cls.convert_to_mongo(documents[d])
+            documents[d]["createdAt"] = documents[d].get("createdAt", datetime.now(timezone.utc))
+            documents[d]["updatedAt"] = documents[d].get("updatedAt", datetime.now(timezone.utc))
+        collection.insert_many(documents)
 
     # todo: this method is probably superfluous, should remove
     # def validate_fields(self):
@@ -166,6 +186,7 @@ class Document(BaseModel):
         """
         # updated_data = self.model_copy(update=kwargs)
         # updated_data.validate_fields()  # todo: check this, it's probably unnecessary
+        
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id}, 

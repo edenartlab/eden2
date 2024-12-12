@@ -22,7 +22,7 @@ from eve.mongo import Document, Collection, get_collection
 from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
 from eve.task import Task
 from eve.tool import Tool, get_tools_from_mongo
-from eve.models import User
+from eve.user import User
 from eve.agent import Agent
 
 # from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
@@ -165,6 +165,7 @@ from enum import Enum
 from typing import Optional, Dict, Any
 
 class UpdateType(str, Enum):
+    START_PROMPT = "start_prompt"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
@@ -212,15 +213,13 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     agent = Agent.from_mongo(agent_id, db=db)
+    user = User.from_mongo(user_id, db=db)
+    thread = Thread.from_mongo(thread_id, db=db)
+
+    if thread.allowlist:
+        assert user.id in thread.allowlist, "User is not allowed to post in thread {thread_id}"
 
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
-    user = User.from_mongo(user_id, db=db)
-    if thread_id:
-        thread = Thread.from_mongo(thread_id, db=db)
-    else:
-        thread = Thread.create(db=db, user=user.id, agent=agent_id)
-
-    assert thread.user == user.id, "User does not own thread {thread_id}"
 
     system_message = Template(template).render(
         name=agent.name,
@@ -230,7 +229,6 @@ async def async_prompt_thread(
 
     thread.push("messages", user_messages)
 
-    # Check if agent name appears in any user message content
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
@@ -242,6 +240,8 @@ async def async_prompt_thread(
     # think = True
     # if think:
     #     thought = await async_think(thread.messages, tools)
+
+    yield ThreadUpdate(type=UpdateType.START_PROMPT)
 
     while True:
         try:
@@ -286,7 +286,7 @@ async def async_prompt_thread(
                 if not tool:
                     raise Exception(f"Tool {tool_call.tool} not found.")
 
-                task = await tool.async_start_task(user.id, tool_call.args, db=db)
+                task = await tool.async_start_task(user.id, agent.id, tool_call.args, db=db)
                 thread.update_tool_call(assistant_message.id, t, {
                     "task": ObjectId(task.id),
                     "status": "pending"
@@ -343,7 +343,6 @@ def prompt_thread(
     async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, force_reply, model)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    print("STARTING LOOP")
     try:
         while True:
             try:
@@ -360,59 +359,3 @@ def print_message(message, name):
         print(f"\n\n===============================\n{name}: {message.content}\n\n{tool_calls}")
     elif isinstance(message, UserMessage):
         print(f"\n\n===============================\n{name}: {message.content}")
-
-
-
-def pretty_print_messages(messages, schema: Literal["anthropic", "openai"] = "openai"):
-    if schema == "anthropic":
-        messages = [item for msg in messages for item in msg.anthropic_schema(truncate_images=True)]
-    elif schema == "openai":
-        messages = [item for msg in messages for item in msg.openai_schema(truncate_images=True)]
-    json_str = json.dumps(messages, indent=4)
-    print(json_str)
-
-
-
-
-
-
-
-"""
-
-messages = [
-    UserMessage(
-        name="alice", 
-        content="hey bob, what did you think about the zine?"
-    ),
-    UserMessage(
-        name="bob",
-        # content="it was pretty good. i really liked the line about the salton sea predictions for 2032."
-        content = ""
-    ),
-    UserMessage(
-        name="alice", 
-        content="yeah mine too. i was thinking it could be cool to make a reel about it. something with this style.",
-        attachments=[
-            "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
-        ]
-    ),
-]
-
-
-messages2 = [
-    UserMessage(
-        content="eve, make a picture of a fancy cat"
-    )
-]
-
-
-
-pretty_print_messages(messages, schema="anthropic")
-print("\n\n==========\n\n")
-pretty_print_messages(messages, schema="openai")
-
-from eve.thread import Agent2
-agent = Agent2.load_from_dir("agents/eve", db="STAGE")
-
-# agent.prompt_thread()
-"""

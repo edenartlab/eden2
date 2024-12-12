@@ -6,14 +6,16 @@ from typing import Dict, Any, Optional, List, Literal
 from .mongo import Document, Collection, get_collection
 
 
-@Collection("models")
+@Collection("models3")
 class Model(Document):
     name: str
     user: ObjectId
+    requester: ObjectId
     task: ObjectId
-    slug: str = None
+    #slug: str = None
     thumbnail: str
     public: bool = False
+    deleted: bool = False   
     args: Dict[str, Any]
     checkpoint: str
     base_model: str
@@ -27,6 +29,8 @@ class Model(Document):
     def __init__(self, **data):
         if isinstance(data.get("user"), str):
             data["user"] = ObjectId(data["user"])
+        if isinstance(data.get("requester"), str):
+            data["requester"] = ObjectId(data["requester"])
         if isinstance(data.get("task"), str):
             data["task"] = ObjectId(data["task"])
         super().__init__(**data)
@@ -57,88 +61,19 @@ class Model(Document):
             if doc.get("slug")
         ]
         new_version = max(versions or [0]) + 1
-        users = get_collection("users", db=self.db)
+        users = get_collection("users3", db=self.db)
         username = users.find_one({"_id": self.user})["username"]
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"
 
-    def save(self, upsert_filter=None):
-        self._make_slug()
-        super().save(upsert_filter)
+    # def save(self, upsert_filter=None):
+    #     # self._make_slug()
+    #     super().save(upsert_filter)
 
-    def update(self, **kwargs):
-        self._make_slug()
-        super().update(**kwargs)
+    # def update(self, **kwargs):
+    #     # self._make_slug()
+    #     super().update(**kwargs)
 
-
-
-@Collection("users")
-class User(Document):
-    # type of user    
-    type: Optional[Literal["user", "agent"]] = "user"
-    isAdmin: Optional[bool] = False
-    deleted: Optional[bool] = False
-
-    # auth settings
-    userId: Optional[str] = None
-    isWeb2: Optional[bool] = False
-    email: Optional[str] = None
-    normalizedEmail: Optional[str] = None
-
-    # agent settings
-    agent: Optional[ObjectId] = None
-    owner: Optional[ObjectId] = None
-
-    # permissions
-    featureFlags: Optional[List[str]] = None
-    subscriptionTier: Optional[int] = None
-    highestMonthlySubscriptionTier: Optional[int] = None
-
-    # profile
-    username: str
-    userImage: str
-
-    def verify_manna_balance(self, amount: float):
-        mannas = get_collection("mannas", db=self.db)
-        manna = mannas.find_one({"user": self.id})
-        if not manna:
-            raise Exception("Mannas not found")
-        balance = manna.get("balance") + manna.get("subscriptionBalance", 0)
-        if balance < amount:
-            raise Exception(
-                f"Insufficient manna balance. Need {amount} but only have {balance}"
-            )
-
-    def spend_manna(self, amount: float):
-        if amount == 0:
-            return
-
-        mannas = get_collection("mannas", db=self.db)
-        manna = mannas.find_one({"user": self.id})
-        if not manna:
-            raise Exception("Mannas not found")
-        subscription_balance = manna.get("subscriptionBalance", 0)
-
-        # Use subscription balance first
-        if subscription_balance > 0:
-            subscription_spend = min(subscription_balance, amount)
-            mannas.update_one(
-                {"user": self.id},
-                {"$inc": {"subscriptionBalance": -subscription_spend}},
-            )
-            amount -= subscription_spend
-
-        # If there's remaining amount, use regular balance
-        if amount > 0:
-            mannas.update_one({"user": self.id}, {"$inc": {"balance": -amount}})
-
-    def refund_manna(self, amount: float):
-        if amount == 0:
-            return
-
-        # todo: make it refund to subscription balance first
-        mannas = get_collection("mannas", db=self.db)
-        mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
 
 
 class ClientType(Enum):

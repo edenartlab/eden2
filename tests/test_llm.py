@@ -1,12 +1,10 @@
-import os
-
 from eve.llm import prompt_thread, UserMessage, AssistantMessage
 from eve.tool import get_tools_from_mongo
-
+from eve.auth import get_eden_user_id
 
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
+    user_id = get_eden_user_id(db="STAGE")
     
     for msg in prompt_thread(
         db="STAGE",
@@ -21,7 +19,7 @@ def test_prompting():
 
 
 def test_prompting2():
-    user_id = os.getenv("EDEN_TEST_USER_STAGE")
+    user_id = get_eden_user_id(db="STAGE")
 
     messages = [
         UserMessage(content="hi there!!."),
