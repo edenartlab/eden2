@@ -1,0 +1,19 @@
+name: Tweet
+description: Make a tweet on Twitter
+cost_estimate: 1
+output_type: string
+status: stage
+visible: false
+parameters:
+  content:
+    type: string
+    label: Tweet
+    description: The text content of the tweet. Must be *maximum* 280 characters.
+    required: true
+  images:
+    type: array
+    label: Images
+    description: A list of image URLs to include in the tweet.
+    items:
+      type: string
+  

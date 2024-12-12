@@ -109,7 +109,6 @@ class Eden2Cog(commands.Cog):
         # Replace mentions with usernames
         content = replace_mentions_with_usernames(message.content, message.mentions)
 
-
         # Prepend reply to message if it is a reply
         force_reply = False
         if message.reference:
@@ -139,7 +138,6 @@ class Eden2Cog(commands.Cog):
         ctx = await self.bot.get_context(message)
 
         replied = False
-        typing = None
 
         async for msg in async_prompt_thread(
             db=self.db,
@@ -151,7 +149,6 @@ class Eden2Cog(commands.Cog):
             tools=self.tools,
         ):
             if msg.type == UpdateType.START_PROMPT:
-                print("I RECEIVED A START PROMPT")
                 await ctx.channel.trigger_typing()
         
             elif msg.type == UpdateType.ERROR:
@@ -174,8 +171,6 @@ class Eden2Cog(commands.Cog):
                 common.register_tool_call(user, msg.tool_name)
                 await send(message, url)
                 logger.info(f"tool called {msg.tool_name}")
-            
-
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -191,7 +186,7 @@ async def reply(message, content):
 
 async def send(message, content):
     content_chunks = [content[i : i + 1980] for i in range(0, len(content), 1980)]
-    for c, chunk in enumerate(content_chunks):
+    for chunk in content_chunks:
         await message.channel.send(chunk)
 
 
@@ -217,13 +212,11 @@ class DiscordBot(commands.Bot):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return
-        print("process 1")
+
         await self.process_commands(message)
-        print("process 2")
 
 def start(
     env: str,
-    agent_path: Optional[str] = None,
     agent_key: Optional[str] = None,
     db: str = "STAGE",
 ) -> None:
@@ -234,14 +227,7 @@ def start(
     logger.info("Launching bot...")
     load_dotenv(env)
 
-    # if agent_path:
-    #     agent = Agent.from_yaml(str(agent_path), db=db)
-    # elif agent_key:
-    #     agent = Agent.load(agent_key, db=db)
-    # else:
-    #     raise ValueError("Either agent_path or agent_key must be provided")
-
-    agent = Agent.load("verdelis", db=db)
+    agent = Agent.load(agent_key, db=db)
 
     logger.info(f"Using agent: {agent.name}")
     bot = DiscordBot()

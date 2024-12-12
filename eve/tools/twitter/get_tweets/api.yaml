@@ -1,0 +1,14 @@
+name: Read Twitter
+description: Get tweets from a set of users
+cost_estimate: 1
+output_type: string
+status: stage
+visible: false
+parameters:
+  users:
+    type: array
+    label: Users
+    description: A list of Twitter users to get tweets from.
+    required: true
+    items:
+      type: string
