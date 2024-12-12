@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from .mongo import get_collection
 from .user import User
+from . import EDEN_API_KEY_PROD, EDEN_API_KEY_STAGE
+
 # Initialize Clerk SDK
 clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 
@@ -34,7 +36,7 @@ class UserData(BaseModel):
 def get_eden_user_id(db: str = "STAGE") -> str:
     """Get the user id for the api key in your env file"""
     api_keys = get_collection("apikeys", db=db)
-    api_key = os.getenv("EDEN_API_KEY_PROD") if db == "PROD" else os.getenv("EDEN_API_KEY_STAGE")
+    api_key = EDEN_API_KEY_PROD if db == "PROD" else EDEN_API_KEY_STAGE
     api_key = api_keys.find_one({"apiKey": api_key.get_secret_value()})
     if not api_key:
         raise HTTPException(status_code=401, detail="API key not found")
