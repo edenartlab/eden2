@@ -54,9 +54,7 @@ def process_agent(agent_path: Path):
         print(f"No deployments found in {agent_path}")
         return
 
-    agent_key = agent_config.get("key")
-    if not agent_key:
-        return
+    agent_key = agent_path.parent.name
 
     # Create environment and secrets once per agent
     if not check_environment_exists(agent_key):

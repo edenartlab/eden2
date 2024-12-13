@@ -34,8 +34,19 @@ class CastWebhook(BaseModel):
     data: dict
 
 
-def create_app(client: Warpcast, agent: Agent, db: str = "STAGE"):
+def create_app(env: str = None, db: str = "STAGE"):
     app = FastAPI()
+
+    if env:
+        load_dotenv(env)
+
+    mnemonic = os.environ.get("CLIENT_FARCASTER_MNEMONIC")
+    agent_key = os.environ.get("CLIENT_AGENT_KEY")
+    db = os.environ.get("DB", "STAGE")
+
+    client = Warpcast(mnemonic=mnemonic)
+    agent = Agent.load(agent_key, db=db)
+    logger.info("Initialized Farcaster client")
 
     app.add_middleware(
         CORSMiddleware,
@@ -120,10 +131,11 @@ async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: s
                         parent={"hash": cast_hash, "fid": author_fid},
                     )
             elif update.type == UpdateType.TOOL_COMPLETE:
+                logger.info(f"Tool complete: {update}")
                 update.result["result"] = prepare_result(update.result["result"], db=db)
                 url = update.result["result"][0]["output"][0]["url"]
                 client.post_cast(
-                    text=update.message.content,
+                    text="",
                     embeds=[url],  # Add URL as embed
                     parent={"hash": cast_hash, "fid": author_fid},
                 )
@@ -150,18 +162,7 @@ def start(env=None):
     """Start the FastAPI server locally"""
     import uvicorn
 
-    if env:
-        load_dotenv(env)
-
-    mnemonic = os.environ.get("CLIENT_FARCASTER_MNEMONIC")
-    agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
-    db = os.environ.get("DB", "STAGE")
-
-    client = Warpcast(mnemonic=mnemonic)
-    agent = Agent.load(agent_key, db=db)
-    logger.info("Initialized Farcaster client")
-
-    app = create_app(client, agent, db=db)
+    app = create_app(env)
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
 

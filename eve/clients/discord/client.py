@@ -20,6 +20,7 @@ from eve.eden_utils import prepare_result
 logger = logging.getLogger(__name__)
 
 
+
 def is_mentioned(message: discord.Message, user: discord.User) -> bool:
     """
     Checks if a user is mentioned in a message.
@@ -71,9 +72,9 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        if message.author.id == self.bot.user.id: # or message.author.bot:
+        if message.author.id == self.bot.user.id:  # or message.author.bot:
             return
-        
+
         dm = message.channel.type == discord.ChannelType.private
         if dm:
             thread_key = f"discord-dm-{message.author.name}-{message.author.id}"
@@ -144,7 +145,7 @@ class Eden2Cog(commands.Cog):
         ):
             if msg.type == UpdateType.START_PROMPT:
                 await ctx.channel.trigger_typing()
-        
+
             elif msg.type == UpdateType.ERROR:
                 await reply(message, msg.error)
 
@@ -156,11 +157,9 @@ class Eden2Cog(commands.Cog):
                     else:
                         await send(message, content)
                     replied = True
-            
+
             elif msg.type == UpdateType.TOOL_COMPLETE:
-                msg.result["result"] = prepare_result(
-                    msg.result["result"], db=self.db
-                )
+                msg.result["result"] = prepare_result(msg.result["result"], db=self.db)
                 url = msg.result["result"][0]["output"][0]["url"]
                 common.register_tool_call(user, msg.tool_name)
                 await send(message, url)
@@ -209,9 +208,9 @@ class DiscordBot(commands.Bot):
 
         await self.process_commands(message)
 
+
 def start(
     env: str,
-    agent: str,
     db: str = "STAGE",
 ) -> None:
     logging.basicConfig(
@@ -220,8 +219,9 @@ def start(
     )
     logger.info("Launching bot...")
     load_dotenv(env)
+    agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
 
-    agent = Agent.load(agent, db=db)
+    agent = Agent.load(agent_key, db=db)
 
     logger.info(f"Using agent: {agent.name}")
     bot = DiscordBot()
@@ -234,6 +234,8 @@ if __name__ == "__main__":
     parser.add_argument("--agent_path", help="Path to the agent directory")
     parser.add_argument("--agent_key", help="Key of the agent")
     parser.add_argument("--db", help="Database to use", default="STAGE")
-    parser.add_argument("--env", help="Path to a different .env file not in agent directory")
+    parser.add_argument(
+        "--env", help="Path to a different .env file not in agent directory"
+    )
     args = parser.parse_args()
     start(args.env, args.agent_path, args.agent_key, args.db)

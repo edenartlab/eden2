@@ -14,9 +14,14 @@ instructions: |
 clients:
   discord:
     enabled: true
-  # farcaster:
-  #   enabled: true
-  # telegram:
-  #   enabled: true
+  farcaster:
+    enabled: true
+  telegram:
+    enabled: true
   local:
     enabled: true
+
+deployments:
+  - farcaster
+  - discord
+  - telegram
