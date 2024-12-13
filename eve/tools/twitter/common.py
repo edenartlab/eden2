@@ -5,7 +5,7 @@ import time
 import logging
 import requests
 from dotenv import load_dotenv
-from requests_oauthlib import OAuth1Session
+# from requests_oauthlib import OAuth1Session
 # from eve.sdk.eden import EdenClient
 
 from dotenv import load_dotenv
@@ -33,12 +33,13 @@ class X:
     def _init_oauth_session(self):
         """Initializes OAuth1 session."""
         
-        return OAuth1Session(
-            self.consumer_key,
-            client_secret=self.consumer_secret,
-            resource_owner_key=self.access_token,
-            resource_owner_secret=self.access_token_secret
-        )
+        return None
+        # return OAuth1Session(
+        #     self.consumer_key,
+        #     client_secret=self.consumer_secret,
+        #     resource_owner_key=self.access_token,
+        #     resource_owner_secret=self.access_token_secret
+        # )
 
     def _make_request(self, method, url, **kwargs):
         """Generic request handler with error handling and retries."""

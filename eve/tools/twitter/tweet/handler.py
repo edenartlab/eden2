@@ -5,7 +5,7 @@ import time
 import logging
 import requests
 from dotenv import load_dotenv
-from requests_oauthlib import OAuth1Session
+# from requests_oauthlib import OAuth1Session
 
 from .... import eden_utils
 

@@ -17,8 +17,12 @@ from eve.thread import Thread
 from eve.user import User
 from eve.eden_utils import prepare_result
 
+# Logging configuration
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 
 def is_mentioned(message: discord.Message, user: discord.User) -> bool:
@@ -213,20 +217,17 @@ def start(
     env: str,
     db: str = "STAGE",
 ) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    logger.info("Launching bot...")
+    logger.info("Launching Discord bot...")
     load_dotenv(env)
+    
     agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
-
     agent = Agent.load(agent_key, db=db)
 
     logger.info(f"Using agent: {agent.name}")
+    bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
     bot = DiscordBot()
     bot.add_cog(Eden2Cog(bot, agent, db=db))
-    bot.run(os.getenv("CLIENT_DISCORD_TOKEN"))
+    bot.run(bot_token)
 
 
 if __name__ == "__main__":

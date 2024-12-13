@@ -391,10 +391,11 @@ def start(agent: str, db: str, env: str):
         # Load all yaml files and collect enabled clients
         with open(yaml_path) as f:
             config = yaml.safe_load(f)
-            if "clients" in config:
-                for client_type, settings in config["clients"].items():
-                    if settings.get("enabled", False):
-                        clients_to_start[ClientType(client_type)] = yaml_path
+        
+        if "clients" in config:
+            for client_type, settings in config["clients"].items():
+                if settings.get("enabled", False):
+                    clients_to_start[ClientType(client_type)] = yaml_path
 
         if not clients_to_start:
             click.echo(click.style("No enabled clients found in yaml files", fg="red"))
@@ -411,15 +412,15 @@ def start(agent: str, db: str, env: str):
                 try:
                     if client_type == ClientType.DISCORD:
                         p = multiprocessing.Process(
-                            target=start_discord, args=(env_path, agent)
+                            target=start_discord, args=(env_path, db)
                         )
                     elif client_type == ClientType.TELEGRAM:
                         p = multiprocessing.Process(
-                            target=start_telegram, args=(env_path, agent)
+                            target=start_telegram, args=(env_path, db)
                         )
                     elif client_type == ClientType.FARCASTER:
                         p = multiprocessing.Process(
-                            target=start_farcaster, args=(env_path,)
+                            target=start_farcaster, args=(env_path, db)
                         )
 
                     p.start()
