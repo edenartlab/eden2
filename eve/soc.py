@@ -2,16 +2,14 @@ import os
 import asyncio
 from eve.llm import *
 from eve.tool import get_tools_from_mongo
-from eve.auth import get_eden_user_id
+from eve.auth import get_my_eden_user
 
 db = "STAGE"
-user_id = get_eden_user_id(db=db)
+user = get_my_eden_user(db=db)
 thread_name_think = "test_soc23_think"
 thread_name_act = "test_soc23_act"
 tools = get_tools_from_mongo(db=db)
 
-
-user = User.load(user_id, db=db)
 thread_think = Thread.from_name(name=thread_name_think, user=user.id, db=db)
 thread_act = Thread.from_name(name=thread_name_act, user=user.id, db=db)
 

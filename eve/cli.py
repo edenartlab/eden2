@@ -23,7 +23,7 @@ from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
 from eve.clients.telegram.client import start as start_telegram
 from eve.clients.farcaster.client import start as start_farcaster
-from eve.auth import get_eden_user_id
+from eve.auth import get_my_eden_user
 
 api_tools_order = [
     "txt2img",
@@ -263,9 +263,11 @@ def test(
         click.echo(click.style(f"Args: {dump_json(tool.test_args)}", fg=color))
 
         if api:
-            user_id = get_eden_user_id(db=db)
+            user = get_my_eden_user(db=db)
+
+            # decorate this
             task = await tool.async_start_task(
-                user_id, user_id, tool.test_args, db=db, mock=mock
+                user.id, user.id, tool.test_args, db=db, mock=mock
             )
             result = await tool.async_wait(task)
         else:
@@ -356,10 +358,10 @@ def start_local_chat(db: str, agent_dir: str):
     # Get the agent name from the yaml file
     with open(agent_dir / "api.yaml") as f:  # or pass this path as parameter
         config = yaml.safe_load(f)
-        agent = config.get("name", "eve").lower()
+        agent_name = config.get("name", "eve").lower()
 
-    thread = f"local_client_{int(time.time())}"  # unique thread name
-    asyncio.run(async_chat(db, agent, thread))
+    # if new_thread is set False, thread with current user will persist across restarts
+    asyncio.run(async_chat(db, agent_name, new_thread=True))
 
 
 @cli.command()

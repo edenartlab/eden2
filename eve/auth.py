@@ -33,7 +33,7 @@ class UserData(BaseModel):
     isAdmin: bool = False
 
 
-def get_eden_user_id(db: str = "STAGE") -> str:
+def get_my_eden_user(db: str = "STAGE") -> str:
     """Get the user id for the api key in your env file"""
     api_keys = get_collection("apikeys", db=db)
     api_key = EDEN_API_KEY_PROD if db == "PROD" else EDEN_API_KEY_STAGE
@@ -43,7 +43,7 @@ def get_eden_user_id(db: str = "STAGE") -> str:
     user = User.from_mongo(api_key["user"], db=db)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    return str(user.id)
+    return user
 
 
 def get_user_data(user_id: str) -> UserData:

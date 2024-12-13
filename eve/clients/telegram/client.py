@@ -189,6 +189,7 @@ class EdenTG:
         self.db = db
         self.tools = get_tools_from_mongo(db=self.db)
         self.known_users = {}
+        self.known_threads = {}
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -228,17 +229,15 @@ class EdenTG:
             )
         user = self.known_users[user_id]
 
-        # Get thread
-        thread_key = f"telegram-{chat_id}-{user_id}"
-        thread = Thread.get_collection(self.db).find_one({"key": thread_key})
-        thread_id = thread.get("_id") if thread else None
-        if not thread:
-            thread = Thread.create(
-                key=thread_key,
+        # Lookup thread
+        thread_key = f"telegram-{chat_id}"
+        if thread_key not in self.known_threads:
+            self.known_threads[thread_key] = self.agent.request_thread(
+                key=thread_key, 
                 db=self.db,
             )
-            thread_id = thread.id
-
+        thread = self.known_threads[thread_key]
+        
         # Process text or photo messages
         message_text = update.message.text or ""
         attachments = []
@@ -260,9 +259,9 @@ class EdenTG:
 
         async for update in async_prompt_thread(
             db=self.db,
-            user_id=user.id,
-            agent_id=self.agent.id,
-            thread_id=thread_id,
+            user=user,
+            agent=self.agent,
+            thread=thread,
             user_messages=user_message,
             tools=self.tools,
             force_reply=force_reply,

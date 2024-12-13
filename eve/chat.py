@@ -1,7 +1,9 @@
 import os
 import sys
 import json
+import time
 import re
+import logging
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -11,7 +13,7 @@ from eve.thread import Thread
 from eve.tool import get_tools_from_mongo
 from eve.eden_utils import prepare_result, dump_json
 from eve.agent import Agent
-from eve.auth import get_eden_user_id
+from eve.auth import get_my_eden_user
 
 def preprocess_message(message):
     metadata_pattern = r"\{.*?\}"
@@ -23,16 +25,25 @@ def preprocess_message(message):
     return clean_message, attachments
 
 
-async def async_chat(db, agent, thread_id, debug=False):
+async def async_chat(db, agent_name, new_thread=True, debug=False):
     db = db.upper()
-    user_id = get_eden_user_id(db=db)
 
-    agent = Agent.load(agent, db=db)
-    chat_string = f"Chat with {agent.name}".center(36)
+    if not debug:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+    user = get_my_eden_user(db=db)
+    agent = Agent.load(agent_name, db=db)
+
+    key = f"cli_{str(agent.name)}_{str(user.id)}"
+    if not new_thread:
+        key += f"_{int(time.time())}"
+
+    thread = agent.request_thread(key=key, db=db)
 
     console = Console()
     console.print("\n[bold blue]╭────────────────────────────────────╮")
-    console.print(f"[bold blue]│{chat_string}│")
+    console.print(f"[bold blue]│{f"Chat with {agent.name}".center(36)}│")
     console.print("[bold blue]╰────────────────────────────────────╯\n")
     # console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
 
@@ -62,25 +73,17 @@ async def async_chat(db, agent, thread_id, debug=False):
                     if not debug:                        
                         sys.stdout = devnull
 
-                    if not thread_id:
-                        thread = Thread.create(
-                            db=db,
-                            allowlist=[user_id, agent.id]
-                        )
-                        thread_id = str(thread.id)
-
                     async for update in async_prompt_thread(
                         db=db,
-                        user_id=user_id,
-                        agent_id=agent.id,
-                        thread_id=thread_id,
+                        user=user,
+                        agent=agent,
+                        thread=thread,
                         user_messages=UserMessage(
                             content=content, 
                             attachments=attachments
                         ),
                         tools=get_tools_from_mongo(db),
                         force_reply=True,
-                        # model= "claude-3-5-sonnet-20241022"
                     ):
                         sys.stdout = original_stdout
 
@@ -90,6 +93,7 @@ async def async_chat(db, agent, thread_id, debug=False):
                                 "[bold green]Eve [dim]→[/dim] [green]"
                                 + update.message.content
                             )
+                            print()
                         elif update.type == UpdateType.TOOL_COMPLETE:
                             result = prepare_result(update.result.get("result"), db=db)
                             console.print(
@@ -103,12 +107,13 @@ async def async_chat(db, agent, thread_id, debug=False):
                                 formatted_result,
                             )
                             console.print("[cyan]" + formatted_result)
+                            print()
                         elif update.type == UpdateType.ERROR:
                             print(update)
                             console.print(
                                 f"[bold red]❌ Error: [red]{str(update.error)}[/red]"
                             )
-                        print()
+                            print()
 
                         if not debug:
                             sys.stdout = devnull

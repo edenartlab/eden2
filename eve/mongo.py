@@ -111,7 +111,6 @@ class Document(BaseModel):
         
     @classmethod
     def get_sub_class(cls, schema: dict = None, db="STAGE", from_yaml=True) -> type:
-    # def get_sub_class(cls, **kwargs) -> type:
         return cls
 
     @classmethod

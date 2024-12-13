@@ -219,20 +219,14 @@ async def async_think():
 
 async def async_prompt_thread(
     db: str,
-    user_id: str, 
-    agent_id: str,
-    thread_id: Optional[str],
+    user: User, 
+    agent: Agent,
+    thread: Thread,
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     force_reply: bool = True,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
-    agent = Agent.from_mongo(agent_id, db=db)
-    user = User.from_mongo(user_id, db=db)
-    thread = Thread.from_mongo(thread_id, db=db)
-
-    if thread.allowlist:
-        assert user.id in thread.allowlist, "User is not allowed to post in thread {thread_id}"
 
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
 
@@ -360,15 +354,15 @@ async def async_prompt_thread(
 
 def prompt_thread(
     db: str,
-    user_id: str, 
-    agent_id: str,
-    thread_id: Optional[str],
+    user: User, 
+    agent: Agent,
+    thread: Thread,
     user_messages: Union[UserMessage, List[UserMessage]], 
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    model: Literal[tuple(models)] = "gpt-4o-mini" # "claude-3-5-sonnet-20241022"
+    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
-    async_gen = async_prompt_thread(db, user_id, agent_id, thread_id, user_messages, tools, force_reply, model)
+    async_gen = async_prompt_thread(db, user, agent, thread, user_messages, tools, force_reply, model)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:

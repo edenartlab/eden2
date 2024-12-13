@@ -355,20 +355,25 @@ class AssistantMessage(ChatMessage):
     #         thread = cls.create(key=key, db=db)
     #     return thread.id
     
-
 @Collection("threads3")
 class Thread(Document):
     key: Optional[str] = None
-    allowlist: Optional[List[ObjectId]] = None
+    agent: Optional[ObjectId] = None
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
     @classmethod
-    def create(cls, allowlist=None, key=None, db="STAGE"):
-        if allowlist:
-            allowlist = [a if isinstance(a, ObjectId) else ObjectId(a) for a in allowlist]
-        new_thread = cls(db=db, allowlist=allowlist, key=key)
-        new_thread.save()
-        return new_thread
+    def load(cls, key=None, agent=None, create_if_missing=False, db="STAGE"):
+        filter = {"key": key, "agent": agent} if agent else {"key": key}
+        thread = cls.get_collection(db).find_one(filter)
+        if thread:
+            thread = Thread(db=db, **thread)
+        else:
+            if create_if_missing:
+                thread = cls(db=db, key=key, agent=agent)
+                thread.save()
+            else:
+                raise Exception(f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}")        
+        return thread
 
     def update_tool_call(self, message_id, tool_call_index, updates):
         # Update the in-memory object
@@ -376,13 +381,11 @@ class Thread(Document):
         for key, value in updates.items():
             setattr(message.tool_calls[tool_call_index], key, value)
         # Update the database
-        self.set_against_filter(
-            {
-                f"messages.$.tool_calls.{tool_call_index}.{k}": v
-                for k, v in updates.items()
-            },
-            filter={"messages.id": message_id},
-        )
+        updates = {
+            f"messages.$.tool_calls.{tool_call_index}.{k}": v
+            for k, v in updates.items()
+        }
+        self.set_against_filter(updates, filter={"messages.id": message_id})
 
     def get_messages(self, filters=None):
         # filter by time, number, or prompt

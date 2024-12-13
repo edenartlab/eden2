@@ -1,14 +1,14 @@
 from eve.llm import prompt_thread, UserMessage, AssistantMessage
 from eve.tool import get_tools_from_mongo
-from eve.auth import get_eden_user_id
+from eve.auth import get_my_eden_user
 
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
-    user_id = get_eden_user_id(db="STAGE")
+    user = get_my_eden_user(db="STAGE")
     
     for msg in prompt_thread(
         db="STAGE",
-        user_id=user_id, 
+        user_id=user.id, 
         agent_id="67069a27fa89a12910650755",
         thread_id=None,#"test_cli5", 
         user_messages=[UserMessage(content="can you make a picture of a fancy dog with flux_schnell? and then remix it.")], 
@@ -19,7 +19,7 @@ def test_prompting():
 
 
 def test_prompting2():
-    user_id = get_eden_user_id(db="STAGE")
+    user_id = get_my_eden_user(db="STAGE")
 
     messages = [
         UserMessage(content="hi there!!."),

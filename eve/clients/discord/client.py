@@ -19,7 +19,6 @@ from eve.eden_utils import prepare_result
 
 logger = logging.getLogger(__name__)
 
-known_users = {}
 
 def is_mentioned(message: discord.Message, user: discord.User) -> bool:
     """
@@ -67,6 +66,8 @@ class Eden2Cog(commands.Cog):
         self.agent = agent
         self.db = db
         self.tools = get_tools_from_mongo(db=self.db)
+        self.known_users = {}
+        self.known_threads = {}
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
@@ -79,21 +80,28 @@ class Eden2Cog(commands.Cog):
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
         else:
-            thread_key = (
-                f"discord-{message.guild.id}-{message.channel.id}-{message.author.id}"
+            thread_key = f"discord-{message.guild.id}-{message.channel.id}"
+        
+        # Lookup thread
+        if thread_key not in self.known_threads:
+            self.known_threads[thread_key] = self.agent.request_thread(
+                key=thread_key, 
+                db=self.db,
             )
-        logger.info(f"key: {thread_key}")
+        thread = self.known_threads[thread_key]
+        logger.info(f"thread: {thread.id}")
 
         # Lookup user
-        if message.author.id not in known_users:
-            known_users[message.author.id] = User.from_discord(
+        if message.author.id not in self.known_users:
+            self.known_users[message.author.id] = User.from_discord(
                 message.author.id, 
                 message.author.name, 
                 db=self.db
             )
-        user = known_users[message.author.id]
+        user = self.known_users[message.author.id]
+        logger.info(f"user: {user.id}")
 
-        # Check user rate limits
+        # Check if user rate limits
         if common.user_over_rate_limits(user):
             await reply(
                 message,
@@ -113,15 +121,6 @@ class Eden2Cog(commands.Cog):
             force_reply = source_message.author.id == self.bot.user.id
             content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
 
-        # Get thread
-        thread = Thread.get_collection(self.db).find_one({"key": thread_key})
-        thread_id = thread.get("_id") if thread else None
-        if not thread:
-            logger.info("Creating new thread")
-            thread = Thread.create(key=thread_key, db=self.db)
-            thread_id = thread.id
-        logger.info(f"thread: {thread_id}")
-
         # Create chat message
         user_message = UserMessage(
             content=content,
@@ -136,9 +135,9 @@ class Eden2Cog(commands.Cog):
 
         async for msg in async_prompt_thread(
             db=self.db,
-            user_id=user.id,
-            agent_id=self.agent.id,
-            thread_id=thread_id,
+            user=user,
+            agent=self.agent,
+            thread=thread,
             user_messages=user_message,
             force_reply=force_reply,
             tools=self.tools,

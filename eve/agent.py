@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from abc import ABC
 from pydantic import ConfigDict
 from typing import Optional, Literal, Any, Dict, List, Union
-from eve.thread import UserMessage
+from eve.thread import UserMessage, Thread
 from eve.mongo import Document, Collection, get_collection
 
 
@@ -26,7 +26,7 @@ generic_instructions = """Follow these additional guidelines:
 
 # from eve.llm import async_prompt_thread
 
-from eve.user import User
+from eve.user import User, Manna
 
 # todo: consolidate with Tool class
 # @Collection("agents4")
@@ -82,25 +82,21 @@ class Agent(User):
         if users.find_one({"username": self.username, "type": "user"}):
             raise ValueError(f"Username {self.username} already taken")
 
-        # save user
+        # save user, and create mannas record if it doesn't exist
         super().save(db, {"username": self.username}, **kwargs)
-
-        # create mannas record
-        mannas = get_collection("mannas", db=db)
-        mannas.update_one(
-            {"user": self.id},
-            {
-                "$setOnInsert": {
-                    "user": self.id,
-                    "balance": 0
-                }
-            },
-            upsert=True
-        )
+        Manna.load(user=self.id, db=db)
         
     @classmethod
-    def load(cls, username, db=None):
+    def load(cls, username, db):
         return super().load(username=username, db=db)
+
+    def request_thread(self, key, db="STAGE"):
+        return Thread.load(
+            key=key, 
+            agent=self.id, 
+            db=db, 
+            create_if_missing=True
+        )
 
 
     # old code: needs to be reintegrated
