@@ -11,10 +11,11 @@ from fastapi.background import BackgroundTasks
 
 
 from eve.agent import Agent
-from eve.llm import UserMessage, async_prompt_thread
+from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
 from eve.tool import get_tools_from_mongo
 from eve.user import User
+from eve.eden_utils import prepare_result
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,8 @@ async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: s
 
         # Get response from Eve
         tools = get_tools_from_mongo(db=db)
-        reply_text = None
-        async for msg in async_prompt_thread(
+
+        async for update in async_prompt_thread(
             db=db,
             user_id=user.id,
             agent_id=agent.id,
@@ -112,19 +113,37 @@ async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: s
             user_messages=user_message,
             tools=tools,
         ):
-            if msg.type == "assistant_message" and msg.message.content:
-                reply_text = msg.message.content
-                break
-
-        if reply_text:
-            client.post_cast(
-                text=reply_text, parent={"hash": cast_hash, "fid": author_fid}
-            )
+            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                if update.message.content:
+                    client.post_cast(
+                        text=update.message.content,
+                        parent={"hash": cast_hash, "fid": author_fid},
+                    )
+            elif update.type == UpdateType.TOOL_COMPLETE:
+                update.result["result"] = prepare_result(update.result["result"], db=db)
+                url = update.result["result"][0]["output"][0]["url"]
+                client.post_cast(
+                    text=update.message.content,
+                    embeds=[url],  # Add URL as embed
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+            elif update.type == UpdateType.ERROR:
+                client.post_cast(
+                    text=f"Error: {update.error}",
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
 
         logger.info(f"Successfully processed webhook for cast {cast_hash}")
 
     except Exception as e:
         logger.error(f"Error processing webhook in background: {str(e)}")
+        try:
+            client.post_cast(
+                text=f"Sorry, I encountered an error: {str(e)}",
+                parent={"hash": cast_hash, "fid": author_fid},
+            )
+        except:
+            logger.error("Failed to send error message to Farcaster")
 
 
 def start(env=None):

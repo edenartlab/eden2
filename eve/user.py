@@ -127,3 +127,27 @@ class User(Document):
             new_user.save()
             return new_user
         return cls(**user, db=db)
+
+    @classmethod
+    def from_telegram(cls, telegram_id, telegram_username, db="STAGE"):
+        telegram_id = str(telegram_id)
+        users = get_collection(cls.collection_name, db=db)
+        user = users.find_one({"telegramId": telegram_id})
+        if not user:
+            # Find a unique username
+            base_username = telegram_username or f"telegram_{telegram_id}"
+            username = base_username
+            counter = 2
+            while users.find_one({"username": username}):
+                username = f"{base_username}{counter}"
+                counter += 1
+
+            new_user = cls(
+                db=db,
+                telegramId=telegram_id,
+                telegramUsername=telegram_username,
+                username=username,
+            )
+            new_user.save()
+            return new_user
+        return cls(**user, db=db)

@@ -18,8 +18,8 @@ from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
 from eve.thread import Thread
 from eve.eden_utils import prepare_result
-
 from eve.agent import Agent
+from eve.user import User
 
 # Logging configuration
 logging.basicConfig(
@@ -188,7 +188,7 @@ class EdenTG:
         self.agent = agent
         self.db = db
         self.tools = get_tools_from_mongo(db=self.db)
-        self.name = agent.name
+        self.known_users = {}
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -207,8 +207,9 @@ class EdenTG:
             is_bot_mentioned,
             is_replied_to_bot,
         ) = await handler_mention_type(update, context)
-        user_id, user_name, _, _, _ = get_user_info(update)
+        user_id, username, _, _, _ = get_user_info(update)
 
+        # Determine message type
         message_type = (
             "dm"
             if is_direct_message
@@ -220,44 +221,47 @@ class EdenTG:
         )
         force_reply = message_type in ["dm", "reply", "mention"]
 
+        # Get or create user
+        if user_id not in self.known_users:
+            self.known_users[user_id] = User.from_telegram(
+                user_id, username, db=self.db
+            )
+        user = self.known_users[user_id]
+
+        # Get thread
+        thread_key = f"telegram-{chat_id}-{user_id}"
+        thread = Thread.get_collection(self.db).find_one({"key": thread_key})
+        thread_id = thread.get("_id") if thread else None
+        if not thread:
+            thread = Thread.create(
+                key=thread_key,
+                db=self.db,
+            )
+            thread_id = thread.id
+
         # Process text or photo messages
         message_text = update.message.text or ""
         attachments = []
-
         if update.message.photo:
             photo_url = (await update.message.photo[-1].get_file()).file_path
-            logging.info(f"Received photo from {user_name}: {photo_url}")
+            logging.info(f"Received photo from {username}: {photo_url}")
             attachments.append(photo_url)
         else:
             cleaned_text = replace_bot_mentions(
-                message_text, (await context.bot.get_me()).username, self.name
+                message_text, (await context.bot.get_me()).username, self.agent.name
             )
-            logging.info(f"Received message from {user_name}: {cleaned_text}")
+            logging.info(f"Received message from {username}: {cleaned_text}")
 
         user_message = UserMessage(
-            name=user_name, content=cleaned_text, attachments=attachments
+            name=username, content=cleaned_text, attachments=attachments
         )
-
-        # Generate thread key similar to Discord client
-        thread_key = f"telegram-{chat_id}-{user_id}"
-
-        # Get or create thread
-        thread = Thread.get_collection(self.db).find_one({"key": thread_key})
-        thread_id = thread.get("_id") if thread else None
-
-        if not thread_id:
-            thread_new = Thread.create(
-                db=self.db,
-                key=thread_key,
-            )
-            thread_id = str(thread_new.id)
 
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
         async for update in async_prompt_thread(
             db=self.db,
-            user_id=user_id,
-            agent_id=str(self.agent.id),
+            user_id=user.id,
+            agent_id=self.agent.id,
             thread_id=thread_id,
             user_messages=user_message,
             tools=self.tools,
@@ -281,7 +285,6 @@ def start(env_path: str, agent_key: str, db: str = "STAGE"):
     load_dotenv(env_path)
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
 
-    # Load agent dynamically
     agent = Agent.load(agent_key, db=db)
     logging.info(f"Using agent: {agent.name}")
 
@@ -305,7 +308,7 @@ def start(env_path: str, agent_key: str, db: str = "STAGE"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eden Telegram Bot")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
-    parser.add_argument("--agent", help="Key of the agent to use", required=True)
+    parser.add_argument("--agent", help="Agent key to use", default="eve")
     parser.add_argument("--db", help="Database to use", default="STAGE")
     args = parser.parse_args()
     start(args.env, args.agent, args.db)
