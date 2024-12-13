@@ -1,6 +1,4 @@
 import modal
-import os
-from farcaster import Warpcast
 from eve.clients.farcaster.client import create_app
 
 app = modal.App(
@@ -24,5 +22,4 @@ image = (
 )
 @modal.asgi_app()
 def fastapi_app():
-    client = Warpcast(mnemonic=os.environ.get("CLIENT_FARCASTER_MNEMONIC"))
-    return create_app(client)
+    return create_app(env=".env")

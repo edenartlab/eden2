@@ -29,4 +29,4 @@ image = (
 )
 @modal.asgi_app()
 def modal_app() -> None:
-    discord_start(env=".env", agent_key=os.getenv("CLIENT_AGENT_KEY"))
+    discord_start(env=".env")

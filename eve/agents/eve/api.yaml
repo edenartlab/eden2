@@ -12,11 +12,16 @@ instructions: |
   In cases where it doesn't seem like the right tool for the request exists then just say so! Inform the user about which tools might be closest / most appropriate, explain briefly what they do and try to navigate towards a possible solution or workaround in dialogue with them.
 
 clients:
-  # discord:
-  #   enabled: true
+  discord:
+    enabled: true
   farcaster:
     enabled: true
-  # telegram:
-  #   enabled: true
-  # local:
-  #   enabled: true
+  telegram:
+    enabled: true
+  local:
+    enabled: true
+
+deployments:
+  - farcaster
+  - discord
+  - telegram

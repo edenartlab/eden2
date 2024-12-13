@@ -1,6 +1,7 @@
+import os
 import modal
 
-from eve.clients.telegram.client import main as telegram_main
+from eve.clients.telegram.client import start as telegram_start
 
 app = modal.App(
     name="client-telegram",
@@ -27,4 +28,4 @@ image = (
 )
 @modal.asgi_app()
 def modal_app() -> None:
-    telegram_main(env_path=".env")
+    telegram_start(env_path=".env")

@@ -281,9 +281,10 @@ class EdenTG:
                 await send_response(message_type, chat_id, [update.error], context)
 
 
-def start(env_path: str, agent_key: str, db: str = "STAGE"):
+def start(env_path: str, db: str = "STAGE"):
     load_dotenv(env_path)
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
+    agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
 
     agent = Agent.load(agent_key, db=db)
     logging.info(f"Using agent: {agent.name}")
