@@ -256,10 +256,17 @@ class Tool(Document, ABC):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
-                add_breadcrumb(category="handle_start_task", data=args)
+                add_breadcrumb(category="handle_start_task", data=args)                
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id, db=db)
-                user.verify_manna_balance(cost)
+                print("THE USER", user)
+                print("THE FEATURE FLAGS", user.featureFlags)
+                print("THE COST", cost)
+                print("THE TOOL", self.key)
+                if "freeTools" in (user.featureFlags or []):
+                    print("free tools!")
+                    cost = 0
+                user.check_manna(cost)
                 
             except Exception as e:
                 print(traceback.format_exc())

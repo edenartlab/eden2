@@ -18,3 +18,8 @@ if os.path.exists(env_path):
 # load api keys
 EDEN_API_KEY_STAGE = SecretStr(os.getenv("EDEN_API_KEY_STAGE", ""))
 EDEN_API_KEY_PROD = SecretStr(os.getenv("EDEN_API_KEY_PROD", ""))
+
+if not EDEN_API_KEY_STAGE:
+    print("WARNING: EDEN_API_KEY_STAGE is not set")
+if not EDEN_API_KEY_PROD:
+    print("WARNING: EDEN_API_KEY_PROD is not set")

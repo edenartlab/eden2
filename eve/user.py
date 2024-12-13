@@ -1,7 +1,43 @@
 from bson import ObjectId
 from typing import Optional, Literal, List
 
-from .mongo import Document, Collection, get_collection
+from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
+
+@Collection("mannas")
+class Manna(Document):
+    user: ObjectId
+    balance: float = 0
+    subscriptionBalance: float = 0
+
+    @classmethod
+    def load(cls, user: ObjectId | str, db=None):
+        try:
+            user = ObjectId(user) if isinstance(user, str) else user
+            return super().load(user=user, db=db)
+        except MongoDocumentNotFound as e:
+            # if mannas not found, check if user exists, and create a new manna document
+            user = User.from_mongo(user, db=db)
+            if not user:
+                raise Exception(f"User {user} not found")
+            manna = Manna(user=user.id, db=db)
+            manna.save()
+            return manna
+        except Exception as e:
+            print(e)
+            raise e
+
+    def spend(self, amount: float):
+        subscription_spend = min(self.subscriptionBalance, amount)
+        self.subscriptionBalance -= subscription_spend
+        self.balance -= (amount - subscription_spend)
+        if self.balance < 0:
+            raise Exception(f"Insufficient manna balance. Need {amount} but only have {self.balance + self.subscriptionBalance}")
+        self.save()
+
+    def refund(self, amount: float):
+        # todo: make it refund to subscription balance first if it spent from there
+        self.balance += amount
+        self.save()
 
 
 @Collection("users3")
@@ -22,7 +58,7 @@ class User(Document):
     owner: Optional[ObjectId] = None
 
     # permissions
-    featureFlags: Optional[List[str]] = None
+    featureFlags: Optional[List[str]] = []
     subscriptionTier: Optional[int] = None
     highestMonthlySubscriptionTier: Optional[int] = None
 
@@ -38,47 +74,25 @@ class User(Document):
     farcasterId: Optional[str] = None
     farcasterUsername: Optional[str] = None
 
-    def verify_manna_balance(self, amount: float):
-        mannas = get_collection("mannas", db=self.db)
-        manna = mannas.find_one({"user": self.id})
-        if not manna:
-            raise Exception("Mannas not found")
-        balance = manna.get("balance") + manna.get("subscriptionBalance", 0)
-        if balance < amount:
+    def check_manna(self, amount: float):
+        manna = Manna.load(self.id, db=self.db)
+        total_balance = manna.balance + manna.subscriptionBalance
+        if total_balance < amount:
             raise Exception(
-                f"Insufficient manna balance. Need {amount} but only have {balance}"
+                f"Insufficient manna balance. Need {amount} but only have {total_balance}"
             )
 
     def spend_manna(self, amount: float):
         if amount == 0:
             return
-
-        mannas = get_collection("mannas", db=self.db)
-        manna = mannas.find_one({"user": self.id})
-        if not manna:
-            raise Exception("Mannas not found")
-        subscription_balance = manna.get("subscriptionBalance", 0)
-
-        # Use subscription balance first
-        if subscription_balance > 0:
-            subscription_spend = min(subscription_balance, amount)
-            mannas.update_one(
-                {"user": self.id},
-                {"$inc": {"subscriptionBalance": -subscription_spend}},
-            )
-            amount -= subscription_spend
-
-        # If there's remaining amount, use regular balance
-        if amount > 0:
-            mannas.update_one({"user": self.id}, {"$inc": {"balance": -amount}})
+        manna = Manna.load(self.id, db=self.db)
+        manna.spend(amount)
 
     def refund_manna(self, amount: float):
         if amount == 0:
             return
-
-        # todo: make it refund to subscription balance first
-        mannas = get_collection("mannas", db=self.db)
-        mannas.update_one({"user": self.id}, {"$inc": {"balance": amount}})
+        manna = Manna.load(self.id, db=self.db)
+        manna.refund(amount)
 
     @classmethod
     def from_discord(cls, discord_id, discord_username, db="STAGE"):
@@ -86,14 +100,7 @@ class User(Document):
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"discordId": discord_id})
         if not user:
-            # Find a unique username
-            base_username = discord_username
-            username = base_username
-            counter = 2
-            while users.find_one({"username": username}):
-                username = f"{base_username}{counter}"
-                counter += 1
-
+            username = cls._get_unique_username(discord_username)
             new_user = cls(
                 db=db,
                 discordId=discord_id,
@@ -110,14 +117,7 @@ class User(Document):
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"farcasterId": farcaster_id})
         if not user:
-            # Find a unique username
-            base_username = farcaster_username
-            username = base_username
-            counter = 2
-            while users.find_one({"username": username}):
-                username = f"{base_username}{counter}"
-                counter += 1
-
+            username = cls._get_unique_username(farcaster_username)
             new_user = cls(
                 db=db,
                 farcasterId=farcaster_id,
@@ -134,14 +134,7 @@ class User(Document):
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"telegramId": telegram_id})
         if not user:
-            # Find a unique username
-            base_username = telegram_username or f"telegram_{telegram_id}"
-            username = base_username
-            counter = 2
-            while users.find_one({"username": username}):
-                username = f"{base_username}{counter}"
-                counter += 1
-
+            username = cls._get_unique_username(telegram_username)
             new_user = cls(
                 db=db,
                 telegramId=telegram_id,
@@ -151,3 +144,12 @@ class User(Document):
             new_user.save()
             return new_user
         return cls(**user, db=db)
+
+    def _get_unique_username(self, base_username):
+        users = get_collection(self.collection_name, db=self.db)
+        username = base_username
+        counter = 2
+        while users.find_one({"username": username}):
+            username = f"{base_username}{counter}"
+            counter += 1
+        return username

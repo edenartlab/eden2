@@ -12,12 +12,13 @@ parameters:
     label: Prompt
     description: Description of the type of music you want to generate
     required: true
-  model_version:
+  model:
     type: string
     label: Audio model
     description: Model to generate audio with
     choices: [stereo-melody-large, stereo-large, melody-large, large]
     default: stereo-melody-large
+    alias: model_version
   duration:
     type: integer
     label: Duration

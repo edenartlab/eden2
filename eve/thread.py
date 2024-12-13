@@ -347,6 +347,15 @@ class AssistantMessage(ChatMessage):
         return schema
 
 
+# Thread.get_or_create_thread(key, allowlist, db="STAGE")
+    # @classmethod
+    # def get_or_create_thread(cls, key, db="STAGE"):
+    #     thread = cls.get_collection(db).find_one({"key": key})
+    #     if not thread:
+    #         thread = cls.create(key=key, db=db)
+    #     return thread.id
+    
+
 @Collection("threads3")
 class Thread(Document):
     key: Optional[str] = None

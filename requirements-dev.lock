@@ -3,7 +3,7 @@
 #
 # last locked with the following flags:
 #   pre: false
-#   features: ["discord,telegram,twitter"]
+#   features: ["farcaster"]
 #   all-features: false
 #   with-sources: false
 #   generate-hashes: false
@@ -68,7 +68,7 @@ click==8.1.7
     # via uvicorn
 cryptography==43.0.3
     # via clerk-backend-api
-cytoolz==1.0.0
+cytoolz==1.0.1
     # via eth-utils
 decorator==4.4.2
     # via moviepy

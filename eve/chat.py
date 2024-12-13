@@ -80,7 +80,7 @@ async def async_chat(db, agent, thread_id, debug=False):
                         ),
                         tools=get_tools_from_mongo(db),
                         force_reply=True,
-                        model="claude-3-5-sonnet-20241022"
+                        # model= "claude-3-5-sonnet-20241022"
                     ):
                         sys.stdout = original_stdout
 
