@@ -3,9 +3,7 @@
 import multiprocessing
 from pathlib import Path
 import traceback
-import os
 import random
-import json
 import click
 import asyncio
 import time
@@ -22,6 +20,9 @@ from eve import agent as eve_agent
 from eve.tool import Tool, get_tools_from_mongo, get_tools_from_api_files
 from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
+
+# from eve.clients.telegram.client import start as start_telegram
+from eve.clients.farcaster.client import start as start_farcaster
 from eve.auth import get_eden_user_id
 
 api_tools_order = [
@@ -405,11 +406,14 @@ def start(agent: str, db: str, env: str):
             try:
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
-                        target=start_discord,
-                        args=(env_path, agent)
+                        target=start_discord, args=(env_path, agent)
                     )
                 # elif client_type == ClientType.TELEGRAM:
                 #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))
+                elif client_type == ClientType.FARCASTER:
+                    p = multiprocessing.Process(
+                        target=start_farcaster, args=(env_path,)
+                    )
 
                 p.start()
                 processes.append(p)

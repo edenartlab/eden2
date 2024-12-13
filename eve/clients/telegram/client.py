@@ -293,7 +293,7 @@ class EdenTG:
                 await send_response(message_type, chat_id, [update.error], context)
 
 
-def main(env_path: str):
+def start(env_path: str):
     load_dotenv(env_path)
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
 
@@ -318,4 +318,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eden Telegram Bot")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     args = parser.parse_args()
-    main(args.env)
+    start(args.env)
