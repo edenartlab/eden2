@@ -1,13 +1,11 @@
 import os
 import json
-import asyncio
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel
-from openai import AsyncOpenAI
 from typing import Optional
 
 from eve import auth
