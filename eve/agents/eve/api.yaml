@@ -14,7 +14,9 @@ instructions: |
 clients:
   # discord:
   #   enabled: true
-  # local:
-  #   enabled: true
   farcaster:
     enabled: true
+  # telegram:
+  #   enabled: true
+  # local:
+  #   enabled: true

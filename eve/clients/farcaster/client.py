@@ -7,6 +7,8 @@ import logging
 import os
 from farcaster import Warpcast
 from dotenv import load_dotenv
+from fastapi.background import BackgroundTasks
+
 
 from eve.agent import Agent
 from eve.llm import UserMessage, async_prompt_thread
@@ -50,7 +52,7 @@ def create_app(client: Warpcast, agent: Agent, db: str = "STAGE"):
         return hmac.compare_digest(computed_signature, signature)
 
     @app.post("/")
-    async def handle_webhook(request: Request):
+    async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         body = await request.body()
 
         signature = request.headers.get("X-Neynar-Signature")
@@ -62,66 +64,67 @@ def create_app(client: Warpcast, agent: Agent, db: str = "STAGE"):
 
         webhook_data = CastWebhook.model_validate(await request.json())
 
-        if webhook_data.type != "cast.created":
-            return {"status": "ignored", "message": "Not a cast.created event"}
+        cast_data = webhook_data.data
+        if not cast_data or "hash" not in cast_data:
+            raise HTTPException(status_code=400, detail="Invalid cast data")
 
-        try:
-            cast_data = webhook_data.data
-            if not cast_data or "hash" not in cast_data:
-                raise HTTPException(status_code=400, detail="Invalid cast data")
+        # Add the background task
+        background_tasks.add_task(process_webhook, cast_data, client, agent, db)
 
-            cast_hash = cast_data["hash"]
-            author = cast_data["author"]
-            author_username = author["username"]
-            author_fid = author["fid"]
-
-            # Get or create user
-            user = User.from_farcaster(author_fid, author_username, db=db)
-
-            # Get or create thread
-            thread_key = f"farcaster-{author_fid}-{cast_hash}"
-            thread = Thread.get_collection(db).find_one({"key": thread_key})
-            if not thread:
-                thread = Thread.create(key=thread_key, db=db)
-            thread_id = thread.get("_id") if isinstance(thread, dict) else thread.id
-
-            # Create message
-            user_message = UserMessage(
-                content=cast_data["text"],
-                name=author_username,
-            )
-
-            # Get response from Eve
-            tools = get_tools_from_mongo(db=db)
-            reply_text = None
-            async for msg in async_prompt_thread(
-                db=db,
-                user_id=user.id,
-                agent_id=agent.id,
-                thread_id=thread_id,
-                user_messages=user_message,
-                tools=tools,
-            ):
-                if msg.type == "assistant_message" and msg.message.content:
-                    reply_text = msg.message.content
-                    break
-
-            if reply_text:
-                client.post_cast(
-                    text=reply_text, parent={"hash": cast_hash, "fid": author_fid}
-                )
-
-            return {
-                "status": "success",
-                "message": "Reply sent successfully",
-                "cast_hash": cast_hash,
-            }
-
-        except Exception as e:
-            logger.error(f"Error handling webhook: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "accepted"}
 
     return app
+
+
+async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: str):
+    """Process the webhook data in the background"""
+    logger.info(f"Processing webhook for cast {cast_data['hash']}")
+    try:
+        cast_hash = cast_data["hash"]
+        author = cast_data["author"]
+        author_username = author["username"]
+        author_fid = author["fid"]
+
+        # Get or create user
+        user = User.from_farcaster(author_fid, author_username, db=db)
+
+        # Get or create thread
+        thread_key = f"farcaster-{author_fid}-{cast_hash}"
+        thread = Thread.get_collection(db).find_one({"key": thread_key})
+        if not thread:
+            thread = Thread.create(key=thread_key, db=db)
+        thread_id = thread.get("_id") if isinstance(thread, dict) else thread.id
+
+        # Create message
+        user_message = UserMessage(
+            content=cast_data["text"],
+            name=author_username,
+        )
+
+        # Get response from Eve
+        tools = get_tools_from_mongo(db=db)
+        reply_text = None
+        async for msg in async_prompt_thread(
+            db=db,
+            user_id=user.id,
+            agent_id=agent.id,
+            thread_id=thread_id,
+            user_messages=user_message,
+            tools=tools,
+        ):
+            if msg.type == "assistant_message" and msg.message.content:
+                reply_text = msg.message.content
+                break
+
+        if reply_text:
+            client.post_cast(
+                text=reply_text, parent={"hash": cast_hash, "fid": author_fid}
+            )
+
+        logger.info(f"Successfully processed webhook for cast {cast_hash}")
+
+    except Exception as e:
+        logger.error(f"Error processing webhook in background: {str(e)}")
 
 
 def start(env=None):
