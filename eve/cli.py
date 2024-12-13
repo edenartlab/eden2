@@ -3,12 +3,11 @@
 import multiprocessing
 from pathlib import Path
 import traceback
-import os
 import random
-import json
 import click
 import asyncio
 import time
+import sys
 
 import yaml
 from dotenv import load_dotenv
@@ -22,6 +21,8 @@ from eve import agent as eve_agent
 from eve.tool import Tool, get_tools_from_mongo, get_tools_from_api_files
 from eve.agent import Agent
 from eve.clients.discord.client import start as start_discord
+from eve.clients.telegram.client import start as start_telegram
+from eve.clients.farcaster.client import start as start_farcaster
 from eve.auth import get_eden_user_id
 
 api_tools_order = [
@@ -376,70 +377,87 @@ def start_local_chat(db: str, agent_dir: str):
 )
 def start(agent: str, db: str, env: str):
     """Start one or more clients from yaml files"""
-    agent_dir = Path(__file__).parent / "agents" / agent
-    env_path = agent_dir / ".env"
-    yaml_path = agent_dir / "api.yaml"
-
-    db = db.upper()
-    env_path = env or env_path
-    clients_to_start = {}
-
-    # Load all yaml files and collect enabled clients
-    with open(yaml_path) as f:
-        config = yaml.safe_load(f)
-        if "clients" in config:
-            for client_type, settings in config["clients"].items():
-                if settings.get("enabled", False):
-                    clients_to_start[ClientType(client_type)] = yaml_path
-
-    if not clients_to_start:
-        click.echo(click.style("No enabled clients found in yaml files", fg="red"))
-        return
-
-    click.echo(click.style(f"Starting {len(clients_to_start)} clients...", fg="blue"))
-
-    # Start discord and telegram first, local client last
-    processes = []
-    for client_type, yaml_path in clients_to_start.items():
-        if client_type != ClientType.LOCAL:
-            try:
-                if client_type == ClientType.DISCORD:
-                    p = multiprocessing.Process(
-                        target=start_discord,
-                        args=(env_path, agent)
-                    )
-                # elif client_type == ClientType.TELEGRAM:
-                #     p = multiprocessing.Process(target=start_telegram, args=(env_path,))
-
-                p.start()
-                processes.append(p)
-                click.echo(
-                    click.style(f"Started {client_type.value} client", fg="green")
-                )
-            except Exception as e:
-                click.echo(
-                    click.style(
-                        f"Failed to start {client_type.value} client: {e}", fg="red"
-                    )
-                )
-
-    # Start local client last to maintain terminal focus
-    if ClientType.LOCAL in clients_to_start:
-        try:
-            click.echo(click.style("Starting local client...", fg="blue"))
-            start_local_chat(db, agent_dir)
-        except Exception as e:
-            click.echo(click.style(f"Failed to start local client: {e}", fg="red"))
-
-    # Wait for other processes
     try:
-        for p in processes:
-            p.join()
-    except KeyboardInterrupt:
-        click.echo(click.style("\nShutting down clients...", fg="yellow"))
-        for p in processes:
-            p.terminate()
-            p.join()
+        agent_dir = Path(__file__).parent / "agents" / agent
+        env_path = agent_dir / ".env"
+        yaml_path = agent_dir / "api.yaml"
+
+        db = db.upper()
+        env_path = env or env_path
+        clients_to_start = {}
+
+        # Load all yaml files and collect enabled clients
+        with open(yaml_path) as f:
+            config = yaml.safe_load(f)
+            if "clients" in config:
+                for client_type, settings in config["clients"].items():
+                    if settings.get("enabled", False):
+                        clients_to_start[ClientType(client_type)] = yaml_path
+
+        if not clients_to_start:
+            click.echo(click.style("No enabled clients found in yaml files", fg="red"))
+            return
+
+        click.echo(
+            click.style(f"Starting {len(clients_to_start)} clients...", fg="blue")
+        )
+
+        # Start discord and telegram first, local client last
+        processes = []
+        for client_type, yaml_path in clients_to_start.items():
+            if client_type != ClientType.LOCAL:
+                try:
+                    if client_type == ClientType.DISCORD:
+                        p = multiprocessing.Process(
+                            target=start_discord, args=(env_path, agent)
+                        )
+                    elif client_type == ClientType.TELEGRAM:
+                        p = multiprocessing.Process(
+                            target=start_telegram, args=(env_path, agent)
+                        )
+                    elif client_type == ClientType.FARCASTER:
+                        p = multiprocessing.Process(
+                            target=start_farcaster, args=(env_path,)
+                        )
+
+                    p.start()
+                    processes.append(p)
+                    click.echo(
+                        click.style(f"Started {client_type.value} client", fg="green")
+                    )
+                except Exception as e:
+                    click.echo(
+                        click.style(
+                            f"Failed to start {client_type.value} client:", fg="red"
+                        )
+                    )
+                    click.echo(click.style(f"Error: {str(e)}", fg="red"))
+                    traceback.print_exc(file=sys.stdout)
+
+        # Start local client last to maintain terminal focus
+        if ClientType.LOCAL in clients_to_start:
+            try:
+                click.echo(click.style("Starting local client...", fg="blue"))
+                start_local_chat(db, agent_dir)
+            except Exception as e:
+                click.echo(click.style("Failed to start local client:", fg="red"))
+                click.echo(click.style(f"Error: {str(e)}", fg="red"))
+                traceback.print_exc(file=sys.stdout)
+
+        # Wait for other processes
+        try:
+            for p in processes:
+                p.join()
+        except KeyboardInterrupt:
+            click.echo(click.style("\nShutting down clients...", fg="yellow"))
+            for p in processes:
+                p.terminate()
+                p.join()
+
+    except Exception as e:
+        click.echo(click.style("Failed to start clients:", fg="red"))
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        traceback.print_exc(file=sys.stdout)
 
 
 if __name__ == "__main__":

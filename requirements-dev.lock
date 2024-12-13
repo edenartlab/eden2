@@ -34,6 +34,8 @@ anyio==4.7.0
 attrs==24.2.0
     # via aiohttp
     # via sigtools
+bitarray==3.0.0
+    # via eth-account
 blurhash==1.1.4
     # via eve
 boto3==1.35.77
@@ -43,6 +45,8 @@ botocore==1.35.77
     # via s3transfer
 cachetools==5.5.0
     # via google-auth
+canonicaljson==2.0.0
+    # via farcaster
 certifi==2024.8.30
     # via httpcore
     # via httpx
@@ -64,6 +68,8 @@ click==8.1.7
     # via uvicorn
 cryptography==43.0.3
     # via clerk-backend-api
+cytoolz==1.0.0
+    # via eth-utils
 decorator==4.4.2
     # via moviepy
 distlib==0.3.9
@@ -79,8 +85,34 @@ docstring-parser==0.16
     # via instructor
 elevenlabs==1.13.4
     # via eve
+eth-abi==5.0.1
+    # via eth-account
+eth-account==0.10.0
+    # via farcaster
+eth-hash==0.7.0
+    # via eth-utils
+eth-keyfile==0.8.1
+    # via eth-account
+eth-keys==0.6.0
+    # via eth-account
+    # via eth-keyfile
+eth-rlp==1.0.1
+    # via eth-account
+eth-typing==5.0.1
+    # via eth-abi
+    # via eth-keys
+    # via eth-utils
+eth-utils==5.1.0
+    # via eth-abi
+    # via eth-account
+    # via eth-keyfile
+    # via eth-keys
+    # via eth-rlp
+    # via rlp
 eval-type-backport==0.2.0
     # via clerk-backend-api
+farcaster==0.7.11
+    # via eve
 fastapi==0.115.6
     # via eve
     # via modal
@@ -143,6 +175,9 @@ h11==0.14.0
     # via uvicorn
 h2==4.1.0
     # via grpclib
+hexbytes==0.3.1
+    # via eth-account
+    # via eth-rlp
 hpack==4.0.0
     # via h2
 httpcore==1.0.7
@@ -220,6 +255,9 @@ packaging==24.2
     # via google-cloud-bigquery
     # via pytest
     # via replicate
+parsimonious==0.9.0
+    # via eth-abi
+    # via farcaster
 pillow==11.0.0
     # via eve
     # via imageio
@@ -257,11 +295,14 @@ pyasn1-modules==0.4.1
     # via google-auth
 pycparser==2.22
     # via cffi
+pycryptodome==3.21.0
+    # via eth-keyfile
 pydantic==2.9.2
     # via anthropic
     # via clerk-backend-api
     # via elevenlabs
     # via eve
+    # via farcaster
     # via fastapi
     # via google-cloud-aiplatform
     # via instructor
@@ -276,6 +317,8 @@ pydub==0.25.1
     # via eve
 pygments==2.18.0
     # via rich
+pyhumps==3.8.0
+    # via farcaster
 pyjwt==2.10.1
     # via clerk-backend-api
     # via eve
@@ -291,6 +334,7 @@ python-dateutil==2.9.0.post0
     # via google-cloud-bigquery
 python-dotenv==1.0.1
     # via eve
+    # via farcaster
 python-magic==0.4.27
     # via eve
 python-telegram-bot==21.9
@@ -298,11 +342,14 @@ python-telegram-bot==21.9
 pyyaml==6.0.2
     # via eve
     # via pre-commit
+regex==2024.11.6
+    # via parsimonious
 replicate==0.22.0
     # via eve
 requests==2.32.3
     # via elevenlabs
     # via eve
+    # via farcaster
     # via google-api-core
     # via google-cloud-bigquery
     # via google-cloud-storage
@@ -315,6 +362,9 @@ rich==13.9.4
     # via instructor
     # via modal
     # via typer
+rlp==4.0.1
+    # via eth-account
+    # via eth-rlp
 rsa==4.9
     # via google-auth
 ruff==0.8.2
@@ -352,6 +402,8 @@ tenacity==9.0.0
     # via instructor
 toml==0.10.2
     # via modal
+toolz==1.0.0
+    # via cytoolz
 tqdm==4.67.1
     # via eve
     # via moviepy
@@ -368,6 +420,7 @@ typing-extensions==4.12.2
     # via anthropic
     # via anyio
     # via elevenlabs
+    # via eth-typing
     # via fastapi
     # via modal
     # via openai

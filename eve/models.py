@@ -12,10 +12,10 @@ class Model(Document):
     user: ObjectId
     requester: ObjectId
     task: ObjectId
-    #slug: str = None
+    # slug: str = None
     thumbnail: str
     public: bool = False
-    deleted: bool = False   
+    deleted: bool = False
     args: Dict[str, Any]
     checkpoint: str
     base_model: str
@@ -75,8 +75,8 @@ class Model(Document):
     #     super().update(**kwargs)
 
 
-
 class ClientType(Enum):
     LOCAL = "local"
     DISCORD = "discord"
     TELEGRAM = "telegram"
+    FARCASTER = "farcaster"
