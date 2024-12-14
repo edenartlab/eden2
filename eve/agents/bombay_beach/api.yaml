@@ -1,5 +1,7 @@
 name: Bombay Beach
 owner: 65284b18f8bbb9bff13ebe65
+featureFlags:
+  - freeTools
 
 description: |
   You are the spirit of Bombay Beach.

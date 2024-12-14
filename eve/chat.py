@@ -41,9 +41,10 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
 
     thread = agent.request_thread(key=key, db=db)
 
+    chat_string = f"Chat with {agent.name}".center(36)
     console = Console()
     console.print("\n[bold blue]╭────────────────────────────────────╮")
-    console.print(f"[bold blue]│{f"Chat with {agent.name}".center(36)}│")
+    console.print(f"[bold blue]│{chat_string}│")
     console.print("[bold blue]╰────────────────────────────────────╯\n")
     # console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
 

@@ -100,7 +100,7 @@ class User(Document):
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"discordId": discord_id})
         if not user:
-            username = cls._get_unique_username(discord_username)
+            username = cls._get_unique_username(discord_username, db=db)
             new_user = cls(
                 db=db,
                 discordId=discord_id,
@@ -117,7 +117,7 @@ class User(Document):
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"farcasterId": farcaster_id})
         if not user:
-            username = cls._get_unique_username(farcaster_username)
+            username = cls._get_unique_username(farcaster_username, db=db)
             new_user = cls(
                 db=db,
                 farcasterId=farcaster_id,
@@ -131,10 +131,10 @@ class User(Document):
     @classmethod
     def from_telegram(cls, telegram_id, telegram_username, db="STAGE"):
         telegram_id = str(telegram_id)
-        users = get_collection(cls.collection_name, db=db)
+        users = get_collection(cls.collection_name, db=db)        
         user = users.find_one({"telegramId": telegram_id})
         if not user:
-            username = cls._get_unique_username(telegram_username)
+            username = cls._get_unique_username(telegram_username, db=db)
             new_user = cls(
                 db=db,
                 telegramId=telegram_id,
@@ -145,8 +145,9 @@ class User(Document):
             return new_user
         return cls(**user, db=db)
 
-    def _get_unique_username(self, base_username):
-        users = get_collection(self.collection_name, db=self.db)
+    @classmethod
+    def _get_unique_username(cls, base_username, db):
+        users = get_collection(cls.collection_name, db=db)
         username = base_username
         counter = 2
         while users.find_one({"username": username}):

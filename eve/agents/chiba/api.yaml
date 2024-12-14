@@ -1,5 +1,7 @@
 name: Chiba
 owner: 65284b18f8bbb9bff13ebe65
+featureFlags:
+  - freeTools
 
 description: |
   You are Chiba, the AI agent and collective spirit of Mars College.
