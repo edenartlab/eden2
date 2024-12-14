@@ -269,15 +269,16 @@ class EdenTG:
             force_reply=force_reply,
         ):
             if update.type == UpdateType.ASSISTANT_MESSAGE:
-                await send_response(
-                    message_type, chat_id, [update.message.content], context
-                )
+                if update.message.content:
+                    await send_response(
+                        message_type, chat_id, [update.message.content], context
+                    )
             elif update.type == UpdateType.TOOL_COMPLETE:
                 update.result["result"] = prepare_result(
                     update.result["result"], db=self.db
                 )
-                url = update.result["result"][0]["output"][0]["url"]
-                await send_response(message_type, chat_id, [url], context)
+                urls = [r["output"][0]["url"] for r in update.result["result"]]
+                await send_response(message_type, chat_id, urls, context)
             elif update.type == UpdateType.ERROR:
                 await send_response(message_type, chat_id, [update.error], context)
 

@@ -38,8 +38,8 @@ class Tool(Document, ABC):
     output_type: Literal["boolean", "string", "integer", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
     resolutions: Optional[List[str]] = None
-    base_model: Literal["sd15", "sdxl", "sd3", "flux-dev", "flux-schnell"] = "sdxl"
-    
+    base_model: Optional[Literal["sd15", "sdxl", "sd3", "sd35", "flux-dev", "flux-schnell", "hellomeme", "stable-audio-open", "inspyrenet-rembg", "mochi-preview", "runway"]] = None
+
     status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
@@ -54,17 +54,20 @@ class Tool(Document, ABC):
 
     @classmethod
     def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
+        print("gs1", from_yaml, db)
         if from_yaml:
+            print("gs2")
             api_files = get_api_files(include_inactive=True)
+            print("heres the api files", api_files)
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")            
             api_file = api_files[key]
             with open(api_file, 'r') as f:
-                schema = yaml.safe_load(f)  
+                schema = yaml.safe_load(f)
+            if schema.get("handler") == "comfyui":
+                schema["workspace"] = schema.get("workspace") or api_file.split('/')[-4]
         else:
             schema = get_collection(cls.collection_name, db=db).find_one({"key": key})
-        if schema.get("handler") == "comfyui":
-            schema["workspace"] = api_file.split('/')[-4]
         return schema
     
     @classmethod
@@ -77,7 +80,9 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get('parent_tool')
         if parent_tool:
+            print("lets get the parent tool", from_yaml, db)
             parent_schema = cls._get_schema(parent_tool, from_yaml, db)
+            print("the parent schema is", parent_schema.keys())
             handler = parent_schema.get("handler")
         else:
             handler = schema.get('handler')
@@ -109,10 +114,11 @@ class Tool(Document, ABC):
             parent_parameters = parent_schema.pop("parameters", {})
             for k, v in parent_schema["parameter_presets"].items():
                 parent_parameters[k].update(v)            
+            schema.pop("workspace", None) # we want the parent workspace
             parent_schema.update(schema)
             parent_schema['parameters'] = parent_parameters
             schema = parent_schema
-        
+            
         schema["key"] = key
         fields, model_config = parse_schema(schema)
         model = create_model(schema["key"], __config__=model_config, **fields)    
@@ -400,7 +406,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     for tool in tools_collection.find(filter):
         try:
             tool = Tool.convert_from_mongo(tool)
-            tool = Tool.from_schema(tool, db=db)
+            tool = Tool.from_schema(tool, db=db, from_yaml=False)
             if tool.status != "inactive" and not include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
@@ -419,6 +425,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""
     
+    print("root_dir", root_dir)
     if root_dir:
         root_dirs = [root_dir]
     else:

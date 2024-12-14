@@ -25,7 +25,7 @@ class ReplicateTool(Tool):
         check_replicate_api_token()
         args = self._format_args_for_replicate(args)
         if self.version:
-            prediction = self._create_prediction(args, webhook=False)        
+            prediction = await self._create_prediction(args, webhook=False)        
             prediction.wait()
             if self.output_handler == "eden":
                 result = {"output": prediction.output[-1]["files"][0]}
@@ -49,7 +49,7 @@ class ReplicateTool(Tool):
         args = self.prepare_args(task.args)
         args = self._format_args_for_replicate(args)
         if self.version:
-            prediction = self._create_prediction(args, webhook=webhook)
+            prediction = await self._create_prediction(args, webhook=webhook)
             return prediction.id
         else:
             # Replicate doesn't allow spawning tasks for models without a public version ID.
@@ -103,29 +103,51 @@ class ReplicateTool(Tool):
                     new_args[alias] = new_args.pop(field)
         return new_args
 
-    def _create_prediction(self, args: dict, webhook=True):
+    # def _create_prediction(self, args: dict, webhook=True):
+    #     user, model = self.replicate_model.split('/', 1)
+    #     webhook_url = get_webhook_url() if webhook else None
+    #     webhook_events_filter = ["start", "completed"] if webhook else None
+
+    #     if self.version == "deployment":
+    #         deployment = replicate.deployments.get(f"{user}/{model}")
+    #         prediction = deployment.predictions.create(
+    #             input=args,
+    #             webhook=webhook_url,
+    #             webhook_events_filter=webhook_events_filter
+    #         )
+    #     else:
+    #         model = replicate.models.get(f"{user}/{model}")
+    #         version = model.versions.get(self.version)
+    #         prediction = replicate.predictions.create(
+    #             version=version,
+    #             input=args,
+    #             webhook=webhook_url,
+    #             webhook_events_filter=webhook_events_filter
+    #         )
+    #     return prediction
+
+    async def _create_prediction(self, args: dict, webhook=True):
         user, model = self.replicate_model.split('/', 1)
         webhook_url = get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
 
         if self.version == "deployment":
-            deployment = replicate.deployments.get(f"{user}/{model}")
-            prediction = deployment.predictions.create(
+            deployment = await replicate.deployments.async_get(f"{user}/{model}")
+            prediction = await deployment.predictions.async_create(
                 input=args,
                 webhook=webhook_url,
                 webhook_events_filter=webhook_events_filter
             )
         else:
-            model = replicate.models.get(f"{user}/{model}")
-            version = model.versions.get(self.version)
-            prediction = replicate.predictions.create(
+            model = await replicate.models.async_get(f"{user}/{model}")
+            version = await model.versions.async_get(self.version)
+            prediction = await replicate.predictions.async_create(
                 version=version,
                 input=args,
                 webhook=webhook_url,
                 webhook_events_filter=webhook_events_filter
             )
         return prediction
-
 
 def get_webhook_url():
     env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"

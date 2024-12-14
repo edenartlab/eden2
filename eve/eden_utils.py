@@ -76,10 +76,10 @@ def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp", db=db)
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg", db=db)
 
-    if save_blurhash and thumbnail:
-        img = thumbnail.copy()
-        img.thumbnail((100, 100), Image.LANCZOS)
-        media_attributes["blurhash"] = blurhash.encode(np.array(thumbnail), 4, 4)
+    # if save_blurhash and thumbnail:
+    #     img = thumbnail.copy()
+    #     img.thumbnail((100, 100), Image.LANCZOS)
+    #     media_attributes["blurhash"] = blurhash.encode(np.array(thumbnail), 4, 4)
 
     return {"filename": filename, "mediaAttributes": media_attributes}
 

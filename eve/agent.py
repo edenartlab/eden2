@@ -7,7 +7,7 @@ import argparse
 from bson import ObjectId
 from datetime import datetime, timezone
 from abc import ABC
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
 from eve.thread import UserMessage, Thread
 from eve.mongo import Document, Collection, get_collection
@@ -83,6 +83,7 @@ class Agent(User):
             raise ValueError(f"Username {self.username} already taken")
 
         # save user, and create mannas record if it doesn't exist
+        kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(db, {"username": self.username}, **kwargs)
         Manna.load(user=self.id, db=db)
         

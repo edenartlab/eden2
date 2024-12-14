@@ -70,7 +70,9 @@ class Eden2Cog(commands.Cog):
         self.bot = bot
         self.agent = agent
         self.db = db
+        print("====get tools mongo 1")
         self.tools = get_tools_from_mongo(db=self.db)
+        print("====get tools mongo 2")
         self.known_users = {}
         self.known_threads = {}
 

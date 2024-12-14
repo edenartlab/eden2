@@ -4,9 +4,21 @@ DB=STAGE WORKSPACE=batch_tools SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=img_tools SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=sd3 SKIP_TESTS=1 modal deploy comfyui.py
-DB=STAGE WORKSPACE=sdxl_test SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=txt2img SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=video SKIP_TESTS=1 modal deploy comfyui.py
+
+
+DB=STAGE WORKSPACE=audio modal deploy comfyui.py
+DB=STAGE WORKSPACE=batch_tools modal deploy comfyui.py
+DB=STAGE WORKSPACE=flux modal deploy comfyui.py
+DB=STAGE WORKSPACE=img_tools modal deploy comfyui.py
+DB=STAGE WORKSPACE=sd3 modal deploy comfyui.py
+DB=STAGE WORKSPACE=txt2img modal deploy comfyui.py
+DB=STAGE WORKSPACE=video modal deploy comfyui.py
+
+DB=STAGE WORKSPACE=mars_exclusive modal deploy comfyui.py
+DB=STAGE WORKSPACE=video2 modal deploy comfyui.py
+DB=STAGE WORKSPACE=video_mochi modal deploy comfyui.py
 """
 
 from urllib.error import URLError
@@ -42,7 +54,7 @@ if not os.getenv("WORKSPACE"):
 
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
-app_name = f"comfyui2-{workspace_name}-{db}"
+app_name = f"comfyui3-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
@@ -125,13 +137,13 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
-    .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg")
+    .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
     .pip_install(
         "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
         "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
         "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
         "torchaudio", "pydub", "moviepy==1.0.3", "accelerate", "pymongo", "google-cloud-aiplatform", 
-        "runwayml", "elevenlabs", "sentry-sdk")
+        "runwayml", "elevenlabs", "sentry-sdk", "blurhash")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")

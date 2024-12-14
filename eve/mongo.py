@@ -27,8 +27,8 @@ db_names = {
 }
 
 if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
-    raise ValueError("MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
-
+    # raise ValueError("MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
+    print("WARNING: MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
 def get_collection(collection_name: str, db: str):
     mongo_client = MongoClient(MONGO_URI)
     db_name = db_names[db]

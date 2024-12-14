@@ -43,8 +43,9 @@ class Manna(Document):
 
 @Collection("users3")
 class User(Document):
+    # todo underscore
     # type of user
-    type: Optional[Literal["User", "Agent"]] = Field("User", alias="__t")
+    type: Optional[Literal["user", "agent"]] = "user"
     isAdmin: Optional[bool] = False
     deleted: Optional[bool] = False
 
@@ -108,7 +109,7 @@ class User(Document):
                 discordUsername=discord_username,
                 username=username,
             )
-            new_user.save()
+            new_user.save()  # todo: should this be saved immediately?
             return new_user
         return cls(**user, db=db)
 
