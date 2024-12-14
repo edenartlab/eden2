@@ -1,4 +1,5 @@
 from bson import ObjectId
+from pydantic import Field
 from typing import Optional, Literal, List
 
 from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
@@ -43,7 +44,7 @@ class Manna(Document):
 @Collection("users3")
 class User(Document):
     # type of user
-    type: Optional[Literal["user", "agent"]] = "user"
+    type: Optional[Literal["User", "Agent"]] = Field("User", alias="__t")
     isAdmin: Optional[bool] = False
     deleted: Optional[bool] = False
 
