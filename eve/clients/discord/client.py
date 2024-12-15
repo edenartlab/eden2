@@ -1,8 +1,6 @@
 import argparse
 import os
 import re
-import time
-from typing import Optional
 import discord
 import logging
 from discord.ext import commands
@@ -13,7 +11,6 @@ from eve.clients import common
 from eve.clients.discord import config
 from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
-from eve.thread import Thread
 from eve.user import User
 from eve.eden_utils import prepare_result
 
@@ -88,11 +85,11 @@ class Eden2Cog(commands.Cog):
                 return
         else:
             thread_key = f"discord-{message.guild.id}-{message.channel.id}"
-        
+
         # Lookup thread
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key, 
+                key=thread_key,
                 db=self.db,
             )
         thread = self.known_threads[thread_key]
@@ -101,9 +98,7 @@ class Eden2Cog(commands.Cog):
         # Lookup user
         if message.author.id not in self.known_users:
             self.known_users[message.author.id] = User.from_discord(
-                message.author.id, 
-                message.author.name, 
-                db=self.db
+                message.author.id, message.author.name, db=self.db
             )
         user = self.known_users[message.author.id]
         logger.info(f"user: {user.id}")
@@ -221,8 +216,8 @@ def start(
 ) -> None:
     logger.info("Launching Discord bot...")
     load_dotenv(env)
-    
-    agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
+
+    agent_key = os.environ.get("CLIENT_AGENT_KEY")
     agent = Agent.load(agent_key, db=db)
 
     logger.info(f"Using agent: {agent.name}")
