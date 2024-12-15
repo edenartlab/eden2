@@ -9,14 +9,22 @@ from .. import eden_utils
 
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict, env: str):
-        func = modal.Function.lookup("handlers2", "run")
-        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args, env=env)
+    async def async_run(self, args: Dict, db: str):
+        func = modal.Function.lookup(
+            "handlers3", 
+            "run", 
+            environment_name="main"
+        )
+        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args, db=db)
         return result
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        func = modal.Function.lookup("handlers2", "run_task")
+        func = modal.Function.lookup(
+            "handlers3", 
+            "run_task", 
+            environment_name="main"
+        )
         job = func.spawn(task, parent_tool=self.parent_tool)
         return job.object_id
     

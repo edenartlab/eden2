@@ -2,7 +2,7 @@ from PIL import Image
 # from ... import eden_utils
 
 
-async def handler(args: dict, env: str):
+async def handler(args: dict, db: str):
     from .... import eden_utils
 
     image_urls = args.get("images")

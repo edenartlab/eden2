@@ -5,7 +5,7 @@ from eve.tools import handlers
 from eve import eden_utils
 
 app = modal.App(
-    name="handlers2",
+    name="handlers3",
     secrets=[
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),

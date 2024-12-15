@@ -707,7 +707,7 @@ def save_test_results(tools, results):
     os.makedirs(results_dir, exist_ok=True)
     
     for tool, tool_result in zip(tools.keys(), results):
-        if tool_result.get("error"):
+        if isinstance(tool_result, dict) and tool_result.get("error"):
             file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
             with open(file_path, "w") as f:
                 f.write(tool_result["error"])        

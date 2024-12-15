@@ -4,7 +4,7 @@ import re
 import time
 from typing import Optional
 import discord
-import logging
+# import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -18,11 +18,11 @@ from eve.user import User
 from eve.eden_utils import prepare_result
 
 # Logging configuration
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# logger = logging.getLogger(__name__)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+# )
 
 
 def is_mentioned(message: discord.Message, user: discord.User) -> bool:
@@ -78,7 +78,7 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        if message.author.id == self.bot.user.id:  # or message.author.bot:
+        if message.author.id == self.bot.user.id:
             return
 
         dm = message.channel.type == discord.ChannelType.private
@@ -96,7 +96,7 @@ class Eden2Cog(commands.Cog):
                 db=self.db,
             )
         thread = self.known_threads[thread_key]
-        logger.info(f"thread: {thread.id}")
+        # logger.info(f"thread: {thread.id}")
 
         # Lookup user
         if message.author.id not in self.known_users:
@@ -106,7 +106,7 @@ class Eden2Cog(commands.Cog):
                 db=self.db
             )
         user = self.known_users[message.author.id]
-        logger.info(f"user: {user.id}")
+        # logger.info(f"user: {user.id}")
 
         # Check if user rate limits
         if common.user_over_rate_limits(user):
@@ -134,7 +134,7 @@ class Eden2Cog(commands.Cog):
             name=message.author.name,
             attachments=[attachment.url for attachment in message.attachments],
         )
-        logger.info(f"chat message {user_message}")
+        # logger.info(f"chat message {user_message}")
 
         ctx = await self.bot.get_context(message)
 
@@ -169,11 +169,11 @@ class Eden2Cog(commands.Cog):
                 url = msg.result["result"][0]["output"][0]["url"]
                 common.register_tool_call(user, msg.tool_name)
                 await send(message, url)
-                logger.info(f"tool called {msg.tool_name}")
+                # logger.info(f"tool called {msg.tool_name}")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        logger.info(f"{member} has joined the guild id: {member.guild.id}")
+        # logger.info(f"{member} has joined the guild id: {member.guild.id}")
         await member.send(config.WELCOME_MESSAGE.format(name=member.name))
 
 
@@ -206,7 +206,9 @@ class DiscordBot(commands.Bot):
         intents.members = True
 
     async def on_ready(self) -> None:
-        logger.info("Running bot...")
+        # logger.info("Running bot...")
+        # print("====on ready")
+        pass
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
@@ -219,13 +221,13 @@ def start(
     env: str,
     db: str = "STAGE",
 ) -> None:
-    logger.info("Launching Discord bot...")
+    # logger.info("Launching Discord bot...")
     load_dotenv(env)
     
     agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
     agent = Agent.load(agent_key, db=db)
 
-    logger.info(f"Using agent: {agent.name}")
+    # logger.info(f"Using agent: {agent.name}")
     bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
     bot = DiscordBot()
     bot.add_cog(Eden2Cog(bot, agent, db=db))

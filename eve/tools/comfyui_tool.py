@@ -40,7 +40,11 @@ class ComfyUITool(Tool):
     
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
-        cls = modal.Cls.lookup(f"comfyui3-{self.workspace}-{db}", "ComfyUI")
+        cls = modal.Cls.lookup(
+            f"comfyui3-{self.workspace}-{db}", 
+            "ComfyUI", 
+            environment_name="main"
+        )
         result = await cls().run.remote.aio(self.parent_tool or self.key, args, db)
         return result
 
@@ -48,7 +52,11 @@ class ComfyUITool(Tool):
     async def async_start_task(self, task: Task):
         print("start a task for app", self.workspace, task.db)
         print(f"comfyui3-{self.workspace}-{task.db}")
-        cls = modal.Cls.lookup(f"comfyui3-{self.workspace}-{task.db}", "ComfyUI")
+        cls = modal.Cls.lookup(
+            f"comfyui3-{self.workspace}-{task.db}", 
+            "ComfyUI",
+            environment_name="main"
+        )
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
         
