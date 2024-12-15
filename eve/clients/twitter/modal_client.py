@@ -4,7 +4,10 @@ from eve.clients.twitter.client import start as twitter_start
 
 app = modal.App(
     name="client-twitter",
-    secrets=[modal.Secret.from_name(s) for s in ["eve-secrets", "client-secrets"]],
+    secrets=[
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name("client-secrets"),
+    ],
 )
 
 image = (

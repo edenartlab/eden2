@@ -1,9 +1,14 @@
 import modal
+
 from eve.clients.farcaster.client import create_app
+
 
 app = modal.App(
     name="client-farcaster",
-    secrets=[modal.Secret.from_name(s) for s in ["eve-secrets", "client-secrets"]],
+    secrets=[
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name("client-secrets"),
+    ],
 )
 
 image = (

@@ -1,11 +1,13 @@
-import os
 import modal
 
 from eve.clients.telegram.client import start as telegram_start
 
 app = modal.App(
     name="client-telegram",
-    secrets=[modal.Secret.from_name(s) for s in ["eve-secrets", "client-secrets"]],
+    secrets=[
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name("client-secrets"),
+    ],
 )
 
 image = (

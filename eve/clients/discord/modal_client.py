@@ -1,12 +1,14 @@
 import modal
-import os
 
 from eve.clients.discord.client import start as discord_start
 
 
 app = modal.App(
     name="client-discord",
-    secrets=[modal.Secret.from_name(s) for s in ["eve-secrets", "client-secrets"]],
+    secrets=[
+        modal.Secret.from_name("client-secrets"),
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+    ],
 )
 
 image = (
