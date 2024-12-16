@@ -359,17 +359,22 @@ class AssistantMessage(ChatMessage):
 class Thread(Document):
     key: Optional[str] = None
     agent: Optional[ObjectId] = None
+    user: Optional[ObjectId] = None
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
     @classmethod
-    def load(cls, key=None, agent=None, create_if_missing=False, db="STAGE"):
-        filter = {"key": key, "agent": agent} if agent else {"key": key}
+    def load(cls, key=None, agent=None, user=None, create_if_missing=False, db="STAGE"):
+        filter = {"key": key}
+        if agent:
+            filter["agent"] = agent
+        if user:
+            filter["user"] = user        
         thread = cls.get_collection(db).find_one(filter)
         if thread:
             thread = Thread(db=db, **thread)
         else:
             if create_if_missing:
-                thread = cls(db=db, key=key, agent=agent)
+                thread = cls(db=db, key=key, agent=agent, user=user)
                 thread.save()
             else:
                 raise Exception(f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}")        

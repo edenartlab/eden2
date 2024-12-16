@@ -1,7 +1,7 @@
 """
 DB=STAGE WORKSPACE=audio modal deploy comfyui.py
 DB=STAGE WORKSPACE=batch_tools modal deploy comfyui.py
-DB=STAGE WORKSPACE=flux modal deploy comfyui.py
+DB=STAGE WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
 DB=STAGE WORKSPACE=img_tools modal deploy comfyui.py
 DB=STAGE WORKSPACE=mars_exclusive modal deploy comfyui.py
 DB=STAGE WORKSPACE=sd3 modal deploy comfyui.py

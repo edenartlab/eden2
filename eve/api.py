@@ -84,11 +84,12 @@ async def handle_chat(
     if not thread_id:
         thread = Thread(
             db=db,
-            agent=agent.id
+            agent=agent.id,
+            user=user.id,
         )
         thread.save()
     else:
-        thread = agent.request_thread(db=db)
+        thread = agent.request_thread(db=db, user=user.id)
 
     try:
         async def run_prompt():

@@ -92,10 +92,11 @@ class Agent(User):
     def load(cls, username, db):
         return super().load(username=username, db=db)
 
-    def request_thread(self, key, db="STAGE"):
+    def request_thread(self, key, user=None, db="STAGE"):
         return Thread.load(
             key=key, 
             agent=self.id, 
+            user=user,
             db=db, 
             create_if_missing=True
         )
