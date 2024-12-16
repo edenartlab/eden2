@@ -10,7 +10,7 @@ from typing import Optional, Dict
 from eve.models import ClientType
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
-REPO_BRANCH = "feat/agent-deployer"
+REPO_BRANCH = "main"
 
 
 class DeployCommand(str, Enum):
