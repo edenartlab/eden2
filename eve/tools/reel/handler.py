@@ -453,6 +453,7 @@ async def handler(args: dict, db: str):
     
     video = await video_concat.async_run({"videos": videos}, db=db)
     video = eden_utils.prepare_result(video, db=db)
+    print("video", video)
     video_url = video['output'][0]['url']
     
     if audio_url:
@@ -481,7 +482,7 @@ async def handler(args: dict, db: str):
     }
 
 
-async def handler2(args: dict, env: str):
+async def handler2(args: dict, db: str):
     # try:
     if 1:
 
@@ -586,7 +587,7 @@ async def handler2(args: dict, env: str):
             music = await musicgen.async_run({
                 "prompt": story.music_prompt,
                 "duration": int(duration)
-            }, env=env)
+            }, db=db)
             print("THE MUSIC IS DONE!")
             print(music)
             print("generated music", story.music_prompt)
@@ -653,7 +654,7 @@ async def handler2(args: dict, env: str):
         images = []
         for i in range(num_clips):
             print("i", i)
-            image = await txt2img.async_run(flux_args[i], env=env)
+            image = await txt2img.async_run(flux_args[i], db=db)
             print("THE IMAGE IS DONE!")
             print(image)
             output_url = image[0]["url"]
@@ -680,7 +681,7 @@ async def handler2(args: dict, env: str):
                 "prompt_text": "A panorama of a sand castle", #story.image_prompt,
                 "duration": str(dur),
                 "ratio": "16:9" if orientation == "landscape" else "9:16"
-            }, env=env)
+            }, db=db)
             print("video is done", i)
             print(video)
             videos.append(video[0])
@@ -691,7 +692,7 @@ async def handler2(args: dict, env: str):
         # videos = [eden_utils.get_file_handler(".mp4", v) for v in videos]
 
         video_concat = load_tool("tools/media_utils/video_concat")
-        video = await video_concat.async_run({"videos": [v["url"] for v in videos]}, env=env)
+        video = await video_concat.async_run({"videos": [v["url"] for v in videos]}, db=db)
         print("video", video)
         video = video[0]['url']
 
@@ -702,7 +703,7 @@ async def handler2(args: dict, env: str):
         #     "n_frames": 128,
         #     "width": width,
         #     "height": height
-        # }, env=env)
+        # }, db=db)
         print("THE VIDEO IS DONE!")
         # video = [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 31.6}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/75bf55b76a8e4cadbf824b4eee1673a8c41c24f6688a1d5f2f90723c237c4ae6.mp4'}]
         print(video)

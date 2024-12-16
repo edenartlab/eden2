@@ -273,7 +273,7 @@ def test(
         else:
             result = await tool.async_run(tool.test_args, db=db, mock=mock)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             click.echo(
                 click.style(
                     f"\nFailed to test {tool.key}: {result['error']}",

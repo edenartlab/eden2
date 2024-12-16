@@ -2,7 +2,8 @@ import os
 import argparse
 import re
 import time
-import logging
+
+# import logging
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
@@ -14,18 +15,10 @@ from telegram.ext import (
 )
 from telegram.constants import ChatAction
 
-from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
-from eve.thread import Thread
 from eve.eden_utils import prepare_result
 from eve.agent import Agent
 from eve.user import User
-
-# Logging configuration
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 
 # Constants
 LONG_RUNNING_TOOLS = {
@@ -188,7 +181,8 @@ class EdenTG:
         self.token = token
         self.agent = agent
         self.db = db
-        self.tools = get_tools_from_mongo(db=self.db)
+        # self.tools = get_tools_from_mongo(db=self.db)
+        self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
 
@@ -283,13 +277,11 @@ class EdenTG:
 
 
 def start(env: str, db: str = "STAGE") -> None:
-    logger.info("Launching Telegram bot...")
     load_dotenv(env)
 
     agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
     agent = Agent.load(agent_key, db=db)
 
-    logging.info(f"Using agent: {agent.name}")
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     application = ApplicationBuilder().token(bot_token).build()
     bot = EdenTG(bot_token, agent, db=db)
@@ -299,10 +291,11 @@ def start(env: str, db: str = "STAGE") -> None:
     application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
 
     application.add_error_handler(
-        lambda update, context: logging.error("Exception:", exc_info=context.error)
+        # lambda update, context: logging.error("Exception:", exc_info=context.error)
+        lambda update, context: print("Exception:", exc_info=context.error)
     )
 
-    logging.info("Bot started.")
+    # logging.info("Bot started.")
     application.run_polling()
 
 

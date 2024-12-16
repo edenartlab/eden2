@@ -25,7 +25,7 @@ class GCPTool(Tool):
             gpu=self.gpu,
             gpu_count=1,
             task_id=str(task.id),
-            env=task.env
+            db=task.db
         )
         return handler_id
     
@@ -82,7 +82,7 @@ def submit_job(
     gpu,
     gpu_count,
     task_id, 
-    env
+    db
 ):
     aiplatform = get_ai_platform_client()
     job_name = f"flux-{task_id}"
@@ -100,7 +100,7 @@ def submit_job(
                     "image_uri": gcr_image_uri,
                     "args": [
                         f"--task_id={task_id}",
-                        f"--env={env}"
+                        f"--db={db}"
                     ],
                 },
             }
