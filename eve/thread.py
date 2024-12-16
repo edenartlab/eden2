@@ -355,7 +355,7 @@ class AssistantMessage(ChatMessage):
     #         thread = cls.create(key=key, db=db)
     #     return thread.id
     
-@Collection("threads3")
+@Collection("threads2")
 class Thread(Document):
     key: Optional[str] = None
     agent: Optional[ObjectId] = None

@@ -36,9 +36,10 @@ def run_create(server_url):
 def run_chat(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
-        "agent_id": "67069a27fa89a12910650755",
+        "agent_id": "675fd3a679e00297cdac10c8",
         "user_message": {
             "content": "make a piece of audio using stable_audio of some Jamaican ska music",
+            # "content": "make a high quality picture of a fancy cat in your favorite location. use flux dev",
         }
     }
     response = requests.post(server_url+"/chat", json=request, headers=headers)
@@ -66,10 +67,10 @@ def test_client():
         print("server_url", server_url)
         
         print("\nRunning create test...")
-        run_create(server_url)
+        # run_create(server_url)
 
         print("\nRunning chat test...")
-        # run_chat(server_url)
+        run_chat(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

@@ -70,9 +70,8 @@ class Eden2Cog(commands.Cog):
         self.bot = bot
         self.agent = agent
         self.db = db
-        print("====get tools mongo 1")
         self.tools = get_tools_from_mongo(db=self.db)
-        print("====get tools mongo 2")
+        # self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
 
@@ -139,6 +138,8 @@ class Eden2Cog(commands.Cog):
         ctx = await self.bot.get_context(message)
 
         replied = False
+
+        self.agent.reload()
 
         async for msg in async_prompt_thread(
             db=self.db,

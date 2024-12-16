@@ -10,6 +10,7 @@ from abc import ABC
 from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
 from eve.thread import UserMessage, Thread
+from eve.tool import get_tools_from_mongo
 from eve.mongo import Document, Collection, get_collection
 
 
@@ -47,17 +48,17 @@ class Agent(User):
     name: str
     description: str
     instructions: str
-    model: Optional[ObjectId] = None
-    tools: Optional[List[dict]] = None
-        
+    models: Optional[Dict[str, ObjectId]] = None
+    # tools: Optional[List[dict]] = None
+    
     test_args: Optional[List[Dict[str, Any]]] = None
 
 
     def __init__(self, **data):
         if isinstance(data.get('owner'), str):
             data['owner'] = ObjectId(data['owner'])
-        if isinstance(data.get('model'), str):
-            data['model'] = ObjectId(data['model'])        
+        if data.get('models'):
+            data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
         super().__init__(**data)
 
     @classmethod
@@ -98,6 +99,10 @@ class Agent(User):
             db=db, 
             create_if_missing=True
         )
+
+    def get_tools(self, db="STAGE"):
+        tools = get_tools_from_mongo(db=db)
+
 
 
     # old code: needs to be reintegrated

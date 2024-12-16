@@ -40,6 +40,8 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
         key += f"_{int(time.time())}"
 
     thread = agent.request_thread(key=key, db=db)
+    #tools = get_tools_from_mongo(db)
+    tools = agent.get_tools(db)
 
     chat_string = f"Chat with {agent.name}".center(36)
     console = Console()
@@ -83,7 +85,7 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
                             content=content, 
                             attachments=attachments
                         ),
-                        tools=get_tools_from_mongo(db),
+                        tools=tools,
                         force_reply=True,
                     ):
                         sys.stdout = original_stdout

@@ -273,8 +273,6 @@ def test(
         else:
             result = await tool.async_run(tool.test_args, db=db, mock=mock)
 
-        print("====result ### 33", result)
-
         if isinstance(result, dict) and result.get("error"):
             click.echo(
                 click.style(

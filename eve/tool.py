@@ -38,7 +38,7 @@ class Tool(Document, ABC):
     output_type: Literal["boolean", "string", "integer", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
     resolutions: Optional[List[str]] = None
-    base_model: Optional[Literal["sd15", "sdxl", "sd3", "sd35", "flux-dev", "flux-schnell", "hellomeme", "stable-audio-open", "inspyrenet-rembg", "mochi-preview", "runway"]] = None
+    base_model: Optional[Literal["sd15", "sdxl", "sd3", "sd35", "flux-dev", "flux-schnell", "hellomeme", "stable-audio-open", "inspyrenet-rembg", "mochi-preview", "runway", "mmaudio", "librosa"]] = None
 
     status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     visible: Optional[bool] = True
@@ -54,11 +54,8 @@ class Tool(Document, ABC):
 
     @classmethod
     def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
-        print("gs1", from_yaml, db)
         if from_yaml:
-            print("gs2")
             api_files = get_api_files(include_inactive=True)
-            print("heres the api files", api_files)
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")            
             api_file = api_files[key]
@@ -80,9 +77,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get('parent_tool')
         if parent_tool:
-            print("lets get the parent tool", from_yaml, db)
             parent_schema = cls._get_schema(parent_tool, from_yaml, db)
-            print("the parent schema is", parent_schema.keys())
             handler = parent_schema.get("handler")
         else:
             handler = schema.get('handler')
@@ -133,6 +128,32 @@ class Tool(Document, ABC):
             schema["test_args"] = json.load(f)
 
         return schema
+
+
+
+
+
+    # @classmethod
+    # def from_preset(cls, parent_tool: str, presets: Dict[str, Any], db="STAGE"):
+    #     """
+    #     Load a tool from a parent tool and override its data with presets
+    #     """
+    #     schema = cls.get_collection(db).find_one({"key": parent_tool})
+    #     if not schema:
+    #         raise Exception(f"Tool {parent_tool} not found in {cls.collection_name}:{db}")
+        
+    #     schema['parent_tool'] = parent_tool
+    #     schema["parameters"] = presets
+
+    #     sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
+    #     schema = sub_cls.convert_from_mongo(schema)
+    #     return cls.from_schema(schema, db, from_yaml=False)
+
+
+
+
+
+
 
     @classmethod
     def convert_from_mongo(cls, schema: dict) -> dict:

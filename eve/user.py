@@ -99,6 +99,7 @@ class User(Document):
     @classmethod
     def from_discord(cls, discord_id, discord_username, db="STAGE"):
         discord_id = str(discord_id)
+        discord_username = str(discord_username)
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"discordId": discord_id})
         if not user:
@@ -116,6 +117,7 @@ class User(Document):
     @classmethod
     def from_farcaster(cls, farcaster_id, farcaster_username, db="STAGE"):
         farcaster_id = str(farcaster_id)
+        farcaster_username = str(farcaster_username)
         users = get_collection(cls.collection_name, db=db)
         user = users.find_one({"farcasterId": farcaster_id})
         if not user:
@@ -133,6 +135,7 @@ class User(Document):
     @classmethod
     def from_telegram(cls, telegram_id, telegram_username, db="STAGE"):
         telegram_id = str(telegram_id)
+        telegram_username = str(telegram_username)
         users = get_collection(cls.collection_name, db=db)        
         user = users.find_one({"telegramId": telegram_id})
         if not user:

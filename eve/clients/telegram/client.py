@@ -189,7 +189,8 @@ class EdenTG:
         self.token = token
         self.agent = agent
         self.db = db
-        self.tools = get_tools_from_mongo(db=self.db)
+        # self.tools = get_tools_from_mongo(db=self.db)
+        self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
 

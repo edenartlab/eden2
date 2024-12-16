@@ -13,6 +13,9 @@ from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
+from eve.agent import Agent
+from eve.user import User
+
 
 # Config setup
 db = os.getenv("DB", "STAGE").upper()
@@ -24,7 +27,7 @@ api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 background_tasks: BackgroundTasks = BackgroundTasks()
 
-
+# FastAPI setup
 web_app = FastAPI()
 web_app.add_middleware(
     CORSMiddleware,
@@ -75,21 +78,25 @@ async def handle_chat(
 
     tools = get_tools_from_mongo(db=db)
     
+    user = User.from_mongo(str(user_id), db=db)
+    agent = Agent.from_mongo(str(agent_id), db=db)
+
     if not thread_id:
-        thread_new = Thread.create(
+        thread = Thread(
             db=db,
-            owner=agent_id,
-            allowlist=[agent_id, user_id]
+            agent=agent.id
         )
-        thread_id = str(thread_new.id)
+        thread.save()
+    else:
+        thread = agent.request_thread(db=db)
 
     try:
         async def run_prompt():
             async for _ in async_prompt_thread(
                 db=db,
-                user_id=user_id,
-                agent_id=agent_id,
-                thread_id=thread_id,
+                user=user,
+                agent=agent,
+                thread=thread,
                 user_messages=user_message,
                 tools=tools,
                 force_reply=True,
@@ -99,7 +106,7 @@ async def handle_chat(
         
         background_tasks.add_task(run_prompt)
 
-        return {"status": "success", "thread_id": thread_id}
+        return {"status": "success", "thread_id": str(thread.id)}
     
     except Exception as e:
         print(e)
