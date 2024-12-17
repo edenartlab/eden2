@@ -329,8 +329,8 @@ class AssistantMessage(ChatMessage):
                     "type": "text",
                     "text": self.content
                 }
-            ] if self.content else [],
-        }]
+            ]
+        }] if self.content else []
         if self.tool_calls:
             schema[0]["content"].extend(
                 [t.anthropic_call_schema() for t in self.tool_calls]
