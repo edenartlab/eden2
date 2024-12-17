@@ -1,0 +1,117 @@
+name: Create an image with Flux-Dev
+description: Generate an image from text Flux-Dev.
+tip: |-
+  Flux is a text to image model that excels at prompt coherence and text generation. This should always be your default way to generate an image from text when quality is preferred over speed.
+cost_estimate: 1 * n_samples
+output_type: image
+base_model: flux-dev
+replicate_model: black-forest-labs/flux-dev
+replicate_model_substitutions:
+  lora: black-forest-labs/flux-dev-lora
+thumbnail: app/flux-dev.png
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt
+    tip: |-
+      Flux loves very detailed and descriptive prompts so try to be elaborate. Flux is also great at drawing text in images so feel free to add something if it makes sense.
+    required: true
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio width/height
+    default: "1:1"
+    choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
+  init_image:
+    type: image
+    label: Input image
+    description: Input image. Aspect ratio will match this.
+  prompt_strength:
+    type: number
+    label: Prompt strength
+    description: Prompt strength when using img2img. 1.0 corresponds to full destruction of information in image
+    default: 0.8
+    minimum: 0
+    maximum: 1
+  output_format:
+    type: string
+    label: Output format
+    description: Format of the output images
+    default: png
+    choices: [webp, jpg, png]
+    hide_from_ui: true
+    hide_from_agent: true
+  output_quality:
+    type: integer
+    label: Save quality
+    description: |-
+      Quality when saving the output images, from 0 to 100. 100 is best quality, 0 is lowest quality. Not relevant for .png outputs
+    hide_from_ui: true
+    hide_from_agent: true
+    default: 95
+    minimum: 1
+    maximum: 100
+    step: 1
+  disable_safety_checker:
+    type: boolean
+    label: Disable safety checker
+    description: Disable safety checker
+    default: true
+    hide_from_ui: true
+    hide_from_agent: true
+  go_fast:
+    type: boolean
+    label: Go Fast
+    description: |-
+      Run faster predictions with model optimized for speed (currently fp8 quantized); disable to run in original bf16
+    default: true
+    hide_from_ui: true
+    hide_from_agent: true
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random
+  num_inference_steps:
+    type: integer
+    label: Number of denoising steps
+    description: Number of denoising steps. Recommended range is 28-50
+    default: 30
+    minimum: 1
+    maximum: 50
+  guidance:
+    type: number
+    label: Guidance scale
+    description: How strictly to follow the prompt
+    default: 3
+    minimum: 0
+    maximum: 10
+  lora:
+    type: lora
+    label: LoRA
+    description: LoRA finetuning to use
+    alias: lora_weights
+  lora_strength:
+    type: float
+    label: LoRA strength
+    description: Strength of the LoRA finetuning
+    default: 0.5
+    minimum: 0
+    maximum: 3
+    alias: lora_scale
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+    default: 1
+    minimum: 1
+    maximum: 4
+    alias: num_outputs
