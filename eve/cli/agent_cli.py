@@ -38,18 +38,9 @@ def update(db: str, names: tuple):
     updated = 0
     for key, api_file in api_files.items():
         try:
-            print("!!")
             order = agents_order.get(key, len(api_agents_order))
-            print("!! 2")
             agent = Agent.from_yaml(api_file)
-            print("!! 3")
-            print("AGENT IS HERe")
-            print(agent.tools)
-            print(agent.tools.keys())
-            print("SAVE 1")
             agent.save(db=db, order=order)
-            print("SAVE 2")
-            print("!! 4")
             click.echo( 
                 click.style(f"Updated agent {db}:{key} (order={order})", fg="green")
             )
