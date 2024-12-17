@@ -2,6 +2,7 @@ import os
 import argparse
 import re
 import time
+
 # import logging
 from dotenv import load_dotenv
 from telegram import Update
@@ -14,19 +15,10 @@ from telegram.ext import (
 )
 from telegram.constants import ChatAction
 
-from eve.tool import get_tools_from_mongo
 from eve.llm import UserMessage, async_prompt_thread, UpdateType
-from eve.thread import Thread
 from eve.eden_utils import prepare_result
 from eve.agent import Agent
 from eve.user import User
-
-# Logging configuration
-# logger = logging.getLogger(__name__)
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-# )
 
 # Constants
 LONG_RUNNING_TOOLS = {
@@ -236,11 +228,11 @@ class EdenTG:
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key, 
+                key=thread_key,
                 db=self.db,
             )
         thread = self.known_threads[thread_key]
-        
+
         # Process text or photo messages
         message_text = update.message.text or ""
         attachments = []
@@ -284,25 +276,18 @@ class EdenTG:
                 await send_response(message_type, chat_id, [update.error], context)
 
 
-def start(
-    env: str, 
-    db: str = "STAGE"
-) -> None:
-    # logger.info("Launching Telegram bot...")
+def start(env: str, db: str = "STAGE") -> None:
     load_dotenv(env)
-    
+
     agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
     agent = Agent.load(agent_key, db=db)
-    
-    # logging.info(f"Using agent: {agent.name}")
+
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     application = ApplicationBuilder().token(bot_token).build()
     bot = EdenTG(bot_token, agent, db=db)
 
     application.add_handler(CommandHandler("start", bot.start))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo)
-    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
     application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
 
     application.add_error_handler(

@@ -60,9 +60,6 @@ def process_agent(agent_path: Path):
     if not check_environment_exists(agent_key):
         create_environment(agent_key)
 
-    eve_secrets = dotenv_values(root_env)
-    create_secrets(agent_key, eve_secrets, "eve-secrets")
-
     env_file = agent_path.parent / ".env"
     if env_file.exists():
         client_secrets = dotenv_values(env_file)
