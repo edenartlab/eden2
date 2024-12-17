@@ -10,7 +10,7 @@ from abc import ABC
 from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
 from .thread import UserMessage, Thread
-from .tool import get_tools_from_mongo, Tool
+from .tool import get_tools_from_api_files, Tool
 from .mongo import Document, Collection, get_collection
 
 
@@ -74,7 +74,16 @@ class Agent(User):
         owner = schema.get('owner')
         schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
+        
+        
+        tools = get_tools_from_api_files()
+        print("these are the tools", tools)
+        # schema["tools"] = {}
+        # schema["tools"].update(tools)
         schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
+        # schema["tools"].update({k: v or {} for k, v in schema.get("tools", {}).items()})
+
+        print("these are the tools", schema["tools"].keys())
         
         return schema
     
@@ -106,7 +115,7 @@ class Agent(User):
     def get_tools(self, db="STAGE"):
         return {
             k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db) 
-            for k, v in self.tools.items()
+            for k, v in (self.tools or {}).items()
         }        
 
     # def get_system_message(self):

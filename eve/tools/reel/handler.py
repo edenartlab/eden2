@@ -289,6 +289,8 @@ async def handler(args: dict, db: str):
     print("reel", reel)
     
     audio = None
+    
+    duration = 30 # default duration
 
 
     if args.get("use_voiceover") and reel.voiceover:

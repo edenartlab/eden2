@@ -5,13 +5,12 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from eve.agent import Agent
-from eve.clients import common
-from eve.clients.discord import config
-from eve.tool import get_tools_from_mongo
-from eve.llm import UserMessage, async_prompt_thread, UpdateType
-from eve.user import User
-from eve.eden_utils import prepare_result
+from ...clients import common
+from ...clients.discord import config
+from ...agent import Agent
+from ...llm import UserMessage, async_prompt_thread, UpdateType
+from ...user import User
+from ...eden_utils import prepare_result
 
 # Logging configuration
 # logger = logging.getLogger(__name__)

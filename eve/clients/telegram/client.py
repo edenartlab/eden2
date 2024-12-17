@@ -6,6 +6,7 @@ import time
 # import logging
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -13,47 +14,13 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from telegram.constants import ChatAction
 
-from eve.llm import UserMessage, async_prompt_thread, UpdateType
-from eve.eden_utils import prepare_result
-from eve.agent import Agent
-from eve.user import User
-
-# Constants
-LONG_RUNNING_TOOLS = {
-    "txt2vid",
-    "style_mixing",
-    "img2vid",
-    "vid2vid",
-    "video_upscale",
-    "vid2vid_sdxl",
-    "lora_trainer",
-    "animate_3D",
-    "reel",
-    "story",
-}
-VIDEO_TOOLS = {
-    "animate_3D",
-    "txt2vid",
-    "img2vid",
-    "vid2vid_sdxl",
-    "style_mixing",
-    "video_upscaler",
-    "reel",
-    "story",
-    "lora_trainer",
-}
-
-# Rate limits
-HOUR_IMAGE_LIMIT = 50
-HOUR_VIDEO_LIMIT = 10
-DAY_IMAGE_LIMIT = 200
-DAY_VIDEO_LIMIT = 40
-
-hour_timestamps = {}
-day_timestamps = {}
-
+from ...clients import common
+from ...llm import UserMessage, async_prompt_thread, UpdateType
+from ...eden_utils import prepare_result
+from ...agent import Agent
+from ...user import User
+from ...tool import get_tools_from_mongo
 
 async def handler_mention_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -123,38 +90,6 @@ def replace_bot_mentions(message_text: str, bot_username: str, replacement: str)
     )
 
 
-def user_over_rate_limits(user_id):
-    """
-    Check if the user has exceeded the rate limits.
-    """
-    current_time = time.time()
-
-    # Filter timestamps within valid intervals
-    hour_timestamps[user_id] = [
-        t for t in hour_timestamps.get(user_id, []) if current_time - t["time"] < 3600
-    ]
-    day_timestamps[user_id] = [
-        t for t in day_timestamps.get(user_id, []) if current_time - t["time"] < 86400
-    ]
-
-    hour_video_count = sum(
-        1 for t in hour_timestamps[user_id] if t["tool"] in VIDEO_TOOLS
-    )
-    hour_image_count = len(hour_timestamps[user_id]) - hour_video_count
-
-    day_video_count = sum(
-        1 for t in day_timestamps[user_id] if t["tool"] in VIDEO_TOOLS
-    )
-    day_image_count = len(day_timestamps[user_id]) - day_video_count
-
-    return (
-        hour_video_count >= HOUR_VIDEO_LIMIT
-        or hour_image_count >= HOUR_IMAGE_LIMIT
-        or day_video_count >= DAY_VIDEO_LIMIT
-        or day_image_count >= DAY_IMAGE_LIMIT
-    )
-
-
 async def send_response(
     message_type: str, chat_id: int, response: list, context: ContextTypes.DEFAULT_TYPE
 ):
@@ -166,13 +101,13 @@ async def send_response(
             # Common video file extensions
             video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
             if any(item.lower().endswith(ext) for ext in video_extensions):
-                logging.info(f"Sending video to {chat_id}")
+                # logging.info(f"Sending video to {chat_id}")
                 await context.bot.send_video(chat_id=chat_id, video=item)
             else:
-                logging.info(f"Sending photo to {chat_id}")
+                # logging.info(f"Sending photo to {chat_id}")
                 await context.bot.send_photo(chat_id=chat_id, photo=item)
         else:
-            logging.info(f"Sending message to {chat_id}")
+            # logging.info(f"Sending message to {chat_id}")
             await context.bot.send_message(chat_id=chat_id, text=item)
 
 
@@ -181,8 +116,8 @@ class EdenTG:
         self.token = token
         self.agent = agent
         self.db = db
-        # self.tools = get_tools_from_mongo(db=self.db)
-        self.tools = agent.get_tools(db=self.db)
+        self.tools = get_tools_from_mongo(db=self.db)
+        # self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
 
@@ -217,13 +152,6 @@ class EdenTG:
         )
         force_reply = message_type in ["dm", "reply", "mention"]
 
-        # Get or create user
-        if user_id not in self.known_users:
-            self.known_users[user_id] = User.from_telegram(
-                user_id, username, db=self.db
-            )
-        user = self.known_users[user_id]
-
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
@@ -233,24 +161,45 @@ class EdenTG:
             )
         thread = self.known_threads[thread_key]
 
+        # Lookup user
+        if user_id not in self.known_users:
+            self.known_users[user_id] = User.from_telegram(
+                user_id, username, db=self.db
+            )
+        user = self.known_users[user_id]
+
+        # Check if user rate limits
+        if common.user_over_rate_limits(user):
+            message = "I'm sorry, you've hit your rate limit. Please try again a bit later!",
+            await send_response(
+                message_type, chat_id, [message], context
+            )
+            return
+
+        # Lookup bot
+        me_bot = await context.bot.get_me()
+        
         # Process text or photo messages
         message_text = update.message.text or ""
         attachments = []
+        cleaned_text = message_text
         if update.message.photo:
             photo_url = (await update.message.photo[-1].get_file()).file_path
-            logging.info(f"Received photo from {username}: {photo_url}")
+            # logging.info(f"Received photo from {username}: {photo_url}")
             attachments.append(photo_url)
         else:
             cleaned_text = replace_bot_mentions(
-                message_text, (await context.bot.get_me()).username, self.agent.name
+                message_text, me_bot.username, self.agent.name
             )
-            logging.info(f"Received message from {username}: {cleaned_text}")
+            # logging.info(f"Received message from {username}: {cleaned_text}")
 
         user_message = UserMessage(
             name=username, content=cleaned_text, attachments=attachments
         )
 
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+        self.agent.reload()
 
         async for update in async_prompt_thread(
             db=self.db,

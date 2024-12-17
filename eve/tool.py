@@ -385,7 +385,7 @@ def get_tools_from_api_files(root_dir: str = None, tools: List[str] = None, incl
     tools = {
         key: Tool.from_yaml(api_file) 
         for key, api_file in api_files.items()
-        if key in tools
+        if tools is None or key in tools
     }
 
     return tools
@@ -426,6 +426,7 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
             os.path.join(eve_root, tools_dir) 
             for tools_dir in ["tools", "../../workflows"]
         ]
+        print("THE ROOT DIRS", root_dirs)
 
     api_files = {}
     for root_dir in root_dirs:
