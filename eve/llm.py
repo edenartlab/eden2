@@ -251,11 +251,6 @@ async def async_prompt_thread(
 
     while True:
         try:
-
-            print("The input messages are 222", thread.get_messages())
-            print([type(m) for m in thread.get_messages()])
-
-
             content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
