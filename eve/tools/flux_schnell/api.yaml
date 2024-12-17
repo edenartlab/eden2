@@ -6,6 +6,7 @@ cost_estimate: 1 * num_outputs
 output_type: image
 base_model: flux-schnell
 replicate_model: black-forest-labs/flux-schnell
+thumbnail: app/flux-schnell.png
 handler: replicate
 parameters:
   prompt:
