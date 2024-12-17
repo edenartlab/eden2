@@ -92,14 +92,22 @@ class Agent(User):
     def load(cls, username, db):
         return super().load(username=username, db=db)
 
-    def request_thread(self, key, user=None, db="STAGE"):
-        return Thread.load(
-            key=key, 
-            agent=self.id, 
+    def request_thread(self, key=None, user=None, db="STAGE"):
+        # return Thread.load(
+        #     key=key, 
+        #     agent=self.id, 
+        #     user=user,
+        #     db=db, 
+        #     create_if_missing=True
+        # )
+        thread = Thread(
+            db=db,
+            key=key,
+            agent=self.id,
             user=user,
-            db=db, 
-            create_if_missing=True
         )
+        thread.save()
+        return thread
 
     def get_tools(self, db="STAGE"):
         tools = get_tools_from_mongo(db=db)

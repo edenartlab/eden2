@@ -2,7 +2,6 @@ import argparse
 import os
 import re
 import discord
-# import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -20,21 +19,6 @@ from eve.eden_utils import prepare_result
 #     level=logging.INFO,
 #     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 # )
-
-
-def is_mentioned(message: discord.Message, user: discord.User) -> bool:
-    """
-    Checks if a user is mentioned in a message.
-    :param message: The message to check.
-    :param user: The user to check.
-    :return: True if the user is mentioned, False otherwise.
-    """
-    bot_name = message.guild.me.name
-    name_mentioned = (
-        re.search(rf"\b{re.escape(bot_name.lower())}\b", message.content.lower())
-        is not None
-    )
-    return name_mentioned or user.id in [m.id for m in message.mentions]
 
 
 def replace_mentions_with_usernames(
@@ -110,11 +94,19 @@ class Eden2Cog(commands.Cog):
             )
             return
 
-        # Replace mentions with usernames
+        # Replace all mentions with usernames
         content = replace_mentions_with_usernames(message.content, message.mentions)
 
+        # Replace discord bot's display name with actual agent name
+        if message.guild.me.display_name.lower() in content.lower():
+            content = re.sub(
+                rf"\b{re.escape(message.guild.me.display_name)}\b",
+                self.agent.name,
+                content,
+                flags=re.IGNORECASE
+            )
+
         # Prepend reply to message if it is a reply
-        force_reply = False
         if message.reference:
             source_message = await message.channel.fetch_message(
                 message.reference.message_id
@@ -134,6 +126,7 @@ class Eden2Cog(commands.Cog):
 
         replied = False
 
+        # reload agent for any changes
         self.agent.reload()
 
         async for msg in async_prompt_thread(
@@ -142,7 +135,7 @@ class Eden2Cog(commands.Cog):
             agent=self.agent,
             thread=thread,
             user_messages=user_message,
-            force_reply=force_reply,
+            force_reply=False,
             tools=self.tools,
         ):
             if msg.type == UpdateType.START_PROMPT:
@@ -203,7 +196,6 @@ class DiscordBot(commands.Bot):
 
     async def on_ready(self) -> None:
         # logger.info("Running bot...")
-        # print("====on ready")
         pass
 
     async def on_message(self, message: discord.Message) -> None:

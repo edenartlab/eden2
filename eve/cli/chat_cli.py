@@ -4,25 +4,26 @@ import json
 import time
 import re
 import logging
-
+import click
+import asyncio
+import traceback
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from eve.llm import async_prompt_thread, UserMessage, UpdateType
-from eve.thread import Thread
-from eve.tool import get_tools_from_mongo
-from eve.eden_utils import prepare_result, dump_json
-from eve.agent import Agent
-from eve.auth import get_my_eden_user
+from ..llm import async_prompt_thread, UserMessage, UpdateType
+from ..eden_utils import prepare_result, dump_json
+from ..agent import Agent
+from ..auth import get_my_eden_user
 
-def preprocess_message(message):
-    metadata_pattern = r"\{.*?\}"
-    attachments_pattern = r"\[.*?\]"
-    attachments_match = re.search(attachments_pattern, message)
-    attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-    clean_message = re.sub(metadata_pattern, "", message)
-    clean_message = re.sub(attachments_pattern, "", clean_message).strip()
-    return clean_message, attachments
+
+# def preprocess_message(message):
+#     metadata_pattern = r"\{.*?\}"
+#     attachments_pattern = r"\[.*?\]"
+#     attachments_match = re.search(attachments_pattern, message)
+#     attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+#     clean_message = re.sub(metadata_pattern, "", message)
+#     clean_message = re.sub(attachments_pattern, "", clean_message).strip()
+#     return clean_message, attachments
 
 
 async def async_chat(db, agent_name, new_thread=True, debug=False):
@@ -61,7 +62,15 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
 
             print()
 
-            content, attachments = preprocess_message(message_input)
+            # content, attachments = preprocess_message(message_input)
+
+            metadata_pattern = r"\{.*?\}"
+            attachments_pattern = r"\[.*?\]"
+            attachments_match = re.search(attachments_pattern, message_input)
+            attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+            content = re.sub(metadata_pattern, "", message_input)
+            content = re.sub(attachments_pattern, "", content).strip()
+
 
             with Progress(
                 SpinnerColumn(),
@@ -126,3 +135,33 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
         except KeyboardInterrupt:
             console.print("\n[dim]Chat interrupted. Goodbye! 👋[/dim]\n")
             break
+
+
+@click.command()
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+@click.option(
+    "--thread", 
+    type=str, 
+    help="Thread id"
+)
+@click.option(
+    "--debug", 
+    is_flag=True, 
+    default=False, 
+    help="Debug mode"
+)
+@click.argument("agent", required=True, default="eve")
+def chat(db: str, thread: str, agent: str, debug: bool):
+    """Chat with an agent"""
+
+    try:
+        asyncio.run(async_chat(db, agent, thread, debug))
+    except Exception as e:
+        click.echo(click.style(f"Failed to chat with {agent}:", fg="red"))
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        traceback.print_exc(file=sys.stdout)

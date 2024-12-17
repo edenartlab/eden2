@@ -59,4 +59,4 @@ dev-dependencies = [
 ]
 
 [project.scripts]
-eve = "eve.cli:cli"
+eve = "eve.cli:cli.cli"

@@ -8,7 +8,7 @@ from pydantic.config import ConfigDict
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 
-from .mongo import Document, Collection, get_collection
+from .mongo import Document, Collection
 from .eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
@@ -346,16 +346,8 @@ class AssistantMessage(ChatMessage):
             )
         return schema
 
-
-# Thread.get_or_create_thread(key, allowlist, db="STAGE")
-    # @classmethod
-    # def get_or_create_thread(cls, key, db="STAGE"):
-    #     thread = cls.get_collection(db).find_one({"key": key})
-    #     if not thread:
-    #         thread = cls.create(key=key, db=db)
-    #     return thread.id
     
-@Collection("threads2")
+@Collection("threads3")
 class Thread(Document):
     key: Optional[str] = None
     agent: Optional[ObjectId] = None
@@ -363,7 +355,7 @@ class Thread(Document):
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
 
     @classmethod
-    def load(cls, key=None, agent=None, user=None, create_if_missing=False, db="STAGE"):
+    def load(cls, key, agent=None, user=None, create_if_missing=False, db="STAGE"):
         filter = {"key": key}
         if agent:
             filter["agent"] = agent

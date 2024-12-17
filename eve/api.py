@@ -82,14 +82,13 @@ async def handle_chat(
     agent = Agent.from_mongo(str(agent_id), db=db)
 
     if not thread_id:
-        thread = Thread(
-            db=db,
-            agent=agent.id,
-            user=user.id,
-        )
-        thread.save()
-    else:
+        print("creating new thread")
         thread = agent.request_thread(db=db, user=user.id)
+        print("new thread", thread.id)
+    else:
+        print("loading thread from thread_id", thread_id)
+        thread = Thread.from_mongo(str(thread_id), db=db)
+        print("got thread", thread.id)
 
     try:
         async def run_prompt():
@@ -163,6 +162,7 @@ app = modal.App(
             "admin-key",
             "s3-credentials",
             "mongo-credentials",
+            "gcp-credentials",
             "replicate",
             "openai",
             "anthropic",

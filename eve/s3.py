@@ -1,9 +1,4 @@
-print("Importing s3 !!")
 import os
-print("Location:", __file__)
-z = os.getenv("AWS_ACCESS_KEY_ID")
-print("z:", z)
-print("Locationfasdf")
 import io
 import os
 import boto3
@@ -21,14 +16,6 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
 AWS_BUCKET_NAME_STAGE = os.getenv("AWS_BUCKET_NAME_STAGE")
 AWS_BUCKET_NAME_PROD = os.getenv("AWS_BUCKET_NAME_PROD")
-
-print("here are the secrets")
-print(AWS_ACCESS_KEY_ID)
-print(AWS_SECRET_ACCESS_KEY)
-print(AWS_REGION_NAME)
-print(AWS_BUCKET_NAME_STAGE)
-print(AWS_BUCKET_NAME_PROD)
-print("---")
 
 if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, AWS_BUCKET_NAME_STAGE, AWS_BUCKET_NAME_PROD]):
     # raise ValueError("AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, AWS_BUCKET_NAME_STAGE, and AWS_BUCKET_NAME_PROD must be set in the environment")
@@ -86,6 +73,9 @@ def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
 
 def upload_file(file_path, name=None, file_type=None, db="STAGE"):
     """Uploads a file to an S3 bucket and returns the file URL."""
+
+    if file_path.endswith('.safetensors'):
+        file_type = '.safetensors'
 
     if file_path.startswith('http://') or file_path.startswith('https://'):
         return upload_file_from_url(file_path, name, file_type, db)

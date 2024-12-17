@@ -1,35 +1,28 @@
-from bson import ObjectId
-from datetime import datetime, timezone
-from pydantic import BaseModel, Field, ValidationError
-from pydantic.config import ConfigDict
-from pydantic.json_schema import SkipJsonSchema
-from typing import List, Optional, Dict, Any, Literal, Union
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 import re
 import sentry_sdk
 import traceback
 import os
-import json
 import asyncio
 import openai
 import anthropic
-import magic
-import instructor
-from instructor.function_calls import openai_schema
-
-from eve.mongo import Document, Collection, get_collection
-from eve.eden_utils import pprint, download_file, image_to_base64, prepare_result
-from eve.task import Task
-from eve.tool import Tool, get_tools_from_mongo
-from eve.user import User
-from eve.agent import Agent
-
-# from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
-from eve.thread import UserMessage, AssistantMessage, ToolCall, Thread
-
+from bson import ObjectId
 from jinja2 import Template
+from pydantic import BaseModel
+from pydantic.config import ConfigDict
+from instructor.function_calls import openai_schema
+from typing import List, Optional, Dict, Any, Literal, Union
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 
+from .tool import Tool
+from .user import User
+from .agent import Agent
+from .thread import (
+    UserMessage, 
+    AssistantMessage, 
+    ToolCall, 
+    Thread
+)
 
 
 async def async_anthropic_prompt(
@@ -237,19 +230,12 @@ async def async_prompt_thread(
         system_instructions=system_instructions
     )
 
-    print("HERE IS THE SYSTEM MESSAGE!!!")
-    print(system_message)
     thread.push("messages", user_messages)
-
-
-    print("looking for mentions of", agent.name)
 
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
     )
-
-    print("agent_mentioned", agent_mentioned)
 
     if not agent_mentioned and not force_reply:
         print("agent not mentioned and force_reply is false")
@@ -263,15 +249,12 @@ async def async_prompt_thread(
 
     while True:
         try:
-            print("lets go to", model)
             content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
                 model=model,
                 tools=tools
             )
-            print("HERE IS THE CONTENT!!!")
-            print(content)
             assistant_message = AssistantMessage(
                 content=content or "",
                 tool_calls=tool_calls,
