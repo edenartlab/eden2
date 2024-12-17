@@ -51,8 +51,7 @@ class Eden2Cog(commands.Cog):
         self.bot = bot
         self.agent = agent
         self.db = db
-        self.tools = get_tools_from_mongo(db=self.db)
-        # self.tools = agent.get_tools(db=self.db)
+        self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
 
@@ -60,9 +59,11 @@ class Eden2Cog(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.id == self.bot.user.id:
             return
-
+        
+        force_reply = False
         dm = message.channel.type == discord.ChannelType.private
         if dm:
+            force_reply = True
             thread_key = f"discord-dm-{message.author.name}-{message.author.id}"
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
@@ -98,9 +99,9 @@ class Eden2Cog(commands.Cog):
         content = replace_mentions_with_usernames(message.content, message.mentions)
 
         # Replace discord bot's display name with actual agent name
-        if message.guild.me.display_name.lower() in content.lower():
+        if self.bot.user.display_name.lower() in content.lower():
             content = re.sub(
-                rf"\b{re.escape(message.guild.me.display_name)}\b",
+                rf"\b{re.escape(self.bot.user.display_name)}\b",
                 self.agent.name,
                 content,
                 flags=re.IGNORECASE
@@ -135,7 +136,7 @@ class Eden2Cog(commands.Cog):
             agent=self.agent,
             thread=thread,
             user_messages=user_message,
-            force_reply=False,
+            force_reply=force_reply,
             tools=self.tools,
         ):
             if msg.type == UpdateType.START_PROMPT:

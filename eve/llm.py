@@ -35,7 +35,7 @@ async def async_anthropic_prompt(
 ):
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise ValueError("ANTHROPIC_API_KEY env is not set")
-        
+
     messages_json = [
         item for msg in messages for item in msg.anthropic_schema()
     ]
@@ -220,7 +220,6 @@ async def async_prompt_thread(
     force_reply: bool = True,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
-
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
 
     system_message = Template(template).render(
@@ -232,6 +231,9 @@ async def async_prompt_thread(
 
     thread.push("messages", user_messages)
 
+    print("The input messages are 111", thread.get_messages())
+    print([type(m) for m in thread.get_messages()])
+    
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
@@ -249,6 +251,11 @@ async def async_prompt_thread(
 
     while True:
         try:
+
+            print("The input messages are 222", thread.get_messages())
+            print([type(m) for m in thread.get_messages()])
+
+
             content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
@@ -282,6 +289,7 @@ async def async_prompt_thread(
                 message=assistant_message,
                 error=str(e)
             )
+            stop = True
             break
         
         for t, tool_call in enumerate(assistant_message.tool_calls):

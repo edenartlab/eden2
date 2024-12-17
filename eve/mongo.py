@@ -29,6 +29,7 @@ db_names = {
 if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
     # raise ValueError("MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
     print("WARNING: MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
+
 def get_collection(collection_name: str, db: str):
     mongo_client = MongoClient(MONGO_URI)
     db_name = db_names[db]
@@ -283,8 +284,10 @@ class Document(BaseModel):
         """
         updated_instance = self.from_mongo(self.id, self.db)
         if updated_instance:
-            for key, value in updated_instance.dict().items():
+            # Use model_dump to get the data while maintaining type information
+            for key, value in updated_instance.model_dump().items():
                 setattr(self, key, value)
+        
 
     def delete(self):
         """

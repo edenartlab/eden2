@@ -384,8 +384,16 @@ class Thread(Document):
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
 
+    def reload(self):
+        """
+        Reload the current document from the database to ensure the instance is up-to-date.
+        """
+        super().reload()
+        self.messages = [UserMessage(**m) if m["role"] == "user" else AssistantMessage(**m) for m in self.messages]
+
     def get_messages(self, filters=None):
         # filter by time, number, or prompt
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
-        return self.messages[-25:]
+        self.reload()
+        return self.messages[-15:]

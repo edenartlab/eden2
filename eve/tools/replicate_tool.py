@@ -1,10 +1,11 @@
 import os
+import re
 import asyncio
 import random
 import replicate
 from bson import ObjectId
 from pydantic import Field
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from datetime import datetime, timezone
 
 from .. import s3
@@ -13,10 +14,12 @@ from ..models import Model
 from ..user import User
 from ..task import Task, Creation
 from ..tool import Tool
-
+from ..mongo import get_collection
+                    
 
 class ReplicateTool(Tool):
     replicate_model: str
+    replicate_model_substitutions: Optional[Dict[str, str]] = None
     version: Optional[str] = Field(None, description="Replicate version to use")
     output_handler: str = "normal"
     
@@ -37,8 +40,9 @@ class ReplicateTool(Tool):
             else:
                 result = {"output": prediction.output}
         else:
+            replicate_model = self._get_replicate_model(args)
             result = {
-                "output": replicate.run(self.replicate_model, input=args)
+                "output": replicate.run(replicate_model, input=args)
             }
         result = eden_utils.upload_result(result, db=db)
         return result
@@ -54,7 +58,8 @@ class ReplicateTool(Tool):
         else:
             # Replicate doesn't allow spawning tasks for models without a public version ID.
             # So just get run and finish task immediately
-            output = replicate.run(self.replicate_model, input=task.args)
+            replicate_model = self._get_replicate_model(task.args)
+            output = replicate.run(replicate_model, input=args)
             replicate_update_task(task, "succeeded", None, output, "normal")
             handler_id = eden_utils.random_string(28)  # make up a fake Replicate id
             return handler_id
@@ -96,38 +101,39 @@ class ReplicateTool(Tool):
             parameter = self.parameters[field]
             is_array = parameter.get('type') == 'array'
             alias = parameter.get('alias')
+            lora = parameter.get('type') == 'lora'
             if field in new_args:
+                if lora:
+                    lora_doc = get_collection("models", db=self.db).find_one({"_id": ObjectId(args[field])})
+                    if lora_doc:
+                        lora_url = lora_doc.get("checkpoint")
+                        lora_name = lora_doc.get("name")
+                        caption_prefix = lora_doc.get("args", {}).get("caption_prefix")
+                        new_args[field] = lora_url
+                        if "prompt" in new_args:
+                            pattern = re.compile(re.escape(lora_name), re.IGNORECASE)
+                            new_args["prompt"] = pattern.sub(caption_prefix, new_args['prompt'])
                 if is_array:
                     new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
                     new_args[alias] = new_args.pop(field)
         return new_args
 
-    # def _create_prediction(self, args: dict, webhook=True):
-    #     user, model = self.replicate_model.split('/', 1)
-    #     webhook_url = get_webhook_url() if webhook else None
-    #     webhook_events_filter = ["start", "completed"] if webhook else None
-
-    #     if self.version == "deployment":
-    #         deployment = replicate.deployments.get(f"{user}/{model}")
-    #         prediction = deployment.predictions.create(
-    #             input=args,
-    #             webhook=webhook_url,
-    #             webhook_events_filter=webhook_events_filter
-    #         )
-    #     else:
-    #         model = replicate.models.get(f"{user}/{model}")
-    #         version = model.versions.get(self.version)
-    #         prediction = replicate.predictions.create(
-    #             version=version,
-    #             input=args,
-    #             webhook=webhook_url,
-    #             webhook_events_filter=webhook_events_filter
-    #         )
-    #     return prediction
+    def _get_replicate_model(self, args: dict):
+        """Use default model or a substitute model conditional on an arg"""
+        replicate_model = self.replicate_model
+        
+        if self.replicate_model_substitutions:
+            for cond, model in self.replicate_model_substitutions.items():
+                if args.get(cond):
+                    replicate_model = model
+                    break
+        return replicate_model
 
     async def _create_prediction(self, args: dict, webhook=True):
-        user, model = self.replicate_model.split('/', 1)
+        replicate_model = self._get_replicate_model(args)
+        user, model = replicate_model.split('/', 1)
+        
         webhook_url = get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
 

@@ -41,8 +41,13 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
         key += f"_{int(time.time())}"
 
     thread = agent.request_thread(key=key, db=db)
-    #tools = get_tools_from_mongo(db)
     tools = agent.get_tools(db)
+
+    print("THE TOOLS ARE", tools.keys())
+    from ..eden_utils import dump_json
+    from pprint import pprint
+    pprint(tools)
+
 
     chat_string = f"Chat with {agent.name}".center(36)
     console = Console()

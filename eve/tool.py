@@ -50,7 +50,7 @@ class Tool(Document, ABC):
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None    
-    test_args: Dict[str, Any]
+    test_args: Optional[Dict[str, Any]] = None
 
     @classmethod
     def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
@@ -100,7 +100,7 @@ class Tool(Document, ABC):
         Convert the schema into the format expected by the model.
         """
 
-        key = schema.get("key") or file_path.split("/")[-2]
+        key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
@@ -123,37 +123,19 @@ class Tool(Document, ABC):
         if 'cost_estimate' in schema:
             schema['cost_estimate'] = str(schema['cost_estimate'])
 
-        test_file = file_path.replace("api.yaml", "test.json")
-        with open(test_file, 'r') as f:
-            schema["test_args"] = json.load(f)
+        if file_path:
+            test_file = file_path.replace("api.yaml", "test.json")
+            with open(test_file, 'r') as f:
+                schema["test_args"] = json.load(f)
 
         return schema
 
-
-
-
-
-    # @classmethod
-    # def from_preset(cls, parent_tool: str, presets: Dict[str, Any], db="STAGE"):
-    #     """
-    #     Load a tool from a parent tool and override its data with presets
-    #     """
-    #     schema = cls.get_collection(db).find_one({"key": parent_tool})
-    #     if not schema:
-    #         raise Exception(f"Tool {parent_tool} not found in {cls.collection_name}:{db}")
-        
-    #     schema['parent_tool'] = parent_tool
-    #     schema["parameters"] = presets
-
-    #     sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
-    #     schema = sub_cls.convert_from_mongo(schema)
-    #     return cls.from_schema(schema, db, from_yaml=False)
-
-
-
-
-
-
+    @classmethod
+    def from_raw_yaml(cls, schema: dict, db="STAGE", from_yaml=True):
+        schema["db"] = db
+        schema = cls.convert_from_yaml(schema)
+        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
+        return sub_cls.model_validate(schema)
 
     @classmethod
     def convert_from_mongo(cls, schema: dict) -> dict:
@@ -249,7 +231,7 @@ class Tool(Document, ABC):
             print(traceback.format_exc())
             error_str = eden_utils.get_human_readable_error(e.errors())
             raise ValueError(error_str)
-
+        
         return prepared_args
 
     def handle_run(run_function):
@@ -400,21 +382,11 @@ def get_tools_from_api_files(root_dir: str = None, tools: List[str] = None, incl
     """Get all tools inside a directory"""
     
     api_files = get_api_files(root_dir, include_inactive)
-    
-    all_tools = {
+    tools = {
         key: Tool.from_yaml(api_file) 
         for key, api_file in api_files.items()
+        if key in tools
     }
-
-    # warn if any of the requested tools not found
-    for tool in tools or []:
-        if tool not in all_tools:
-            print(f"Warning: Tool {tool} not found in api files.")
-    
-    if tools:
-        tools = {k: v for k, v in all_tools.items() if k in tools}
-    else:
-        tools = all_tools
 
     return tools
 
@@ -446,7 +418,6 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all tool directories inside a directory"""
     
-    print("root_dir", root_dir)
     if root_dir:
         root_dirs = [root_dir]
     else:

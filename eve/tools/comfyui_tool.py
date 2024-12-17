@@ -6,10 +6,6 @@ from ..tool import Tool
 from ..task import Task
 
 
-# class ComfyUIParameterMap(BaseModel):
-#     input: str
-#     output: str
-
 class ComfyUIRemap(BaseModel):
     node_id: int
     field: str
@@ -35,6 +31,10 @@ class ComfyUITool(Tool):
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
                 schema["comfyui_map"][field] = props['comfyui']
+        print("workspace", schema.get("workspace"))
+        print(schema)
+        print("schema keys", schema.keys())
+        print("1123123")
         schema["workspace"] = schema.get("workspace") or file_path.replace("api.yaml", "test.json").split("/")[-4]
         return super().convert_from_yaml(schema, file_path)
     
@@ -50,8 +50,6 @@ class ComfyUITool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        print("start a task for app", self.workspace, task.db)
-        print(f"comfyui3-{self.workspace}-{task.db}")
         cls = modal.Cls.lookup(
             f"comfyui3-{self.workspace}-{task.db}", 
             "ComfyUI",

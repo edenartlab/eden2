@@ -2,10 +2,12 @@ name: Create an image (Fast)
 description: Generate an image from text quickly with Flux Schnell.
 tip: |-
   Flux is a text to image model that excels at prompt coherence and text generation. This should always be the default way to generate an image from text!
-cost_estimate: 1 * num_outputs
+cost_estimate: 1 * n_samples
 output_type: image
 base_model: flux-schnell
 replicate_model: black-forest-labs/flux-schnell
+replicate_model_substitutions:
+  lora: black-forest-labs/flux-schnell-lora
 thumbnail: app/flux-schnell.png
 handler: replicate
 parameters:
@@ -22,15 +24,6 @@ parameters:
     description: Aspect ratio width/height
     default: "1:1"
     choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
-  num_outputs:
-    type: integer
-    label: Number of samples
-    description: Number of samples to generate
-    tip: |-
-      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
-    default: 1
-    minimum: 1
-    maximum: 4
   output_format:
     type: string
     label: Output format
@@ -74,3 +67,26 @@ parameters:
     minimum: 0
     maximum: 2147483647
     default: random
+  lora:
+    type: lora
+    label: LoRA
+    description: LoRA finetuning to use
+    alias: lora_weights
+  lora_strength:
+    type: float
+    label: LoRA strength
+    description: Strength of the LoRA finetuning
+    default: 0.5
+    minimum: 0
+    maximum: 3
+    alias: lora_scale
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+    default: 1
+    minimum: 1
+    maximum: 4
+    alias: num_outputs

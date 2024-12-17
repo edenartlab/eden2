@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 from abc import ABC
 from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
-from eve.thread import UserMessage, Thread
-from eve.tool import get_tools_from_mongo
-from eve.mongo import Document, Collection, get_collection
+from .thread import UserMessage, Thread
+from .tool import get_tools_from_mongo, Tool
+from .mongo import Document, Collection, get_collection
 
 
 generic_instructions = """Follow these additional guidelines:
@@ -49,7 +49,7 @@ class Agent(User):
     description: str
     instructions: str
     models: Optional[Dict[str, ObjectId]] = None
-    # tools: Optional[List[dict]] = None
+    tools: Optional[Dict[str, Dict]] = None
     
     test_args: Optional[List[Dict[str, Any]]] = None
 
@@ -74,7 +74,8 @@ class Agent(User):
         owner = schema.get('owner')
         schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
-
+        schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
+        
         return schema
     
     def save(self, db=None, **kwargs):
@@ -93,13 +94,6 @@ class Agent(User):
         return super().load(username=username, db=db)
 
     def request_thread(self, key=None, user=None, db="STAGE"):
-        # return Thread.load(
-        #     key=key, 
-        #     agent=self.id, 
-        #     user=user,
-        #     db=db, 
-        #     create_if_missing=True
-        # )
         thread = Thread(
             db=db,
             key=key,
@@ -110,48 +104,14 @@ class Agent(User):
         return thread
 
     def get_tools(self, db="STAGE"):
-        tools = get_tools_from_mongo(db=db)
+        return {
+            k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db) 
+            for k, v in self.tools.items()
+        }        
 
-
-
-    # old code: needs to be reintegrated
     # def get_system_message(self):
     #     system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
     #     return system_message
-    
-    # def get_tools(self):
-    #     tools = copy.deepcopy(self.tools)
-    #     presets = {}
-    #     for tool in tools:
-    #         parent_tool_path = tool.pop('key')
-    #         preset = PresetTool(tool, key=None, parent_tool_path=parent_tool_path)
-    #         presets[preset.key] = preset
-    #     return presets
-
-    # not working yet
-    # async def async_prompt(
-    #     db: str,
-    #     user_id: str, 
-    #     thread_name: str,
-    #     user_messages: Union[UserMessage, List[UserMessage]], 
-    # ):
-    #     tools = {} # get self tools
-    #     await async_prompt_thread(
-    #         db=db,
-    #         user_id=user_id,
-    #         thread_name=thread_name,
-    #         user_messages=user_messages,
-    #         tools=tools
-    #     )
-
-
-    async def async_stream(
-        db: str,
-        user_id: str, 
-        thread_name: str,
-        user_messages: Union[UserMessage, List[UserMessage]], 
-    ):
-        pass
 
 
 def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
