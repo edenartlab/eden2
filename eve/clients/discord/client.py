@@ -164,7 +164,8 @@ class Eden2Cog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member):
         # logger.info(f"{member} has joined the guild id: {member.guild.id}")
-        await member.send(config.WELCOME_MESSAGE.format(name=member.name))
+        # await member.send(config.WELCOME_MESSAGE.format(name=member.name))
+        print(f"{member} has joined the guild id: {member.guild.id}")
 
 
 async def reply(message, content):

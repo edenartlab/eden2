@@ -20,6 +20,7 @@ image = (
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("python-telegram-bot>=21.7")
+    .copy_local_dir("../workflows", "/workflows")
 )
 
 
