@@ -1,5 +1,4 @@
 import sys
-import os
 import yaml
 import click
 import traceback
@@ -25,7 +24,20 @@ from ..clients.farcaster.client import start as start_farcaster
     type=click.Path(exists=True, resolve_path=True),
     help="Path to environment file",
 )
-def start(agent: str, db: str, env: str):
+@click.option(
+    "--platforms",
+    type=click.Choice(
+        [
+            ClientType.DISCORD,
+            ClientType.TELEGRAM,
+            ClientType.FARCASTER,
+            ClientType.LOCAL,
+        ]
+    ),
+    multiple=True,
+    help="Platforms to start",
+)
+def start(agent: str, db: str, env: str, platforms: tuple):
     """Start one or more clients from yaml files"""
     try:
         agent_dir = Path(__file__).parent.parent / "agents" / agent
@@ -35,17 +47,21 @@ def start(agent: str, db: str, env: str):
         db = db.upper()
         env_path = env or env_path
         # Set the environment variable
-        
+
         clients_to_start = {}
 
-        # Load all yaml files and collect enabled clients
-        with open(yaml_path) as f:
-            config = yaml.safe_load(f)
-        
-        if "clients" in config:
-            for client_type, settings in config["clients"].items():
-                if settings.get("enabled", False):
-                    clients_to_start[ClientType(client_type)] = yaml_path
+        if platforms:
+            clients_to_start = {
+                ClientType(platform): yaml_path for platform in platforms
+            }
+        else:
+            with open(yaml_path) as f:
+                config = yaml.safe_load(f)
+
+            if "clients" in config:
+                for client_type, settings in config["clients"].items():
+                    if settings.get("enabled", False):
+                        clients_to_start[ClientType(client_type)] = yaml_path
 
         if not clients_to_start:
             click.echo(click.style("No enabled clients found in yaml files", fg="red"))
