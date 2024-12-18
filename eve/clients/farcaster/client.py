@@ -34,18 +34,21 @@ class CastWebhook(BaseModel):
     data: dict
 
 
-def create_app(env: str = None, db: str = "STAGE"):
+def create_app(
+    env: str = None, 
+    agent: str = "eve", 
+    db: str = "STAGE"
+):
     app = FastAPI()
 
     if env:
         load_dotenv(env)
 
     mnemonic = os.environ.get("CLIENT_FARCASTER_MNEMONIC")
-    agent_key = os.environ.get("CLIENT_AGENT_KEY")
     db = os.environ.get("DB", "STAGE")
 
     client = Warpcast(mnemonic=mnemonic)
-    agent = Agent.load(agent_key, db=db)
+    agent = Agent.load(agent, db=db)
     logger.info("Initialized Farcaster client")
 
     app.add_middleware(
@@ -158,11 +161,15 @@ async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: s
             logger.error("Failed to send error message to Farcaster")
 
 
-def start(env=None):
+def start(
+    env: str, 
+    db: str = "STAGE"
+):
     """Start the FastAPI server locally"""
     import uvicorn
 
-    app = create_app(env)
+    agent_name = os.getenv("EDEN_AGENT_USERNAME")
+    app = create_app(env, agent_name, db)
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
 

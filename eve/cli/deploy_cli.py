@@ -1,4 +1,5 @@
 import sys
+import os
 import yaml
 import click
 import traceback
@@ -33,6 +34,8 @@ def start(agent: str, db: str, env: str):
 
         db = db.upper()
         env_path = env or env_path
+        # Set the environment variable
+        
         clients_to_start = {}
 
         # Load all yaml files and collect enabled clients

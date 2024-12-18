@@ -120,6 +120,7 @@ class Tool(Document, ABC):
         model.__doc__ = eden_utils.concat_sentences(schema.get('description'), schema.get('tip', ''))
         schema["model"] = model
 
+        # cast any numbers to strings
         if 'cost_estimate' in schema:
             schema['cost_estimate'] = str(schema['cost_estimate'])
 
@@ -138,7 +139,7 @@ class Tool(Document, ABC):
         return sub_cls.model_validate(schema)
 
     @classmethod
-    def convert_from_mongo(cls, schema: dict) -> dict:
+    def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
         schema["parameters"] = {
             p["name"]: {**(p.pop("schema")), **p} 
             for p in schema["parameters"]
@@ -398,7 +399,7 @@ def get_tools_from_mongo(db: str, tools: List[str] = None, include_inactive: boo
     tools_collection = get_collection(Tool.collection_name, db=db)
     for tool in tools_collection.find(filter):
         try:
-            tool = Tool.convert_from_mongo(tool)
+            tool = Tool.convert_from_mongo(tool, db=db)
             tool = Tool.from_schema(tool, db=db, from_yaml=False)
             if tool.status != "inactive" and not include_inactive:
                 if tool.key in found_tools:
@@ -426,7 +427,6 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
             os.path.join(eve_root, tools_dir) 
             for tools_dir in ["tools", "../../workflows"]
         ]
-        print("THE ROOT DIRS", root_dirs)
 
     api_files = {}
     for root_dir in root_dirs:

@@ -56,6 +56,7 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
+        print("on_message", message.content)
         if message.author.id == self.bot.user.id:
             return
         
@@ -212,8 +213,8 @@ def start(
     # logger.info("Launching Discord bot...")
     load_dotenv(env)
 
-    agent_key = os.environ.get("CLIENT_AGENT_KEY")
-    agent = Agent.load(agent_key, db=db)
+    agent_name = os.getenv("EDEN_AGENT_USERNAME")
+    agent = Agent.load(agent_name, db=db)
 
     # logger.info(f"Using agent: {agent.name}")
     bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
@@ -224,11 +225,10 @@ def start(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
-    parser.add_argument("--agent_path", help="Path to the agent directory")
-    parser.add_argument("--agent_key", help="Key of the agent")
+    parser.add_argument("--agent", help="Agent username")
     parser.add_argument("--db", help="Database to use", default="STAGE")
     parser.add_argument(
         "--env", help="Path to a different .env file not in agent directory"
     )
     args = parser.parse_args()
-    start(args.env, args.agent_path, args.agent_key, args.db)
+    start(args.env, args.agent, args.db)

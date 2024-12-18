@@ -25,9 +25,24 @@ instructions: |
 
   Do not be verbose. Speak concisely. Transmit as much information as possible in the least amount of words. Less is more. Do not include any introductory phrases or parentheticals. Just write your spoken messag
 
+tools:
+  animate_3D:
+  texture_flow:
+  face_styler:
+  upscaler:
+  txt2img:
+  flux_inpainting:
+  remix_flux_schnell:
+  stable_audio:
+  musicgen:
+  runway:
+  flux_schnell:
+  flux_dev_lora:
+  reel:
+
 clients:
-  # discord:
-  #   enabled: true
+  discord:
+    enabled: true
   telegram:
     enabled: true
 

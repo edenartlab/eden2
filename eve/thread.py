@@ -390,5 +390,5 @@ class Thread(Document):
         # filter by time, number, or prompt
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
-        self.reload()
+        # self.reload()
         return self.messages[-15:]

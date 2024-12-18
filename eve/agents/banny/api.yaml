@@ -30,15 +30,24 @@ instructions: |
 start_with_all_tools: true
 
 tools:
+  animate_3D:
+  texture_flow:
+  face_styler:
+  upscaler:
+  txt2img:
+  flux_inpainting:
+  remix_flux_schnell:
+  stable_audio:
+  musicgen:
   runway:
   flux_dev_lora:
-    name: Generate Banny
-    description: Generate an image of Banny
+    name: Generate Banny (High quality)
+    description: Generate an image of Banny where quality is favored over speed.
     parameters:
       prompt:
-        description: "The text input. Always mention Banny."
+        description: The text prompt. Always mention Banny.
       lora:
-        default: 67611d1943808b38016c62c3
+        default: 67628f3743808b38016c62d5
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:
@@ -49,7 +58,7 @@ tools:
     tip: Make sure to always include Banny in the prompts.
     parameters:
       lora:
-        default: 67611d1943808b38016c62c3
+        default: 67628f3743808b38016c62d5
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:

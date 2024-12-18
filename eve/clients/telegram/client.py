@@ -225,11 +225,14 @@ class EdenTG:
                 await send_response(message_type, chat_id, [update.error], context)
 
 
-def start(env: str, db: str = "STAGE") -> None:
+def start(
+    env: str, 
+    db: str = "STAGE"
+) -> None:
     load_dotenv(env)
 
-    agent_key = os.environ.get("CLIENT_AGENT_KEY", "eve")
-    agent = Agent.load(agent_key, db=db)
+    agent_name = os.getenv("EDEN_AGENT_USERNAME")
+    agent = Agent.load(agent_name, db=db)
 
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     application = ApplicationBuilder().token(bot_token).build()
@@ -239,10 +242,10 @@ def start(env: str, db: str = "STAGE") -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
     application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
 
-    application.add_error_handler(
-        # lambda update, context: logging.error("Exception:", exc_info=context.error)
-        lambda update, context: print("Exception:", exc_info=context.error)
-    )
+    # application.add_error_handler(
+    #     # lambda update, context: logging.error("Exception:", exc_info=context.error)
+    #     lambda update, context: print(f"Exception: {context.error}")
+    # )
 
     # logging.info("Bot started.")
     application.run_polling()
@@ -251,7 +254,7 @@ def start(env: str, db: str = "STAGE") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eden Telegram Bot")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
-    parser.add_argument("--agent", help="Agent key to use", default="eve")
+    parser.add_argument("--agent", help="Agent username", default="eve")
     parser.add_argument("--db", help="Database to use", default="STAGE")
     args = parser.parse_args()
     start(args.env, args.agent, args.db)

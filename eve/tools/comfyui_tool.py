@@ -31,10 +31,6 @@ class ComfyUITool(Tool):
         for field, props in schema.get('parameters', {}).items():
             if 'comfyui' in props:
                 schema["comfyui_map"][field] = props['comfyui']
-        print("workspace", schema.get("workspace"))
-        print(schema)
-        print("schema keys", schema.keys())
-        print("1123123")
         schema["workspace"] = schema.get("workspace") or file_path.replace("api.yaml", "test.json").split("/")[-4]
         return super().convert_from_yaml(schema, file_path)
     

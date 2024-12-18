@@ -10,7 +10,7 @@ from abc import ABC
 from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
 from .thread import UserMessage, Thread
-from .tool import get_tools_from_api_files, Tool
+from .tool import get_tools_from_api_files, get_tools_from_mongo, Tool
 from .mongo import Document, Collection, get_collection
 
 
@@ -74,19 +74,15 @@ class Agent(User):
         owner = schema.get('owner')
         schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
-        
-        
-        tools = get_tools_from_api_files()
-        print("these are the tools", tools)
-        # schema["tools"] = {}
-        # schema["tools"].update(tools)
         schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
-        # schema["tools"].update({k: v or {} for k, v in schema.get("tools", {}).items()})
 
-        print("these are the tools", schema["tools"].keys())
-        
         return schema
     
+    @classmethod
+    def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
+        schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
+        return schema
+
     def save(self, db=None, **kwargs):
         # do not overwrite any username if it already exists
         users = get_collection(User.collection_name, db=db)
@@ -116,7 +112,7 @@ class Agent(User):
         return {
             k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db) 
             for k, v in (self.tools or {}).items()
-        }        
+        }
 
     # def get_system_message(self):
     #     system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
@@ -148,7 +144,7 @@ def get_agents_from_mongo(db: str, agents: List[str] = None, include_inactive: b
     agents_collection = get_collection(Agent.collection_name, db=db)
     for agent in agents_collection.find(filter):
         try:
-            agent = Agent.convert_from_mongo(agent)
+            agent = Agent.convert_from_mongo(agent, db=db)
             agent = Agent.from_schema(agent, db=db)
             if agent.status != "inactive" and not include_inactive:
                 if agent.key in agents:

@@ -95,7 +95,7 @@ class Document(BaseModel):
         if not schema:
             raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")        
         sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
-        schema = sub_cls.convert_from_mongo(schema)
+        schema = sub_cls.convert_from_mongo(schema, db=db)
         return cls.from_schema(schema, db, from_yaml=False)
         
     @classmethod
@@ -107,7 +107,7 @@ class Document(BaseModel):
         if not schema:
             raise MongoDocumentNotFound(cls.collection_name, db, **kwargs)
         sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
-        schema = sub_cls.convert_from_mongo(schema)
+        schema = sub_cls.convert_from_mongo(schema, db=db)
         return cls.from_schema(schema, db, from_yaml=False)
         
     @classmethod
@@ -115,7 +115,7 @@ class Document(BaseModel):
         return cls
 
     @classmethod
-    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
+    def convert_from_mongo(cls, schema: dict, db="STAGE", **kwargs) -> dict:
         return schema
 
     @classmethod
