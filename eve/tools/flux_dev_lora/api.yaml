@@ -81,7 +81,7 @@ parameters:
   num_inference_steps:
     type: integer
     label: Number of denoising steps
-    description: Number of denoising steps. Recommended range is 28-50
+    description: Number of denoising steps. Recommended range is 25-40. Higher values can sometimes produce slightly more details.
     default: 30
     minimum: 1
     maximum: 50
@@ -89,7 +89,9 @@ parameters:
     type: number
     label: Guidance scale
     description: How strictly to follow the prompt
-    default: 3
+    hide_from_ui: true
+    hide_from_agent: true
+    default: 3.5
     minimum: 0
     maximum: 10
   lora:
@@ -100,17 +102,17 @@ parameters:
   lora_strength:
     type: float
     label: LoRA strength
-    description: Strength of the LoRA finetuning
-    default: 0.5
+    description: Strength of the LoRA model (lower values may increase prompt adherence at the expense of resemblance to the LoRA subject/style). Ideally stay within 0.7-1.0
+    default: 0.9
     minimum: 0
-    maximum: 3
+    maximum: 1.5
     alias: lora_scale
   n_samples:
     type: integer
     label: Number of samples
     description: Number of samples to generate
     tip: |-
-      This is the number of tries to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+      This is the number of samples to generate for the prompt. If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
     default: 1
     minimum: 1
     maximum: 4
