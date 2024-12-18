@@ -231,16 +231,12 @@ async def async_prompt_thread(
 
     thread.push("messages", user_messages)
 
-    print("The input messages are 111", thread.get_messages())
-    print([type(m) for m in thread.get_messages()])
-    
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
     )
 
     if not agent_mentioned and not force_reply:
-        print("agent not mentioned and force_reply is false")
         return
 
     # think = True

@@ -322,6 +322,8 @@ class AssistantMessage(ChatMessage):
         return schema
 
     def anthropic_schema(self, truncate_images=False):
+        if not self.content and not self.tool_calls:
+            return []
         schema = [{
             "role": "assistant",
             "content": [
@@ -329,8 +331,8 @@ class AssistantMessage(ChatMessage):
                     "type": "text",
                     "text": self.content
                 }
-            ]
-        }] if self.content else []
+            ] if self.content else [],
+        }]
         if self.tool_calls:
             schema[0]["content"].extend(
                 [t.anthropic_call_schema() for t in self.tool_calls]
@@ -383,13 +385,6 @@ class Thread(Document):
             for k, v in updates.items()
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
-
-    def reload(self):
-        """
-        Reload the current document from the database to ensure the instance is up-to-date.
-        """
-        super().reload()
-        self.messages = [UserMessage(**m) if m["role"] == "user" else AssistantMessage(**m) for m in self.messages]
 
     def get_messages(self, filters=None):
         # filter by time, number, or prompt
