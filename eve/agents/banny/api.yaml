@@ -51,7 +51,7 @@ tools:
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:
-        default: 1.0
+        default: 0.9
         hide_from_agent: true
         hide_from_ui: true
   reel:
