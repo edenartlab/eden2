@@ -59,7 +59,7 @@ class Eden2Cog(commands.Cog):
         print("on_message", message.content)
         if message.author.id == self.bot.user.id:
             return
-        
+
         force_reply = False
         dm = message.channel.type == discord.ChannelType.private
         if dm:
@@ -104,7 +104,7 @@ class Eden2Cog(commands.Cog):
                 rf"\b{re.escape(self.bot.user.display_name)}\b",
                 self.agent.name,
                 content,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
         # Prepend reply to message if it is a reply
@@ -130,36 +130,38 @@ class Eden2Cog(commands.Cog):
         # reload agent for any changes
         self.agent.reload()
 
-        async for msg in async_prompt_thread(
-            db=self.db,
-            user=user,
-            agent=self.agent,
-            thread=thread,
-            user_messages=user_message,
-            force_reply=force_reply,
-            tools=self.tools,
-        ):
-            if msg.type == UpdateType.START_PROMPT:
-                await ctx.channel.trigger_typing()
+        async with ctx.channel.typing():
+            async for msg in async_prompt_thread(
+                db=self.db,
+                user=user,
+                agent=self.agent,
+                thread=thread,
+                user_messages=user_message,
+                force_reply=force_reply,
+                tools=self.tools,
+            ):
+                if msg.type == UpdateType.ERROR:
+                    await reply(message, msg.error)
 
-            elif msg.type == UpdateType.ERROR:
-                await reply(message, msg.error)
+                elif msg.type == UpdateType.ASSISTANT_MESSAGE:
+                    content = msg.message.content
+                    if content:
+                        if not replied:
+                            await reply(message, content)
+                        else:
+                            await send(message, content)
+                        replied = True
 
-            elif msg.type == UpdateType.ASSISTANT_MESSAGE:
-                content = msg.message.content
-                if content:
-                    if not replied:
-                        await reply(message, content)
-                    else:
-                        await send(message, content)
-                    replied = True
+                elif msg.type == UpdateType.TOOL_COMPLETE:
+                    msg.result["result"] = prepare_result(
+                        msg.result["result"], db=self.db
+                    )
+                    url = msg.result["result"][0]["output"][0]["url"]
+                    common.register_tool_call(user, msg.tool_name)
+                    await send(message, url)
 
-            elif msg.type == UpdateType.TOOL_COMPLETE:
-                msg.result["result"] = prepare_result(msg.result["result"], db=self.db)
-                url = msg.result["result"][0]["output"][0]["url"]
-                common.register_tool_call(user, msg.tool_name)
-                await send(message, url)
-                # logger.info(f"tool called {msg.tool_name}")
+                if msg.type != UpdateType.UPDATE_COMPLETE:
+                    await ctx.channel.trigger_typing()
 
     @commands.Cog.listener()
     async def on_member_join(self, member):

@@ -1,102 +1,100 @@
 import sys
-import os
 import yaml
 import click
 import traceback
-import multiprocessing
+import subprocess
 from pathlib import Path
+from dotenv import dotenv_values
 
-from ..models import ClientType
-from ..clients.discord.client import start as start_discord
-from ..clients.telegram.client import start as start_telegram
-from ..clients.farcaster.client import start as start_farcaster
+root_dir = Path(__file__).parent.parent.parent
+
+
+def check_environment_exists(env_name: str) -> bool:
+    result = subprocess.run(
+        ["rye", "run", "modal", "environment", "list"], capture_output=True, text=True
+    )
+    return f"│ {env_name} " in result.stdout
+
+
+def create_environment(env_name: str):
+    subprocess.run(["rye", "run", "modal", "environment", "create", env_name])
+
+
+def create_secrets(env_name: str, secrets_dict: dict, group_name: str):
+    if not secrets_dict:
+        click.echo(click.style(f"No secrets found for {group_name}", fg="yellow"))
+        return
+
+    cmd_parts = ["rye", "run", "modal", "secret", "create", group_name]
+    for key, value in secrets_dict.items():
+        if value is not None:
+            value = str(value).strip().strip("'\"")
+            cmd_parts.append(f"{key}={value}")
+    cmd_parts.extend(["-e", env_name, "--force"])
+
+    subprocess.run(cmd_parts)
+
+
+def deploy_client(client_name: str, env_name: str):
+    client_path = f"./eve/clients/{client_name}/modal_client.py"
+    if Path(root_dir / f"eve/clients/{client_name}/modal_client.py").exists():
+        subprocess.run(["rye", "run", "modal", "deploy", client_path, "-e", env_name])
+    else:
+        click.echo(
+            click.style(
+                f"Warning: Client modal file not found: {client_path}", fg="yellow"
+            )
+        )
+
+
+def process_agent(agent_path: Path):
+    with open(agent_path) as f:
+        agent_config = yaml.safe_load(f)
+
+    if not agent_config.get("deployments"):
+        click.echo(click.style(f"No deployments found in {agent_path}", fg="yellow"))
+        return
+
+    agent_key = agent_path.parent.name
+    click.echo(click.style(f"Processing agent: {agent_key}", fg="blue"))
+
+    # Create environment if it doesn't exist
+    if not check_environment_exists(agent_key):
+        click.echo(click.style(f"Creating environment: {agent_key}", fg="green"))
+        create_environment(agent_key)
+
+    # Create secrets if .env exists
+    env_file = agent_path.parent / ".env"
+    if env_file.exists():
+        click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
+        client_secrets = dotenv_values(env_file)
+        create_secrets(agent_key, client_secrets, "client-secrets")
+
+    # Deploy each client
+    for deployment in agent_config["deployments"]:
+        click.echo(click.style(f"Deploying client: {deployment}", fg="green"))
+        deploy_client(deployment, agent_key)
 
 
 @click.command()
 @click.argument("agent", nargs=1, required=True)
-@click.option(
-    "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
-    default="STAGE",
-    help="DB to save against",
-)
-@click.option(
-    "--env",
-    type=click.Path(exists=True, resolve_path=True),
-    help="Path to environment file",
-)
-def start(agent: str, db: str, env: str):
-    """Start one or more clients from yaml files"""
+def deploy(agent: str):
+    """Deploy Modal agents"""
     try:
-        agent_dir = Path(__file__).parent.parent / "agents" / agent
-        env_path = agent_dir / ".env"
-        yaml_path = agent_dir / "api.yaml"
-
-        db = db.upper()
-        env_path = env or env_path
-        # Set the environment variable
-        
-        clients_to_start = {}
-
-        # Load all yaml files and collect enabled clients
-        with open(yaml_path) as f:
-            config = yaml.safe_load(f)
-        
-        if "clients" in config:
-            for client_type, settings in config["clients"].items():
-                if settings.get("enabled", False):
-                    clients_to_start[ClientType(client_type)] = yaml_path
-
-        if not clients_to_start:
-            click.echo(click.style("No enabled clients found in yaml files", fg="red"))
-            return
-
-        click.echo(
-            click.style(f"Starting {len(clients_to_start)} clients...", fg="blue")
-        )
-
-        # Start discord and telegram first, local client last
-        processes = []
-        for client_type, yaml_path in clients_to_start.items():
-            try:
-                if client_type == ClientType.DISCORD:
-                    p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, db)
-                    )
-                elif client_type == ClientType.TELEGRAM:
-                    p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, db)
-                    )
-                elif client_type == ClientType.FARCASTER:
-                    p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, db)
-                    )
-
-                p.start()
-                processes.append(p)
-                click.echo(
-                    click.style(f"Started {client_type.value} client", fg="green")
-                )
-            except Exception as e:
-                click.echo(
-                    click.style(
-                        f"Failed to start {client_type.value} client:", fg="red"
-                    )
-                )
-                click.echo(click.style(f"Error: {str(e)}", fg="red"))
-                traceback.print_exc(file=sys.stdout)
-
-        # Wait for other processes
-        try:
-            for p in processes:
-                p.join()
-        except KeyboardInterrupt:
-            click.echo(click.style("\nShutting down clients...", fg="yellow"))
-            for p in processes:
-                p.terminate()
-                p.join()
+        agents_dir = root_dir / "eve/agents"
+        agent_path = agents_dir / agent / "api.yaml"
+        if agent_path.exists():
+            process_agent(agent_path)
+        else:
+            click.echo(
+                click.style(f"Warning: Agent file not found: {agent_path}", fg="yellow")
+            )
 
     except Exception as e:
-        click.echo(click.style("Failed to start clients:", fg="red"))
+        click.echo(click.style("Failed to deploy agents:", fg="red"))
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         traceback.print_exc(file=sys.stdout)
+
+
+if __name__ == "__main__":
+    deploy()
