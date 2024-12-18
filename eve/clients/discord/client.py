@@ -159,7 +159,6 @@ class Eden2Cog(commands.Cog):
                     url = msg.result["result"][0]["output"][0]["url"]
                     common.register_tool_call(user, msg.tool_name)
                     await send(message, url)
-                    # logger.info(f"tool called {msg.tool_name}")
 
                 if msg.type != UpdateType.UPDATE_COMPLETE:
                     await ctx.channel.trigger_typing()
