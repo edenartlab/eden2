@@ -162,6 +162,7 @@ class UpdateType(str, Enum):
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
+    UPDATE_COMPLETE = "update_complete"
 
 models = [
     "claude-3-5-sonnet-20241022",
@@ -331,7 +332,7 @@ async def async_prompt_thread(
 
         if stop:
             print("Stopping prompt thread")
-            break
+            yield ThreadUpdate(type=UpdateType.UPDATE_COMPLETE)
 
 
 def prompt_thread(
