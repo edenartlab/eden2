@@ -363,3 +363,10 @@ def print_message(message, name):
         print(f"\n\n===============================\n{name}: {message.content}\n\n{tool_calls}")
     elif isinstance(message, UserMessage):
         print(f"\n\n===============================\n{name}: {message.content}")
+
+
+class UpdateConfig(BaseModel):
+    sub_channel_name: str
+    discord_channel_id: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

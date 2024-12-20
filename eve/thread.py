@@ -107,6 +107,7 @@ class UserMessage(ChatMessage):
                             max_size=512, 
                             quality=95, 
                             truncate=truncate_images
+                            
                         )}"""
                         },
                     }

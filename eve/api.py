@@ -5,8 +5,9 @@ from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
+from bson import ObjectId
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
@@ -15,6 +16,7 @@ from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
+from ably import AblyRealtime
 
 
 # Config setup
@@ -41,58 +43,88 @@ web_app.add_middleware(
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
 
+ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
+
+
 class TaskRequest(BaseModel):
     tool: str
     args: dict
     user_id: str
 
+
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
     tool = Tool.load(key=tool, db=db)
-    return await tool.async_start_task(requester_id=user_id, user_id=user_id, args=args, db=db)
+    return await tool.async_start_task(
+        requester_id=user_id, user_id=user_id, args=args, db=db
+    )
+
 
 @web_app.post("/create")
 async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
     result = await handle_task(request.tool, request.user_id, request.args)
     return serialize_document(result.model_dump())
-    
+
+
 # @web_app.post("/create")
 # async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
 #     return await handle_task(request.tool, auth.userId, request.args)
 
+
+class UpdateConfig(BaseModel):
+    sub_channel_name: str
+    discord_channel_id: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class ChatRequest(BaseModel):
     user_id: str
     agent_id: str
+    user_message: UserMessage
     thread_id: Optional[str] = None
-    user_message: dict
+    update_config: Optional[UpdateConfig] = None
+
+
+def serialize_for_json(obj):
+    """Recursively serialize objects for JSON, handling ObjectId and other special types"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    return obj
+
 
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin)
+    # _: dict = Depends(auth.authenticate_admin),
 ):
     user_id = request.user_id
     agent_id = request.agent_id
     thread_id = request.thread_id
-    user_message = UserMessage(**request.user_message)
+    user_message = request.user_message
+    update_channel = None
+
+    if request.update_config:
+        update_channel = ably_client.channels.get(
+            request.update_config.sub_channel_name
+        )
 
     tools = get_tools_from_mongo(db=db)
-    
     user = User.from_mongo(str(user_id), db=db)
     agent = Agent.from_mongo(str(agent_id), db=db)
 
     if not thread_id:
-        print("creating new thread")
         thread = agent.request_thread(db=db, user=user.id)
-        print("new thread", thread.id)
     else:
-        print("loading thread from thread_id", thread_id)
         thread = Thread.from_mongo(str(thread_id), db=db)
-        print("got thread", thread.id)
 
     try:
+
         async def run_prompt():
-            async for _ in async_prompt_thread(
+            async for update in async_prompt_thread(
                 db=db,
                 user=user,
                 agent=agent,
@@ -100,18 +132,37 @@ async def handle_chat(
                 user_messages=user_message,
                 tools=tools,
                 force_reply=True,
-                model="claude-3-5-sonnet-20241022"
+                model="claude-3-5-sonnet-20241022",
             ):
-                pass
-        
-        background_tasks.add_task(run_prompt)
+                if update_channel:
+                    if update.type == UpdateType.ASSISTANT_MESSAGE:
+                        data = {
+                            "type": UpdateType.ASSISTANT_MESSAGE.value,
+                            "content": update.message.content,
+                            "discord_channel_id": request.update_config.discord_channel_id,
+                        }
+                    elif update.type == UpdateType.TOOL_COMPLETE:
+                        data = {
+                            "type": UpdateType.TOOL_COMPLETE.value,
+                            "tool": update.tool_name,
+                            "result": serialize_for_json(update.result),
+                            "discord_channel_id": request.update_config.discord_channel_id,
+                        }
+                    else:
+                        data = {
+                            "type": update.type.value,
+                            "error": update.error if hasattr(update, "error") else None,
+                            "discord_channel_id": request.update_config.discord_channel_id,
+                        }
+                    await update_channel.publish("update", data)
 
+        background_tasks.add_task(run_prompt)
         return {"status": "success", "thread_id": str(thread.id)}
-    
+
     except Exception as e:
         print(e)
         return {"status": "error", "message": str(e)}
-    
+
 
 @web_app.post("/chat_and_wait")
 async def stream_chat(
@@ -119,7 +170,7 @@ async def stream_chat(
     auth: dict = Depends(auth.authenticate),
 ):
     user_messages = UserMessage(**request.user_message)
-    
+
     async def event_generator():
         async for update in async_prompt_thread(
             db=db,
@@ -181,6 +232,7 @@ image = (
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
 )
+
 
 @app.function(
     image=image,

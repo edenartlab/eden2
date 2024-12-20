@@ -4,23 +4,15 @@ import re
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import asyncio
 from ably import AblyRealtime
+import aiohttp
 
-from ...clients import common
-from ...clients.discord import config
-from ...agent import Agent
-from ...llm import UserMessage, async_prompt_thread, UpdateType
-from ...user import User
-from ...eden_utils import prepare_result
-from ...models import ClientType
-
-# Logging configuration
-# logger = logging.getLogger(__name__)
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-# )
+from eve.clients import common
+from eve.agent import Agent
+from eve.llm import UpdateType
+from eve.user import User
+from eve.eden_utils import prepare_result
+from eve.models import ClientType
 
 
 def replace_mentions_with_usernames(
@@ -71,6 +63,45 @@ class Eden2Cog(commands.Cog):
         async def async_callback(message):
             print(f"Received update in Discord client: {message.data}")
 
+            data = message.data
+            if not isinstance(data, dict) or "type" not in data:
+                print("Invalid message format:", data)
+                return
+
+            update_type = data["type"]  # Get type directly from dict
+            discord_channel_id = data.get("discord_channel_id")
+
+            if not discord_channel_id:
+                print("No discord_channel_id in message:", data)
+                return
+
+            channel = self.bot.get_channel(int(discord_channel_id))
+            if not channel:
+                print(f"Could not find channel with id {discord_channel_id}")
+                return
+
+            print(f"Processing update type: {update_type} for channel: {channel.name}")
+
+            if update_type == UpdateType.START_PROMPT:
+                pass
+
+            elif update_type == UpdateType.ERROR:
+                error_msg = data.get("error", "Unknown error occurred")
+                await channel.send(f"Error: {error_msg}")
+
+            elif update_type == UpdateType.ASSISTANT_MESSAGE:
+                content = data.get("content")
+                if content:
+                    await channel.send(content)
+
+            elif update_type == UpdateType.TOOL_COMPLETE:
+                result = data.get("result", {})
+                result["result"] = prepare_result(result["result"], db=self.db)
+                url = result["result"][0]["output"][0]["url"]
+                await channel.send(url)
+            else:
+                print(f"Unknown update type: {update_type}")
+
         # Subscribe using the async callback
         await self.channel.subscribe(async_callback)
         print(f"Subscribed to Ably channel: {self.channel_name}")
@@ -88,14 +119,11 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        print("on_message", message.content)
         if message.author.id == self.bot.user.id:
             return
 
-        force_reply = False
         dm = message.channel.type == discord.ChannelType.private
         if dm:
-            force_reply = True
             thread_key = f"discord-dm-{message.author.name}-{message.author.id}"
             if message.author.id not in common.DISCORD_DM_WHITELIST:
                 return
@@ -109,7 +137,6 @@ class Eden2Cog(commands.Cog):
                 db=self.db,
             )
         thread = self.known_threads[thread_key]
-        # logger.info(f"thread: {thread.id}")
 
         # Lookup user
         if message.author.id not in self.known_users:
@@ -117,9 +144,7 @@ class Eden2Cog(commands.Cog):
                 message.author.id, message.author.name, db=self.db
             )
         user = self.known_users[message.author.id]
-        # logger.info(f"user: {user.id}")
 
-        # Check if user rate limits
         if common.user_over_rate_limits(user):
             await reply(
                 message,
@@ -127,10 +152,8 @@ class Eden2Cog(commands.Cog):
             )
             return
 
-        # Replace all mentions with usernames
         content = replace_mentions_with_usernames(message.content, message.mentions)
 
-        # Replace discord bot's display name with actual agent name
         if self.bot.user.display_name.lower() in content.lower():
             content = re.sub(
                 rf"\b{re.escape(self.bot.user.display_name)}\b",
@@ -139,64 +162,51 @@ class Eden2Cog(commands.Cog):
                 flags=re.IGNORECASE,
             )
 
-        # Prepend reply to message if it is a reply
         if message.reference:
             source_message = await message.channel.fetch_message(
                 message.reference.message_id
             )
-            force_reply = source_message.author.id == self.bot.user.id
             content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
 
-        # Create chat message
-        user_message = UserMessage(
-            content=content,
-            name=message.author.name,
-            attachments=[attachment.url for attachment in message.attachments],
-        )
-        # logger.info(f"chat message {user_message}")
-
         ctx = await self.bot.get_context(message)
+        await ctx.channel.trigger_typing()
 
-        replied = False
+        # Make API request
+        api_url = os.getenv("EDEN_API_URL")
 
-        # reload agent for any changes
-        self.agent.reload()
+        async with aiohttp.ClientSession() as session:
+            request_data = {
+                "user_id": str(user.id),
+                "agent_id": str(self.agent.id),
+                "thread_id": str(thread.id),
+                "user_message": {
+                    "content": content,
+                    "name": message.author.name,
+                    "attachments": [
+                        attachment.url for attachment in message.attachments
+                    ],
+                },
+                "update_config": {
+                    "sub_channel_name": self.channel_name,
+                    "discord_channel_id": str(message.channel.id),
+                },
+            }
 
-        async for msg in async_prompt_thread(
-            db=self.db,
-            user=user,
-            agent=self.agent,
-            thread=thread,
-            user_messages=user_message,
-            force_reply=force_reply,
-            tools=self.tools,
-        ):
-            if msg.type == UpdateType.START_PROMPT:
-                await ctx.channel.trigger_typing()
+            print(f"Sending request: {request_data}")
 
-            elif msg.type == UpdateType.ERROR:
-                await reply(message, msg.error)
-
-            elif msg.type == UpdateType.ASSISTANT_MESSAGE:
-                content = msg.message.content
-                if content:
-                    if not replied:
-                        await reply(message, content)
-                    else:
-                        await send(message, content)
-                    replied = True
-
-            elif msg.type == UpdateType.TOOL_COMPLETE:
-                msg.result["result"] = prepare_result(msg.result["result"], db=self.db)
-                url = msg.result["result"][0]["output"][0]["url"]
-                common.register_tool_call(user, msg.tool_name)
-                await send(message, url)
-                # logger.info(f"tool called {msg.tool_name}")
+            async with session.post(
+                f"{api_url}/chat",
+                json=request_data,
+                # headers=headers,
+            ) as response:
+                if response.status != 200:
+                    await reply(
+                        message, "Sorry, something went wrong processing your request."
+                    )
+                    return
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        # logger.info(f"{member} has joined the guild id: {member.guild.id}")
-        # await member.send(config.WELCOME_MESSAGE.format(name=member.name))
         print(f"{member} has joined the guild id: {member.guild.id}")
 
 
