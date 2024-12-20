@@ -1,6 +1,12 @@
-from typing import Optional
+import os
+from typing import Optional, AsyncGenerator
 import time
 from eve.agent import Agent
+from ably import AblyRealtime
+import asyncio
+
+from eve.models import ClientType
+
 
 HOUR_IMAGE_LIMIT = 50
 HOUR_VIDEO_LIMIT = 10
@@ -34,8 +40,6 @@ VIDEO_TOOLS = [
 ]
 
 
-
-
 DISCORD_DM_WHITELIST = [
     494760194203451393,
     623923865864765452,
@@ -44,9 +48,8 @@ DISCORD_DM_WHITELIST = [
     142466375024115712,
     598627733576089681,
     551619012140990465,
-    668831945941188648
+    668831945941188648,
 ]
-
 
 
 hour_timestamps = {}
@@ -97,9 +100,9 @@ def user_over_rate_limits(user):
 
 def register_tool_call(user, tool_name):
     user_id = str(user.id)
-    hour_timestamps[user_id].append(
-        {"time": time.time(), "tool": tool_name}
-    )
-    day_timestamps[user_id].append(
-        {"time": time.time(), "tool": tool_name}
-    )
+    hour_timestamps[user_id].append({"time": time.time(), "tool": tool_name})
+    day_timestamps[user_id].append({"time": time.time(), "tool": tool_name})
+
+
+def get_ably_channel_name(agent_username: str, client_platform: ClientType):
+    return f"{agent_username.lower()}_{client_platform.value}"

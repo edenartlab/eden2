@@ -4,6 +4,8 @@ import re
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import asyncio
+from ably import AblyRealtime
 
 from ...clients import common
 from ...clients.discord import config
@@ -11,6 +13,7 @@ from ...agent import Agent
 from ...llm import UserMessage, async_prompt_thread, UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
+from ...models import ClientType
 
 # Logging configuration
 # logger = logging.getLogger(__name__)
@@ -53,13 +56,42 @@ class Eden2Cog(commands.Cog):
         self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
+        self.channel_name = common.get_ably_channel_name(agent.name, ClientType.DISCORD)
+
+        # Setup will be done in on_ready
+        self.ably_client = None
+        self.channel = None
+
+    async def setup_ably(self):
+        """Initialize Ably client and subscribe to updates"""
+        self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
+        self.channel = self.ably_client.channels.get(self.channel_name)
+
+        # Create an async callback
+        async def async_callback(message):
+            print(f"Received update in Discord client: {message.data}")
+
+        # Subscribe using the async callback
+        await self.channel.subscribe(async_callback)
+        print(f"Subscribed to Ably channel: {self.channel_name}")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Called when the bot is ready and connected"""
+        await self.setup_ably()
+        print("Bot is ready and Ably is configured")
+
+    def __del__(self):
+        """Cleanup when the cog is destroyed"""
+        if hasattr(self, "ably_client") and self.ably_client:
+            self.ably_client.close()
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         print("on_message", message.content)
         if message.author.id == self.bot.user.id:
             return
-        
+
         force_reply = False
         dm = message.channel.type == discord.ChannelType.private
         if dm:
@@ -104,7 +136,7 @@ class Eden2Cog(commands.Cog):
                 rf"\b{re.escape(self.bot.user.display_name)}\b",
                 self.agent.name,
                 content,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
         # Prepend reply to message if it is a reply
