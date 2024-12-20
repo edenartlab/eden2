@@ -29,7 +29,7 @@ parameters:
     step: 1
   input_audio:
     type: string
-    label: Duration
+    label: Input audio
     description: |-
       An audio file that will influence the generated music. If `continuation` is `True`, the generated music will be a continuation of the audio file. Otherwise, the generated music will mimic the audio file's melody.
   continuation:
