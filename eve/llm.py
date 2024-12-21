@@ -227,6 +227,15 @@ async def async_prompt_thread(
     force_reply: bool = True,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
+    
+    print("================================================")
+    print(user_messages)
+    print("================================================")
+
+
+    print(agent)
+    
+
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
     user_message_id = user_messages[-1].id
 

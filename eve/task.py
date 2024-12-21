@@ -10,7 +10,7 @@ from . import eden_utils
 
 
 
-@Collection("creations3")
+@Collection("creations5")
 class Creation(Document):
     user: ObjectId
     requester: ObjectId
@@ -33,7 +33,7 @@ class Creation(Document):
         super().__init__(**data)
 
 
-@Collection("tasks3")
+@Collection("tasks5")
 class Task(Document):
     user: ObjectId
     requester: ObjectId

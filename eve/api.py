@@ -76,10 +76,11 @@ async def handle_chat(
     thread_id = request.thread_id
     user_message = UserMessage(**request.user_message)
 
-    tools = get_tools_from_mongo(db=db)
+    # tools = get_tools_from_mongo(db=db)
     
     user = User.from_mongo(str(user_id), db=db)
     agent = Agent.from_mongo(str(agent_id), db=db)
+    tools = agent.get_tools()
 
     if not thread_id:
         thread = agent.request_thread(db=db, user=user.id)
@@ -177,6 +178,7 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
+    .copy_local_dir("../../workflows", "/workflows")
 )
 
 @app.function(

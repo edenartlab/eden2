@@ -113,7 +113,7 @@ tools:
       prompt:
         description: The text prompt. Always mention Verdelis.
       lora:
-        default: 6760ec32e89ff994ca868630
+        default: 67662bd943808b38016c6478
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:
@@ -124,7 +124,7 @@ tools:
     tip: Make sure to always include Verdelis in the prompts.
     parameters:
       lora:
-        default: 67611d1943808b38016c62c3
+        default: 67662bd943808b38016c6478
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:
