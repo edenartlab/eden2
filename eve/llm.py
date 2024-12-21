@@ -6,6 +6,8 @@ import os
 import asyncio
 import openai
 import anthropic
+from enum import Enum
+from typing import Optional, Dict, Any
 from bson import ObjectId
 from jinja2 import Template
 from pydantic import BaseModel, Field
@@ -13,8 +15,8 @@ from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
 from typing import List, Optional, Dict, Any, Literal, Union
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-from sentry_sdk import add_breadcrumb, capture_exception, capture_message
 
+from . import sentry_sdk
 from .tool import Tool
 from .user import User
 from .agent import Agent
@@ -160,8 +162,7 @@ def prompt(messages, system_message, model, response_model=None, tools=None):
 
 
 
-from enum import Enum
-from typing import Optional, Dict, Any
+
 
 class UpdateType(str, Enum):
     START_PROMPT = "start_prompt"
@@ -269,65 +270,99 @@ async def async_prompt_thread(
 
     while True:
         try:
+            # for error tracing
+            sentry_sdk.add_breadcrumb(
+                category="prompt",
+                data={"messages": thread.get_messages(), "system_message": system_message, "model": model, "tools": tools.keys()}
+            )
+
+            # main call to LLM            
             content, tool_calls, stop = await async_prompt(
                 thread.get_messages(), 
                 system_message=system_message,
                 model=model,
                 tools=tools
             )
+
+            # for error tracing
+            sentry_sdk.add_breadcrumb(
+                category="prompt",
+                data={"content": content, "tool_calls": tool_calls, "stop": stop}
+            )
+
+            # create assistant message
             assistant_message = AssistantMessage(
                 content=content or "",
                 tool_calls=tool_calls,
                 reply_to=user_messages[-1].id
             )
             
-            # thread.push("messages", assistant_message)
+            # push assistant message to thread and pop user message from actives array
             pushes = {"messages": assistant_message}
             pops = {"active": user_message_id} if stop else {}
             thread.push(pushes, pops)
             assistant_message = thread.messages[-1]
 
+            # yield update
             yield ThreadUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE,
                 message=assistant_message
             )
 
         except Exception as e:
-            capture_exception(e)
+            # capture error
+            sentry_sdk.capture_exception(e)
             traceback.print_exc()
 
+            # create assistant message
             assistant_message = AssistantMessage(
                 content="I'm sorry, but something went wrong internally. Please try again later.",
                 reply_to=user_messages[-1].id
             )
             
+            # push assistant message to thread and pop user message from actives array
             pushes = {"messages": assistant_message}
             pops = {"active": user_message_id}
             thread.push(pushes, pops)
 
+            # yield update
             yield ThreadUpdate(
                 type=UpdateType.ERROR,
                 message=assistant_message,
                 error=str(e)
             )
+            
+            # stop thread
             stop = True
             break
         
+        # handle tool calls
         for t, tool_call in enumerate(assistant_message.tool_calls):
             try:
+                # get tool
                 tool = tools.get(tool_call.tool)
                 if not tool:
                     raise Exception(f"Tool {tool_call.tool} not found.")
 
-                task = await tool.async_start_task(user.id, agent.id, tool_call.args, db=db)
+                # start task
+                task = await tool.async_start_task(
+                    user.id, 
+                    agent.id, 
+                    tool_call.args, 
+                    db=db
+                )
+
+                # update tool call with task id and status
                 thread.update_tool_call(assistant_message.id, t, {
                     "task": ObjectId(task.id),
                     "status": "pending"
                 })
                 
+                # wait for task to complete
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
 
+                # yield update
                 if result["status"] == "completed":
                     yield ThreadUpdate(
                         type=UpdateType.TOOL_COMPLETE,
@@ -344,14 +379,17 @@ async def async_prompt_thread(
                     )
                 
             except Exception as e:
-                capture_exception(e)
+                # capture error
+                sentry_sdk.capture_exception(e)
                 traceback.print_exc()
 
+                # update tool call with status and error
                 thread.update_tool_call(assistant_message.id, t, {
                     "status": "failed",
                     "error": str(e)
                 })
 
+                # yield update
                 yield ThreadUpdate(
                     type=UpdateType.ERROR,
                     tool_name=tool_call.tool,
@@ -413,7 +451,7 @@ async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
         thread.save()
 
     except Exception as e:
-        capture_exception(e)
+        sentry_sdk.capture_exception(e)
         traceback.print_exc()
         return
 

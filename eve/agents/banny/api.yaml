@@ -47,7 +47,7 @@ tools:
       prompt:
         description: The text prompt. Always mention Banny.
       lora:
-        default: 67628f3743808b38016c62d5
+        default: 6766760643808b38016c64ce
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:
@@ -58,7 +58,7 @@ tools:
     tip: Make sure to always include Banny in the prompts.
     parameters:
       lora:
-        default: 67628f3743808b38016c62d5
+        default: 6766760643808b38016c64ce
         hide_from_agent: true
         hide_from_ui: true
       lora_strength:

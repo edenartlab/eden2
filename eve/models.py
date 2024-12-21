@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List, Literal
 from .mongo import Document, Collection, get_collection
 
 
-@Collection("models5")
+@Collection("models3")
 class Model(Document):
     name: str
     user: ObjectId

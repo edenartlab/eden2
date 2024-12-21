@@ -100,11 +100,12 @@ class ReplicateTool(Tool):
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
             is_array = parameter.get('type') == 'array'
+            is_number = parameter.get('type') in ['integer', 'float']
             alias = parameter.get('alias')
             lora = parameter.get('type') == 'lora'
             if field in new_args:
                 if lora:
-                    lora_doc = get_collection("models", db=self.db).find_one({"_id": ObjectId(args[field])})
+                    lora_doc = get_collection("models", db=self.db).find_one({"_id": ObjectId(args[field])}) if args[field] else None
                     if lora_doc:
                         lora_url = lora_doc.get("checkpoint")
                         lora_name = lora_doc.get("name")
@@ -113,7 +114,9 @@ class ReplicateTool(Tool):
                         if "prompt" in new_args:
                             pattern = re.compile(re.escape(lora_name), re.IGNORECASE)
                             new_args["prompt"] = pattern.sub(caption_prefix, new_args['prompt'])
-                if is_array:
+                if is_number:
+                    new_args[field] = float(args[field])
+                elif is_array:
                     new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
                     new_args[alias] = new_args.pop(field)
@@ -192,46 +195,64 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
-            output = {"output": output}
-            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
-        else:            
-            output = {"output": output}
-            result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
-
-        for output in result["output"]:
-            if output_handler == "trainer":
-                filename = output["filename"]
-                thumbnail = eden_utils.upload_media(
-                    thumbnails[0], db=task.db, save_thumbnails=False, save_blurhash=False
-                ) if thumbnails else None
-                url = f"{s3.get_root_url(db=task.db)}/{filename}"
-                model = Model(
-                    name=task.args["name"],
-                    user=task.user,
-                    requester=task.requester,
-                    task=task.id,
-                    thumbnail=thumbnail.get("filename"),
-                    args=task.args,
-                    checkpoint=url, 
-                    base_model="sdxl",
-                )
-                model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
-                output["model"] = model.id
+            # output = {"output": output}
+            # result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
             
-            else:
-                name = task.args.get("prompt")
-                creation = Creation(
-                    user=task.user,
-                    requester=task.requester,
-                    task=task.id,
-                    tool=task.tool,
-                    filename=output['filename'],
-                    mediaAttributes=output["mediaAttributes"],
-                    name=name
-                )
-                creation.save(db=task.db)
-                output['creation'] = creation.id
-    
+            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            result = [{"output": [out]} for out in output]
+        else:
+            # output = {"output": output}
+            # result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            print("success 1")
+            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            print("success 2")
+            print(output)
+            result = [{"output": [out]} for out in output]
+            print("success 3")
+            print(result)
+
+        for r, res in enumerate(result):
+            print("*****")
+            print(res)
+            for o, output in enumerate(res["output"]):
+                print("^^^^^^^")
+                print(output)
+                if output_handler == "trainer":
+                    filename = output["filename"]
+                    thumbnail = eden_utils.upload_media(
+                        thumbnails[0], 
+                        db=task.db, 
+                        save_thumbnails=False, 
+                        save_blurhash=False
+                    ) if thumbnails else None
+                    url = f"{s3.get_root_url(db=task.db)}/{filename}"
+                    model = Model(
+                        name=task.args["name"],
+                        user=task.user,
+                        requester=task.requester,
+                        task=task.id,
+                        thumbnail=thumbnail.get("filename"),
+                        args=task.args,
+                        checkpoint=url, 
+                        base_model="sdxl",
+                    )
+                    model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
+                    output["model"] = model.id
+                
+                else:
+                    name = task.args.get("prompt")
+                    creation = Creation(
+                        user=task.user,
+                        requester=task.requester,
+                        task=task.id,
+                        tool=task.tool,
+                        filename=output['filename'],
+                        mediaAttributes=output["mediaAttributes"],
+                        name=name
+                    )
+                    creation.save(db=task.db)
+                    result[r]["output"][o]["creation"] = creation.id
+        
 
 
 

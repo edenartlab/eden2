@@ -1,6 +1,7 @@
 import os
 import json
 import magic
+import copy
 from bson import ObjectId
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
@@ -393,4 +394,9 @@ class Thread(Document):
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
         # self.reload()
-        return self.messages[-15:]
+        messages = copy.deepcopy(self.messages[-15:])
+        # hack to remove any spurious assistant messages at end
+        # todo: should try to actually fix this bug
+        while messages and messages[-1].role == "assistant":
+            messages.pop()
+        return messages
