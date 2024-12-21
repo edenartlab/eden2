@@ -1,5 +1,6 @@
 import re
 import sentry_sdk
+from pprint import pprint
 import traceback
 import os
 import asyncio
@@ -7,7 +8,7 @@ import openai
 import anthropic
 from bson import ObjectId
 from jinja2 import Template
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
 from typing import List, Optional, Dict, Any, Literal, Union
@@ -39,6 +40,11 @@ async def async_anthropic_prompt(
     messages_json = [
         item for msg in messages for item in msg.anthropic_schema()
     ]
+
+    # print("--------------------------------")
+    # pprint(messages_json)
+    # print("--------------------------------")
+
     prompt = {
         "model": model,
         "max_tokens": 8192,
@@ -222,6 +228,7 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
+    user_message_id = user_messages[-1].id
 
     system_message = Template(template).render(
         name=agent.name,
@@ -230,19 +237,24 @@ async def async_prompt_thread(
         system_instructions=system_instructions
     )
 
-    thread.push("messages", user_messages)
-
+    pushes = {"messages": user_messages}
+    
     agent_mentioned = any(
         re.search(rf'\b{re.escape(agent.name.lower())}\b', (msg.content or "").lower())
         for msg in user_messages
     )
 
-    if not agent_mentioned and not force_reply:
+    if agent_mentioned or force_reply:
+        pushes["active"] = user_message_id
+        thread.push(pushes)
+    else:
+        thread.push(pushes)
         return
 
     # think = True
     # if think:
     #     thought = await async_think(thread.messages, tools)
+    #     if not speak, pop active
 
     yield ThreadUpdate(type=UpdateType.START_PROMPT)
 
@@ -259,8 +271,13 @@ async def async_prompt_thread(
                 tool_calls=tool_calls,
                 reply_to=user_messages[-1].id
             )
-            thread.push("messages", assistant_message)
+            
+            # thread.push("messages", assistant_message)
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id} if stop else {}
+            thread.push(pushes, pops)
             assistant_message = thread.messages[-1]
+
             yield ThreadUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE,
                 message=assistant_message
@@ -274,7 +291,10 @@ async def async_prompt_thread(
                 content="I'm sorry, but something went wrong internally. Please try again later.",
                 reply_to=user_messages[-1].id
             )
-            thread.push("messages", assistant_message)
+            
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id}
+            thread.push(pushes, pops)
 
             yield ThreadUpdate(
                 type=UpdateType.ERROR,
@@ -333,6 +353,7 @@ async def async_prompt_thread(
         if stop:
             print("Stopping prompt thread")
             yield ThreadUpdate(type=UpdateType.UPDATE_COMPLETE)
+            break
 
 
 def prompt_thread(
@@ -358,9 +379,33 @@ def prompt_thread(
         loop.close()
 
 
-def print_message(message, name):
-    if isinstance(message, AssistantMessage):
-        tool_calls = "\n\t".join([f"{t.tool}: {t.get_result()}" for t in message.tool_calls])
-        print(f"\n\n===============================\n{name}: {message.content}\n\n{tool_calls}")
-    elif isinstance(message, UserMessage):
-        print(f"\n\n===============================\n{name}: {message.content}")
+async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
+    """
+    Generate a title for a thread
+    """
+    
+    class TitleResponse(BaseModel):
+        """A title for a thread of chat messages. It must entice a user to click on the thread when they are interested in the subject."""
+        title: str = Field(description="a phrase of 2-5 words (or up to 30 characters) that conveys the subject of the chat thread. It should be concise and terse, and not include any special characters or punctuation.")
+
+    system_message = "You are an expert at creating concise titles for chat threads."
+    messages = thread.get_messages()
+    messages.extend(extra_messages)
+    messages.append(UserMessage(content="Come up with a title for this thread."))
+
+    try:
+        result = await async_prompt(
+            messages, 
+            system_message=system_message,
+            model="gpt-4o-mini",
+            response_model=TitleResponse,
+        )
+        thread.title = result.title
+        thread.save()
+
+    except Exception as e:
+        capture_exception(e)
+        traceback.print_exc()
+        return
+
+

@@ -10,7 +10,7 @@ from typing import Optional
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
@@ -82,16 +82,13 @@ async def handle_chat(
     agent = Agent.from_mongo(str(agent_id), db=db)
 
     if not thread_id:
-        print("creating new thread")
         thread = agent.request_thread(db=db, user=user.id)
-        print("new thread", thread.id)
+        background_tasks.add_task(async_title_thread, thread, user_message)
     else:
-        print("loading thread from thread_id", thread_id)
         thread = Thread.from_mongo(str(thread_id), db=db)
-        print("got thread", thread.id)
 
     try:
-        async def run_prompt():
+        async def async_run_prompt():
             async for _ in async_prompt_thread(
                 db=db,
                 user=user,
@@ -104,7 +101,7 @@ async def handle_chat(
             ):
                 pass
         
-        background_tasks.add_task(run_prompt)
+        background_tasks.add_task(async_run_prompt)
 
         return {"status": "success", "thread_id": str(thread.id)}
     

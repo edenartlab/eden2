@@ -2,19 +2,15 @@ import os
 import copy
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
-from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
-from datetime import datetime, UTC, timezone
+from datetime import datetime, timezone
 from bson import ObjectId
-from abc import abstractmethod
-from typing import Annotated, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 from pymongo import MongoClient
 from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
-
-# from .base import generate_edit_model, recreate_base_model, VersionableBaseModel
 
 
 MONGO_URI = os.getenv("MONGO_URI")
@@ -174,20 +170,10 @@ class Document(BaseModel):
             documents[d]["updatedAt"] = documents[d].get("updatedAt", datetime.now(timezone.utc))
         collection.insert_many(documents)
 
-    # todo: this method is probably superfluous, should remove
-    # def validate_fields(self):
-    #     """
-    #     Validate fields using Pydantic's built-in validation.
-    #     """
-    #     return self.model_validate(self.model_dump())
-
     def update(self, **kwargs):
         """
         Perform granular updates on specific fields.
-        """
-        # updated_data = self.model_copy(update=kwargs)
-        # updated_data.validate_fields()  # todo: check this, it's probably unnecessary
-        
+        """        
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id}, 
@@ -215,35 +201,56 @@ class Document(BaseModel):
         if update_result.modified_count > 0:
             self.updatedAt = datetime.now(timezone.utc)
 
-    def push(self, field_name: str, value: Union[Any, List[Any]]):
+    def push(
+        self, 
+        pushes: Dict[str, Union[Any, List[Any]]] = {},
+        pulls: Dict[str, Any] = {}
+    ):
         """
-        Push one or more values to an array field in the document, with validation.
-        If the value is a Pydantic model, it will be converted to a dictionary before saving.
+        Push or pull values granularly to array fields in document.
         """
-        values_to_push = value if isinstance(value, list) else [value]
+        push_ops, pull_ops = {}, {}
+        for field_name, value in pushes.items():
+            values_to_push = value if isinstance(value, list) else [value]
 
-        # Convert Pydantic models to dictionaries if needed
-        values_original = [copy.deepcopy(v) for v in values_to_push]
-        values_to_push = [v.model_dump() if isinstance(v, BaseModel) else v for v in values_to_push]
-        
-        # Create a copy of the current instance and update the array field with the new values for validation
-        updated_data = copy.deepcopy(self)
-        if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
-            getattr(updated_data, field_name).extend(values_original)
-            # updated_data.validate_fields()
-        else:
-            raise ValidationError(f"Field '{field_name}' is not a valid list field.")
+            # Convert Pydantic models to dictionaries if needed
+            values_original = [copy.deepcopy(v) for v in values_to_push]
+            values_to_push = [v.model_dump() if isinstance(v, BaseModel) else v for v in values_to_push]
+            
+            # Create a copy of the current instance and update the array field with the new values for validation
+            updated_data = copy.deepcopy(self)
+            if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
+                getattr(updated_data, field_name).extend(values_original)
+            
+            push_ops[field_name] = {"$each": values_to_push}
 
-        # Perform the push operation if validation passes
-        collection = self.get_collection(self.db)
-        update_result = collection.update_one(
-            {"_id": self.id},
-            {"$push": {field_name: {"$each": values_to_push}}, "$currentDate": {"updatedAt": True}}
-        )
-        if update_result.modified_count > 0:
+            # Set field values in local instance
             if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
                 setattr(self, field_name, getattr(self, field_name) + values_original)
-                self.updatedAt = datetime.now(timezone.utc)
+
+        # Do same thing for pulls
+        for field_name, value in pulls.items():
+            pull_ops[field_name] = value
+
+            if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
+                # Remove all instances of value from the local list
+                current_list = getattr(self, field_name)
+                setattr(self, field_name, [x for x in current_list if x != value])
+
+        # Update MongoDB operation to use $pull instead of $pop
+        collection = self.get_collection(self.db)
+        update_ops = {"$currentDate": {"updatedAt": True}}
+        if push_ops:
+            update_ops["$push"] = push_ops
+        if pull_ops:
+            update_ops["$pull"] = pull_ops
+
+        update_result = collection.update_one(
+            {"_id": self.id},
+            update_ops
+        )
+        if update_result.modified_count > 0:
+            self.updatedAt = datetime.now(timezone.utc)
 
     def update_nested_field(self, field_name: str, index: int, sub_field: str, value):
         """

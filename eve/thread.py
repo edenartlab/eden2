@@ -352,9 +352,11 @@ class AssistantMessage(ChatMessage):
 @Collection("threads3")
 class Thread(Document):
     key: Optional[str] = None
+    title: Optional[str] = None
     agent: Optional[ObjectId] = None
     user: Optional[ObjectId] = None
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
+    active: List[ObjectId] = Field(default_factory=list)
 
     @classmethod
     def load(cls, key, agent=None, user=None, create_if_missing=False, db="STAGE"):
