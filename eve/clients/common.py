@@ -1,9 +1,5 @@
 import os
-from typing import Optional, AsyncGenerator
 import time
-from eve.agent import Agent
-from ably import AblyRealtime
-import asyncio
 
 from eve.models import ClientType
 
@@ -105,4 +101,5 @@ def register_tool_call(user, tool_name):
 
 
 def get_ably_channel_name(agent_username: str, client_platform: ClientType):
-    return f"{agent_username.lower()}_{client_platform.value}"
+    env = os.getenv("UPDATE_CHANNEL_ENV", "DEV")
+    return f"{agent_username.lower()}_{client_platform.value}_{env}"
