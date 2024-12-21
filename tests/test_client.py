@@ -36,9 +36,9 @@ def run_create(server_url):
 def run_chat(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
-        "agent_id": "675fd3a679e00297cdac10c8",
+        "agent_id": "675fd3c379e00297cdac16fb",
         "user_message": {
-            "content": "make a piece of audio using stable_audio of some Jamaican ska music",
+            "content": "verdelis make a picture of yourself on the beach. use flux_dev_lora and make sure to mention 'Verdelis' in the prompt",
             # "content": "make a high quality picture of a fancy cat in your favorite location. use flux dev",
         }
     }
@@ -63,7 +63,6 @@ def test_client():
             server_url = "https://edenartlab--tools-new-dev-fastapi-app.modal.run"
             server_url = "http://localhost:8000"
 
-        # Run the tests
         print("server_url", server_url)
         
         print("\nRunning create test...")

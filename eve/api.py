@@ -13,7 +13,7 @@ import logging
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
@@ -254,6 +254,7 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("../pyproject.toml")
+    .copy_local_dir("../../workflows", "/workflows")
 )
 
 

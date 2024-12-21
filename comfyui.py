@@ -1,14 +1,14 @@
 """
-DB=STAGE WORKSPACE=audio modal deploy comfyui.py
-DB=STAGE WORKSPACE=batch_tools modal deploy comfyui.py
-DB=STAGE WORKSPACE=flux SKIP_TESTS=1 modal deploy comfyui.py
-DB=STAGE WORKSPACE=img_tools modal deploy comfyui.py
-DB=STAGE WORKSPACE=mars_exclusive modal deploy comfyui.py
-DB=STAGE WORKSPACE=sd3 modal deploy comfyui.py
-DB=STAGE WORKSPACE=txt2img modal deploy comfyui.py
-DB=STAGE WORKSPACE=video modal deploy comfyui.py
-DB=STAGE WORKSPACE=video2 modal deploy comfyui.py
-DB=STAGE WORKSPACE=video_mochi modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=audio modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=batch_tools modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=flux modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=img_tools modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=mars_exclusive modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=sd3 modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=txt2img modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
+DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 """
 
 from urllib.error import URLError

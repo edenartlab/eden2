@@ -477,7 +477,7 @@ async def handler(args: dict, db: str):
 
     return {
         "output": final_video_url,
-        "intermediateOutputs": {
+        "intermediate_outputs": {
             "images": images,
             "videos": videos
         }
