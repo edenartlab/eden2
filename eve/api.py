@@ -1,6 +1,7 @@
 import os
 import json
 import modal
+import asyncio
 from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,8 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from bson import ObjectId
+import time
+import logging
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
@@ -18,16 +21,14 @@ from eve.agent import Agent
 from eve.user import User
 from ably import AblyRealtime
 
+# Config and logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Config setup
 db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "tools-new" if db == "PROD" else "tools-new-dev"
-
-api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
-bearer_scheme = HTTPBearer(auto_error=False)
-background_tasks: BackgroundTasks = BackgroundTasks()
 
 # FastAPI setup
 web_app = FastAPI()
@@ -39,11 +40,15 @@ web_app.add_middleware(
     allow_headers=["*"],
 )
 
+ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
+
+api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+bearer_scheme = HTTPBearer(auto_error=False)
+background_tasks: BackgroundTasks = BackgroundTasks()
+
 # web_app.post("/create")(task_handler)
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
-
-ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
 
 
 class TaskRequest(BaseModel):
@@ -95,31 +100,51 @@ def serialize_for_json(obj):
     return obj
 
 
+async def fetch_resources(
+    user_id: str, agent_id: str, thread_id: Optional[str], db: str
+):
+    """Fetch user, agent, thread and tools in parallel"""
+    user_task = asyncio.create_task(
+        asyncio.to_thread(User.from_mongo, str(user_id), db)
+    )
+    agent_task = asyncio.create_task(
+        asyncio.to_thread(Agent.from_mongo, str(agent_id), db)
+    )
+    tools_task = asyncio.create_task(asyncio.to_thread(get_tools_from_mongo, db))
+
+    if thread_id:
+        thread_task = asyncio.create_task(
+            asyncio.to_thread(Thread.from_mongo, str(thread_id), db)
+        )
+    else:
+        thread_task = None
+
+    user = await user_task
+    agent = await agent_task
+    tools = await tools_task
+
+    if thread_task:
+        thread = await thread_task
+    else:
+        thread = agent.request_thread(db=db, user=user.id)
+
+    return user, agent, thread, tools
+
+
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
-    # _: dict = Depends(auth.authenticate_admin),
 ):
-    user_id = request.user_id
-    agent_id = request.agent_id
-    thread_id = request.thread_id
-    user_message = request.user_message
     update_channel = None
-
     if request.update_config:
         update_channel = ably_client.channels.get(
             request.update_config.sub_channel_name
         )
 
-    tools = get_tools_from_mongo(db=db)
-    user = User.from_mongo(str(user_id), db=db)
-    agent = Agent.from_mongo(str(agent_id), db=db)
-
-    if not thread_id:
-        thread = agent.request_thread(db=db, user=user.id)
-    else:
-        thread = Thread.from_mongo(str(thread_id), db=db)
+    user, agent, thread, tools = await fetch_resources(
+        request.user_id, request.agent_id, request.thread_id, db
+    )
 
     try:
 
@@ -129,7 +154,7 @@ async def handle_chat(
                 user=user,
                 agent=agent,
                 thread=thread,
-                user_messages=user_message,
+                user_messages=request.user_message,
                 tools=tools,
                 force_reply=True,
                 model="claude-3-5-sonnet-20241022",
@@ -160,7 +185,6 @@ async def handle_chat(
         return {"status": "success", "thread_id": str(thread.id)}
 
     except Exception as e:
-        print(e)
         return {"status": "error", "message": str(e)}
 
 

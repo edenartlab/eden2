@@ -65,6 +65,8 @@ click==8.1.7
     # via eve
     # via modal
     # via typer
+colorama==0.4.6
+    # via eve
 cryptography==43.0.3
     # via clerk-backend-api
 cytoolz==1.0.1
