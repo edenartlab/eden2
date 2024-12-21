@@ -11,6 +11,7 @@ from fastapi.background import BackgroundTasks
 from ably import AblyRealtime
 import aiohttp
 from contextlib import asynccontextmanager
+import traceback
 
 from eve.agent import Agent
 from eve.llm import UpdateType
@@ -93,18 +94,22 @@ async def lifespan(app: FastAPI):
                     embeds=[url],
                     parent={"hash": cast_hash, "fid": author_fid},
                 )
-            else:
-                logger.error(f"Unknown update type: {update_type}")
 
         except Exception as e:
-            logger.error(f"Error processing Ably update: {str(e)}")
+            logger.error(
+                f"Error processing Ably update: {str(e)}\n"
+                f"Stack trace:\n{traceback.format_exc()}"
+            )
             try:
                 app.state.client.post_cast(
                     text=f"Sorry, I encountered an error: {str(e)}",
                     parent={"hash": cast_hash, "fid": author_fid},
                 )
-            except:
-                logger.error("Failed to send error message to Farcaster")
+            except Exception as post_error:
+                logger.error(
+                    f"Failed to send error message to Farcaster: {str(post_error)}\n"
+                    f"Stack trace:\n{traceback.format_exc()}"
+                )
 
     # Subscribe using the async callback
     await channel.subscribe(async_callback)
@@ -197,17 +202,17 @@ async def process_webhook(
 
         # Get or create thread
         thread_key = f"farcaster-{author_fid}-{cast_hash}"
-        thread = Thread.get_collection(db).find_one({"key": thread_key})
-        if not thread:
-            thread = Thread.create(key=thread_key, db=db)
-        thread_id = thread.get("_id") if isinstance(thread, dict) else thread.id
+        thread = agent.request_thread(
+            key=thread_key,
+            db=db,
+        )
 
         # Make API request
         api_url = os.getenv("EDEN_API_URL")
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(agent.id),
-            "thread_id": str(thread_id),
+            "thread_id": str(thread.id),
             "user_message": {
                 "content": cast_data["text"],
                 "name": author_username,
@@ -228,14 +233,20 @@ async def process_webhook(
                     raise Exception("Failed to process request")
 
     except Exception as e:
-        logger.error(f"Error processing webhook in background: {str(e)}")
+        logger.error(
+            f"Error processing webhook in background: {str(e)}\n"
+            f"Stack trace:\n{traceback.format_exc()}"
+        )
         try:
             client.post_cast(
                 text=f"Sorry, I encountered an error: {str(e)}",
                 parent={"hash": cast_hash, "fid": author_fid},
             )
-        except:
-            logger.error("Failed to send error message to Farcaster")
+        except Exception as post_error:
+            logger.error(
+                f"Failed to send error message to Farcaster: {str(post_error)}\n"
+                f"Stack trace:\n{traceback.format_exc()}"
+            )
 
 
 def start(env: str, db: str = "STAGE"):

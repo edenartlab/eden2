@@ -100,27 +100,18 @@ class Eden2Cog(commands.Cog):
 
                 elif update_type == UpdateType.ERROR:
                     error_msg = data.get("error", "Unknown error occurred")
-                    await channel.send(
-                        f"Error: {error_msg}", 
-                        reference=reference
-                    )
+                    await channel.send(f"Error: {error_msg}", reference=reference)
 
                 elif update_type == UpdateType.ASSISTANT_MESSAGE:
                     content = data.get("content")
                     if content:
-                        await channel.send(
-                            content,
-                            reference=reference
-                        )
+                        await channel.send(content, reference=reference)
 
                 elif update_type == UpdateType.TOOL_COMPLETE:
                     result = data.get("result", {})
                     result["result"] = prepare_result(result["result"], db=self.db)
                     url = result["result"][0]["output"][0]["url"]
-                    await channel.send(
-                        url,
-                        reference=reference
-                    )
+                    await channel.send(url, reference=reference)
                 else:
                     print(f"Unknown update type: {update_type}")
 
