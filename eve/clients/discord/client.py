@@ -53,13 +53,14 @@ class Eden2Cog(commands.Cog):
         # Setup will be done in on_ready
         self.ably_client = None
         self.channel = None
+        # Track message IDs
+        self.pending_messages = {}
 
     async def setup_ably(self):
         """Initialize Ably client and subscribe to updates"""
         self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
         self.channel = self.ably_client.channels.get(self.channel_name)
 
-        # Create an async callback
         async def async_callback(message):
             print(f"Received update in Discord client: {message.data}")
 
@@ -68,11 +69,13 @@ class Eden2Cog(commands.Cog):
                 print("Invalid message format:", data)
                 return
 
-            update_type = data["type"]  # Get type directly from dict
-            discord_channel_id = data.get("discord_channel_id")
+            update_type = data["type"]
+            update_config = data.get("update_config", {})
+            discord_channel_id = update_config.get("discord_channel_id")
+            message_id = update_config.get("message_id")
 
             if not discord_channel_id:
-                print("No discord_channel_id in message:", data)
+                print("No discord_channel_id in update_config:", data)
                 return
 
             channel = self.bot.get_channel(int(discord_channel_id))
@@ -82,27 +85,48 @@ class Eden2Cog(commands.Cog):
 
             print(f"Processing update type: {update_type} for channel: {channel.name}")
 
-            if update_type == UpdateType.START_PROMPT:
-                pass
+            try:
+                # Get the original message if message_id is provided
+                reference = None
+                if message_id:
+                    try:
+                        original_message = await channel.fetch_message(int(message_id))
+                        reference = original_message.to_reference()
+                    except:
+                        print(f"Could not fetch original message {message_id}")
 
-            elif update_type == UpdateType.ERROR:
-                error_msg = data.get("error", "Unknown error occurred")
-                await channel.send(f"Error: {error_msg}")
+                if update_type == UpdateType.START_PROMPT:
+                    pass
 
-            elif update_type == UpdateType.ASSISTANT_MESSAGE:
-                content = data.get("content")
-                if content:
-                    await channel.send(content)
+                elif update_type == UpdateType.ERROR:
+                    error_msg = data.get("error", "Unknown error occurred")
+                    await channel.send(
+                        f"Error: {error_msg}", 
+                        reference=reference
+                    )
 
-            elif update_type == UpdateType.TOOL_COMPLETE:
-                result = data.get("result", {})
-                result["result"] = prepare_result(result["result"], db=self.db)
-                url = result["result"][0]["output"][0]["url"]
-                await channel.send(url)
-            else:
-                print(f"Unknown update type: {update_type}")
+                elif update_type == UpdateType.ASSISTANT_MESSAGE:
+                    content = data.get("content")
+                    if content:
+                        await channel.send(
+                            content,
+                            reference=reference
+                        )
 
-        # Subscribe using the async callback
+                elif update_type == UpdateType.TOOL_COMPLETE:
+                    result = data.get("result", {})
+                    result["result"] = prepare_result(result["result"], db=self.db)
+                    url = result["result"][0]["output"][0]["url"]
+                    await channel.send(
+                        url,
+                        reference=reference
+                    )
+                else:
+                    print(f"Unknown update type: {update_type}")
+
+            except Exception as e:
+                print(f"Error processing update: {e}")
+
         await self.channel.subscribe(async_callback)
         print(f"Subscribed to Ably channel: {self.channel_name}")
 
@@ -189,6 +213,7 @@ class Eden2Cog(commands.Cog):
                 "update_config": {
                     "sub_channel_name": self.channel_name,
                     "discord_channel_id": str(message.channel.id),
+                    "message_id": str(message.id),  # Add message ID to update_config
                 },
             }
 
@@ -197,7 +222,6 @@ class Eden2Cog(commands.Cog):
             async with session.post(
                 f"{api_url}/chat",
                 json=request_data,
-                # headers=headers,
             ) as response:
                 if response.status != 200:
                     await reply(

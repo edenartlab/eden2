@@ -2,6 +2,7 @@ import os
 import argparse
 import re
 from ably import AblyRealtime
+import aiohttp
 
 # import logging
 from dotenv import load_dotenv
@@ -156,10 +157,11 @@ class EdenTG:
                 return
 
             update_type = data["type"]
-            telegram_chat_id = data.get("telegram_chat_id")
+            update_config = data.get("update_config", {})
+            telegram_chat_id = update_config.get("telegram_chat_id")
 
             if not telegram_chat_id:
-                print("No telegram_chat_id in message:", data)
+                print("No telegram_chat_id in update_config:", data)
                 return
 
             print(f"Processing update type: {update_type} for chat: {telegram_chat_id}")
@@ -266,44 +268,44 @@ class EdenTG:
         cleaned_text = message_text
         if update.message.photo:
             photo_url = (await update.message.photo[-1].get_file()).file_path
-            # logging.info(f"Received photo from {username}: {photo_url}")
             attachments.append(photo_url)
         else:
             cleaned_text = replace_bot_mentions(
                 message_text, me_bot.username, self.agent.name
             )
-            # logging.info(f"Received message from {username}: {cleaned_text}")
-
-        user_message = UserMessage(
-            name=username, content=cleaned_text, attachments=attachments
-        )
 
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-        self.agent.reload()
+        # Make API request
+        api_url = os.getenv("EDEN_API_URL")
+        request_data = {
+            "user_id": str(user.id),
+            "agent_id": str(self.agent.id),
+            "thread_id": str(thread.id),
+            "user_message": {
+                "content": cleaned_text,
+                "name": username,
+                "attachments": attachments,
+            },
+            "update_config": {
+                "sub_channel_name": self.channel_name,
+                "telegram_chat_id": str(chat_id),
+            },
+        }
 
-        async for update in async_prompt_thread(
-            db=self.db,
-            user=user,
-            agent=self.agent,
-            thread=thread,
-            user_messages=user_message,
-            tools=self.tools,
-            force_reply=force_reply,
-        ):
-            if update.type == UpdateType.ASSISTANT_MESSAGE:
-                if update.message.content:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{api_url}/chat",
+                json=request_data,
+            ) as response:
+                if response.status != 200:
                     await send_response(
-                        message_type, chat_id, [update.message.content], context
+                        message_type,
+                        chat_id,
+                        ["Sorry, something went wrong processing your request."],
+                        context,
                     )
-            elif update.type == UpdateType.TOOL_COMPLETE:
-                update.result["result"] = prepare_result(
-                    update.result["result"], db=self.db
-                )
-                urls = [r["output"][0]["url"] for r in update.result["result"]]
-                await send_response(message_type, chat_id, urls, context)
-            elif update.type == UpdateType.ERROR:
-                await send_response(message_type, chat_id, [update.error], context)
+                    return
 
 
 def start(env: str, db: str = "STAGE") -> None:

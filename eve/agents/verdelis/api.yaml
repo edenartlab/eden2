@@ -137,6 +137,9 @@ clients:
   #   enabled: true
   telegram:
     enabled: true
+  farcaster:
+    enabled: true
 
 deployments:
-  - discord
+  - farcaster
+

@@ -9,7 +9,6 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from bson import ObjectId
-import time
 import logging
 
 from eve import auth
@@ -78,6 +77,10 @@ async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_a
 class UpdateConfig(BaseModel):
     sub_channel_name: str
     discord_channel_id: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    cast_hash: Optional[str] = None
+    author_fid: Optional[int] = None
+    message_id: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -160,25 +163,21 @@ async def handle_chat(
                 model="claude-3-5-sonnet-20241022",
             ):
                 if update_channel:
+                    data = {
+                        "type": update.type.value,
+                        "update_config": request.update_config.model_dump(),
+                    }
+
                     if update.type == UpdateType.ASSISTANT_MESSAGE:
-                        data = {
-                            "type": UpdateType.ASSISTANT_MESSAGE.value,
-                            "content": update.message.content,
-                            "discord_channel_id": request.update_config.discord_channel_id,
-                        }
+                        data["content"] = update.message.content
                     elif update.type == UpdateType.TOOL_COMPLETE:
-                        data = {
-                            "type": UpdateType.TOOL_COMPLETE.value,
-                            "tool": update.tool_name,
-                            "result": serialize_for_json(update.result),
-                            "discord_channel_id": request.update_config.discord_channel_id,
-                        }
-                    else:
-                        data = {
-                            "type": update.type.value,
-                            "error": update.error if hasattr(update, "error") else None,
-                            "discord_channel_id": request.update_config.discord_channel_id,
-                        }
+                        data["tool"] = update.tool_name
+                        data["result"] = serialize_for_json(update.result)
+                    elif update.type == UpdateType.ERROR:
+                        data["error"] = (
+                            update.error if hasattr(update, "error") else None
+                        )
+
                     await update_channel.publish("update", data)
 
         background_tasks.add_task(run_prompt)
